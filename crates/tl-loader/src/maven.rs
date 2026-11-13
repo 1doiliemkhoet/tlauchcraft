@@ -46,12 +46,13 @@ pub fn parse_catalog(xml: &str) -> Result<Vec<String>, LoaderError> {
 /// Forge and NeoForge require their official Java installers to run processor steps;
 /// an installer JAR alone is not a runnable Minecraft version.
 pub fn installer_plan(
-    spec: &crate::LoaderSpec, repository: &str, coordinate: &str, java_major: u32
+    minecraft_version: &str, spec: &crate::LoaderSpec, repository: &str, coordinate: &str, java_major: u32
 ) -> Result<crate::LoaderPlan, LoaderError> {
     use crate::{LoaderKind, LoaderPlan};
     if !matches!(spec.kind, LoaderKind::Forge | LoaderKind::NeoForge) { return Err(LoaderError::InvalidInput); }
-    validate_component(&spec.minecraft_version)?;
-    validate_component(&spec.loader_version)?;
+    validate_component(minecraft_version)?;
+    let loader_version = spec.version.as_deref().ok_or(LoaderError::InvalidInput)?;
+    validate_component(loader_version)?;
     if java_major == 0 { return Err(LoaderError::InvalidInput); }
     let mut path = artifact_path(coordinate)?;
     // Installer classifier is an explicitly supported Maven artifact, not arbitrary args.
@@ -62,8 +63,8 @@ pub fn installer_plan(
     }
     Ok(LoaderPlan {
         loader: spec.clone(),
-        version_id: format!("{}-{}-{}", match spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, spec.minecraft_version, spec.loader_version),
-        inherits_from: spec.minecraft_version.clone(),
+        version_id: format!("{}-{}-{}", match spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, minecraft_version, loader_version),
+        inherits_from: minecraft_version.to_owned(),
         main_class: None,
         libraries: vec![],
         required_java_major: java_major,
@@ -75,12 +76,12 @@ pub fn installer_plan(
 
 pub struct Forge;
 impl crate::LoaderInstaller for Forge {
-    fn plan(&self, spec: &crate::LoaderSpec, metadata: &str, game_java_major: u32) -> Result<crate::LoaderPlan, LoaderError> {
+    fn plan(&self, minecraft_version: &str, spec: &crate::LoaderSpec, metadata: &str, game_java_major: u32) -> Result<crate::LoaderPlan, LoaderError> {
         if spec.kind != crate::LoaderKind::Forge { return Err(LoaderError::InvalidInput); }
         let available = parse_catalog(metadata)?;
-        let full = format!("{}-{}", spec.minecraft_version, spec.loader_version);
+        let full = format!("{}-{}", minecraft_version, spec.version.as_deref().ok_or(LoaderError::InvalidInput)?);
         if !available.contains(&full) { return Err(LoaderError::CompatibilityConflict); }
-        installer_plan(spec, crate::FORGE_MAVEN, &format!("net.minecraftforge:forge:{full}"), game_java_major)
+        installer_plan(minecraft_version, spec, crate::FORGE_MAVEN, &format!("net.minecraftforge:forge:{full}"), game_java_major)
     }
 }
 
@@ -89,12 +90,12 @@ impl crate::LoaderInstaller for NeoForge {
     fn plan(&self, spec: &crate::LoaderSpec, metadata: &str, game_java_major: u32) -> Result<crate::LoaderPlan, LoaderError> {
         if spec.kind != crate::LoaderKind::NeoForge { return Err(LoaderError::InvalidInput); }
         let available = parse_catalog(metadata)?;
-        if !available.contains(&spec.loader_version) { return Err(LoaderError::CompatibilityConflict); }
+        if !available.contains(loader_version) { return Err(LoaderError::CompatibilityConflict); }
         // NeoForge's version-to-Minecraft mapping is not derivable from a bare Maven
         // version reliably; refuse to assert compatibility without official metadata.
         Err(LoaderError::UnsupportedVersion(format!(
             "NeoForge {} exists but Minecraft {} mapping is not verified",
-            spec.loader_version, spec.minecraft_version
+            spec.version.as_deref().unwrap_or(""), minecraft_version
         )))
     }
 }
