@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { BackendUnavailable, EMPTY_CAPABILITIES, call, negotiate, operations, requireFeature, safeArchive, safePercent } from './backend';
+import { BackendUnavailable, EMPTY_CAPABILITIES, negotiate, operations, requireFeature, safeArchive, safePercent } from './backend';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
