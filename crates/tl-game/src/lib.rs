@@ -1,6 +1,6 @@
 //! Standalone game core. Chat 1 owns workspace wiring and shared public types.
 //! No authentication or proprietary game files are provided by this crate.
-use serde_json::{Map, Value};
+use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{collections::HashMap, fs, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::atomic::{AtomicBool, Ordering}, time::Duration};
 
@@ -150,7 +150,12 @@ fn check_sha1(path: &Path, expected: &str, size: Option<u64>) -> Result<(), Game
     }
     let mut reader = std::io::BufReader::new(file);
     let mut hash = Sha1::new();
-    std::io::copy(&mut reader, &mut hash)?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buffer)?;
+        if n == 0 { break; }
+        hash.update(&buffer[..n]);
+    }
     if format!("{:x}", hash.finalize()) != expected.to_ascii_lowercase() {
         return Err(GameError::IntegrityMismatch(format!("sha1: {}", path.display())));
     }
@@ -245,7 +250,7 @@ pub fn build_command(config: &LaunchConfig) -> Result<Command, GameError> {
     if config.main_class.is_empty() || config.classpath.is_empty() {
         return Err(GameError::InvalidInput("missing mainClass or classpath".into()));
     }
-    let separator = if cfg!(windows) { ";" } else { ":" };
+    
     let cp = std::env::join_paths(&config.classpath)
         .map_err(|e| GameError::InvalidInput(e.to_string()))?;
     let mut cmd = Command::new(&config.java);
@@ -257,7 +262,7 @@ pub fn build_command(config: &LaunchConfig) -> Result<Command, GameError> {
         .arg("-cp").arg(cp)
         .arg(&config.main_class)
         .args(&config.game_args);
-    let _ = separator; // join_paths selects the correct platform delimiter.
+
     Ok(cmd)
 }
 pub fn launch(config: &LaunchConfig, stdout: &Path, stderr: &Path) -> Result<Child, GameError> {
@@ -271,8 +276,8 @@ pub fn launch(config: &LaunchConfig, stdout: &Path, stderr: &Path) -> Result<Chi
 pub fn expand_arguments(args: &[String], values: &HashMap<String, String>) -> Result<Vec<String>, GameError> {
     args.iter().map(|s| {
         let mut expanded = s.clone();
-        for (name, value) in values { expanded = expanded.replace(&format!("\u0024{{{name}}}"), value); }
-        if expanded.contains("\u0024{") { return Err(GameError::InvalidInput(format!("unresolved placeholder in {s}"))); }
+        for (name, value) in values { expanded = expanded.replace(&format!("${{{name}}}"), value); }
+        if expanded.contains("${") { return Err(GameError::InvalidInput(format!("unresolved placeholder in {s}"))); }
         Ok(expanded)
     }).collect()
 }
@@ -348,6 +353,6 @@ mod tests {
         assert!(cmd.get_args().any(|v| v=="-Dcustom=hello world"));
     }
     #[test] fn rejects_unresolved_placeholders() {
-        assert!(expand_arguments(&["--user".into(),"\u0024{auth_player_name}".into()],&HashMap::new()).is_err());
+        assert!(expand_arguments(&["--user".into(),"${auth_player_name}".into()],&HashMap::new()).is_err());
     }
 }
