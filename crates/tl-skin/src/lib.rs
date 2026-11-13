@@ -179,8 +179,9 @@ impl SkinLibrary {
         self.save()
     }
     pub fn duplicate(&mut self, id: Uuid, name: &str) -> Result<SkinRecord> {
-        let src = self.catalog.skins.get(&id).ok_or(SkinError::NotFound)?;
-        self.import_png(name, &self.export_png(id)?, src.model)
+        let model = self.catalog.skins.get(&id).ok_or(SkinError::NotFound)?.model;
+        let bytes = self.export_png(id)?;
+        self.import_png(name, &bytes, model)
     }
     pub fn delete_confirmed(&mut self, id: Uuid, confirmed: bool) -> Result<()> {
         if !confirmed { return Err(SkinError::InvalidInput("explicit confirmation required".into())); }
