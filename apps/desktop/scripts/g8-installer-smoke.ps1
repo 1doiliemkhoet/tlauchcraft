@@ -58,7 +58,7 @@ try {
   $report.silent_install = if ($process.ExitCode -eq 0) { 'EXIT_0' } else { 'FAILED_EXIT_' + $process.ExitCode }
   Write-Host "INSTALL_EXIT=$($process.ExitCode) TARGET=$target"
   if ($process.ExitCode -ne 0) { throw "Installer returned exit code $($process.ExitCode)" }
-  $binary = Join-Path $target 'tlauchcraft.exe'
+  $binary = Join-Path $target 'tlauchcraft-desktop.exe'
   $programFiles32 = [Environment]::GetFolderPath('ProgramFilesX86')
   $candidateRoots = @(
     $target,
@@ -71,7 +71,7 @@ try {
   foreach ($root in $candidateRoots) {
     if (Test-Path -LiteralPath $root) {
       $report.notes += "Installed-path candidate exists: $root"
-      $candidates += @(Get-ChildItem -LiteralPath $root -Filter 'tlauchcraft.exe' -File -Recurse -ErrorAction SilentlyContinue)
+      $candidates += @(Get-ChildItem -LiteralPath $root -Filter 'tlauchcraft-desktop.exe' -File -Recurse -ErrorAction SilentlyContinue)
       $report.notes += "Path entries: " + ((Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | Select-Object -First 10 -ExpandProperty Name) -join ', ')
     }
   }
@@ -87,7 +87,7 @@ try {
         if ($entry.DisplayName -match 'tlauchcraft') {
           $report.notes += "Uninstall entry: $($entry.DisplayName), InstallLocation=$($entry.InstallLocation), UninstallString=$($entry.UninstallString)"
           if ($entry.InstallLocation -and (Test-Path $entry.InstallLocation)) {
-            $candidates += @(Get-ChildItem -LiteralPath $entry.InstallLocation -Filter 'tlauchcraft.exe' -File -Recurse -ErrorAction SilentlyContinue)
+            $candidates += @(Get-ChildItem -LiteralPath $entry.InstallLocation -Filter 'tlauchcraft-desktop.exe' -File -Recurse -ErrorAction SilentlyContinue)
           }
         }
       }
