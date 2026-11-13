@@ -1,8 +1,6 @@
 # tl-skin — isolated offline appearance core (Chat 6)
 
-This crate is deliberately independent of the unfinished root Rust workspace.
-Once Chat 1 provides stable shared Rust types, Control should approve an adapter
-mapping `SkinSelection`, profile IDs and instance IDs into the shared contract.
+This crate is registered in the root Rust workspace and consumes the canonical `tl-core::SkinSelection`/`SkinModel` and stable `OfflineProfile` UUID. Persistence currently uses an isolated local skin catalog; callers must explicitly save updated `OfflineProfile` via `tl-storage::ProfileStore` and reconcile `skin_id` before launch.
 
 ## Implemented surface
 
@@ -34,9 +32,9 @@ Offline player identity is not authenticated and can be spoofed on untrusted LAN
 From repo root (after a Rust toolchain is installed):
 
 ```powershell
-cargo test --manifest-path crates/tl-skin/Cargo.toml
-cargo fmt --manifest-path crates/tl-skin/Cargo.toml -- --check
+cargo test --locked -p tl-skin
+cargo fmt --all -- --check
 ```
 
-No root workspace edits were made. Integration owners: Chat 1 (typed storage contract),
+The root workspace and Cargo.lock are updated on the Chat 6 feature branch. Integration owners: Chat 1 (typed storage contract),
 Chat 5 (LAN transport) and Chat 7 (editor/preview renderer).
