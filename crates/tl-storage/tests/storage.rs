@@ -25,7 +25,7 @@ fn profile_and_instance_persist_after_restart() {
     let store = SqliteStore::open(dir.path()).unwrap();
     assert_eq!(store.get_profile(profile.id).unwrap(), Some(profile));
     assert_eq!(store.get_instance(instance.id).unwrap(), Some(instance));
-    assert_eq!(store.schema_version().unwrap(), 1);
+    assert_eq!(store.schema_version().unwrap(), 2);
 }
 #[test]
 fn username_unique_case_insensitive_and_reference_restricted() {
