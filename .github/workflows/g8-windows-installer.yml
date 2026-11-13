@@ -29,16 +29,6 @@ jobs:
       - name: Install Rust stable for Tauri
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
-      - name: Re-resolve changed npm dependency lock with real Windows npm
-        working-directory: apps/desktop
-        shell: pwsh
-        run: |
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $bytes = [IO.File]::ReadAllBytes((Resolve-Path package-lock.json))
-          Write-Host "REAL_NPM_LOCK_BASE64_BEGIN"
-          Write-Host ([Convert]::ToBase64String($bytes))
-          Write-Host "REAL_NPM_LOCK_BASE64_END"
       - name: Verify committed dependency locks
         shell: pwsh
         run: |
@@ -55,6 +45,8 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build actual Windows NSIS installer (not just cargo check)
+        env:
+          RUSTUP_TOOLCHAIN: stable
         shell: pwsh
         working-directory: apps/desktop
         run: |
