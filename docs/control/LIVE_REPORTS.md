@@ -147,7 +147,7 @@
 ## Chat 6 — Offline Skin Manager
 
 - **Branch:** `feat/tl-06-skins`
-- **HEAD:** `551a2a21cdcd82fef68625c2538cf286096f910a` (2026-11-13)
+- **HEAD:** `9f4fc91b2532668bb3543d4c07327c7eb2670929` (2026-11-13)
 - **Issue:** [#6](https://github.com/1doiliemkhoet/tlauchcraft/issues/6)
 - **PR:** [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) → `develop`, OPEN / DRAFT / not merged.
 - **Status:** `PR_OPEN_UNREVIEWED` + `IN_PROGRESS`. Source files committed and pushed; compilation and acceptance NOT_TESTED.
@@ -159,6 +159,7 @@
 - **Incomplete/risks:** 3D renderer, complete legacy UV conversion, custom cape storage/application, cosmetics packs, actual Minecraft skin provider installation and supported-version matrix, LAN transport and peer cache handling, real-game evidence. Offline LAN identity is spoofable; consent required. Provider metadata cannot prove actual skin display.
 - **Dependencies:** Chat 1 profile/instance shared Rust types and workspace; Chat 2/3 version/loader-aware provider; Chat 5 trusted LAN appearance transport; Chat 7 UI, 3D preview and editor integration.
 - **Control decisions requested:** Approve SkinService adapter and ownership of profile/instance cosmetic selections; establish provider/version compatibility matrix and LAN consent handshake contract before cross-crate integration. Keep PR Draft until G1 tests pass; Control owns merge/gate signoff.
+- **Additional commit:** [`9f4fc91`](https://github.com/1doiliemkhoet/tlauchcraft/commit/9f4fc91b2532668bb3543d4c07327c7eb2670929) fixes the library duplicate borrow-order issue; **NOT_TESTED** until Rust compilation is available.
 - **Next:** audit/fix crate; run real Windows cargo tests once toolchain accessible; implement additional P1 skin editing/storage without modifying other chats' files; collect actual Singleplayer and 2-PC evidence after integration.
 
 <!-- CHAT-06:END -->
