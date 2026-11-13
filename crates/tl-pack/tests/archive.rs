@@ -74,3 +74,23 @@ fn staging_refuses_preexisting_directory() {
     let data = inspect_archive(&input).unwrap();
     assert!(stage_overrides(&input, &data, temp.path()).is_err());
 }
+
+#[test]
+fn modrinth_client_overrides_win_and_stay_isolated() {
+    let temp = tempdir().unwrap();
+    let input = temp.path().join("client.mrpack");
+    create_zip(&input, &[
+        ("modrinth.index.json", r#"{"name":"Client pack","dependencies":{"minecraft":"1.20.1"},"files":[]}"#),
+        ("overrides/config/choice.txt", "shared"),
+        ("client-overrides/config/choice.txt", "client"),
+        ("client-overrides/mods/local.jar", "fixture-only"),
+    ]);
+    let data = inspect_archive(&input).unwrap();
+    assert_eq!(data.source, PackSource::ModrinthMrpack);
+    assert_eq!(data.overrides.len(), 3);
+    let stage = temp.path().join("instance-staging");
+    stage_overrides(&input, &data, &stage).unwrap();
+    assert_eq!(std::fs::read_to_string(stage.join("config/choice.txt")).unwrap(), "client");
+    assert_eq!(std::fs::read_to_string(stage.join("mods/local.jar")).unwrap(), "fixture-only");
+    assert!(!temp.path().join("mods/local.jar").exists());
+}
