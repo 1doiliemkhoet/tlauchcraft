@@ -56,14 +56,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         username: username.clone(),
         access_token: token,
         user_type: env::var("TLAUCHCRAFT_USER_TYPE").unwrap_or_else(|_| "msa".to_owned()),
+        client_id: env::var("TLAUCHCRAFT_CLIENT_ID").unwrap_or_default(),
+        xuid: env::var("TLAUCHCRAFT_XUID").unwrap_or_default(),
     };
     let launch_config = build_vanilla_launch(&version, &paths, &player, 512, 4096)?;
-    let stdout = evidence.join("client-stdout.log");
-    let stderr = evidence.join("client-stderr.log");
+    let stdout = evidence.join(format!("client-{native_nonce}-stdout.log"));
+    let stderr = evidence.join(format!("client-{native_nonce}-stderr.log"));
     let mut child = launch(&launch_config, &stdout, &stderr)?;
     let pid = child.id();
     write_launch_evidence(
-        &evidence.join("launch.json"),
+        &evidence.join(format!("launch-{native_nonce}.json")),
         version_id,
         &paths.java,
         pid,
