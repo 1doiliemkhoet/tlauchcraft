@@ -162,6 +162,15 @@ fn check_sha1(path: &Path, expected: &str, size: Option<u64>) -> Result<(), Game
     }
     Ok(())
 }
+/// Reject symlink components before writing to a launcher-managed destination.
+fn ensure_no_symlink_ancestors(path: &Path) -> Result<(), GameError> {
+    for component in path.ancestors() {
+        if component.is_symlink() {
+            return Err(GameError::InvalidInput(format!("symlink path rejected: {}", component.display())));
+        }
+    }
+    Ok(())
+}
 pub fn install_file(spec: &DownloadSpec, cancelled: &AtomicBool) -> Result<(), GameError> {
     if !spec.url.starts_with("https://") || spec.url.contains('@') || spec.url.contains('#') {
         return Err(GameError::InvalidInput("only HTTPS URLs without credentials/fragments are allowed".into()));
@@ -175,9 +184,7 @@ pub fn install_file(spec: &DownloadSpec, cancelled: &AtomicBool) -> Result<(), G
     if !trusted || parsed.port().is_some() {
         return Err(GameError::InvalidInput("unapproved download origin".into()));
     }
-    if spec.target.is_symlink() || spec.target.parent().map_or(false, |p| p.is_symlink()) {
-        return Err(GameError::InvalidInput("symlink destination rejected".into()));
-    }
+    ensure_no_symlink_ancestors(&spec.target)?;
     if spec.target.is_file() && check_sha1(&spec.target, &spec.expected_sha1, spec.expected_size).is_ok() {
         return Ok(());
     }
@@ -187,6 +194,7 @@ pub fn install_file(spec: &DownloadSpec, cancelled: &AtomicBool) -> Result<(), G
     // A unique temporary name avoids clobbering another download in the same directory.
     let stem = spec.target.file_name().ok_or_else(|| GameError::InvalidInput("target has no filename".into()))?.to_string_lossy();
     let part = parent.join(format!(".{stem}.{}.part", std::process::id()));
+    if part.exists() { return Err(GameError::InvalidInput("a download staging file already exists; refusing to overwrite".into())); }
     let agent = reqwest::blocking::Client::builder().timeout(Duration::from_secs(90)).redirect(reqwest::redirect::Policy::none()).build()
         .map_err(|e| GameError::NetworkFailure(e.to_string()))?;
     let operation = (|| -> Result<(), GameError> {
@@ -194,8 +202,8 @@ pub fn install_file(spec: &DownloadSpec, cancelled: &AtomicBool) -> Result<(), G
             if cancelled.load(Ordering::Relaxed) { return Err(GameError::Cancelled); }
             let response = agent.get(&spec.url).send();
             match response {
-                Ok(mut response) if response.status().is_success() => {
-                    let mut output = fs::File::create(&part)?;
+                Ok(mut response) if response.status() == reqwest::StatusCode::OK => {
+                    let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&part)?;
                     let mut buffer = [0u8; 64 * 1024];
                     loop {
                         if cancelled.load(Ordering::Relaxed) { return Err(GameError::Cancelled); }
@@ -361,6 +369,24 @@ mod tests {
         let cmd=build_command(&c).unwrap();
         assert_eq!(cmd.get_program(),"C:/Program Files/Java/bin/java.exe");
         assert!(cmd.get_args().any(|v| v=="-Dcustom=hello world"));
+    }
+    #[test] fn sha_matching_file_cached() {
+        let dir=tempfile::tempdir().unwrap();
+        let target=dir.path().join("cached.jar");
+        fs::write(&target,b"hello").unwrap();
+        let expected=format!("{:x}", Sha1::digest(b"hello"));
+        assert!(check_sha1(&target,&expected,Some(5)).is_ok());
+        assert!(check_sha1(&target,&expected,Some(4)).is_err());
+    }
+    #[cfg(unix)]
+    #[test] fn symlink_ancestor_rejected() {
+        use std::os::unix::fs::symlink;
+        let d=tempfile::tempdir().unwrap();
+        let safe=d.path().join("safe");
+        fs::create_dir(&safe).unwrap();
+        let alias=d.path().join("alias");
+        symlink(&safe,&alias).unwrap();
+        assert!(ensure_no_symlink_ancestors(&alias.join("child").join("file")).is_err());
     }
     #[test] fn rejects_unresolved_placeholders() {
         assert!(expand_arguments(&["--user".into(),"${auth_player_name}".into()],&HashMap::new()).is_err());
