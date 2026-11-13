@@ -12,7 +12,7 @@ Status: **source integrated with 6 Rust modules; Windows tests and Tauri check t
 - Archive picker is native; no ZIP extraction in UI. Drag-drop prompts native selection rather than trusting browser paths.
 
 ## Local Windows validation (PowerShell)
-Prerequisites: Node/npm, Rust 1.88, Visual Studio C++/Windows SDK, WebView2 and Tauri prerequisites.
+Prerequisites: Node 22/npm 10, **Rust stable 1.90+** for the independent desktop crate, Visual Studio C++/Windows SDK, WebView2 and Tauri prerequisites. The root Rust workspace retains its separate pinned toolchain.
 
 ```powershell
 cd apps/desktop
@@ -28,9 +28,9 @@ npm run tauri build
 Get-ChildItem .\src-tauri\target\release\bundle\nsis\
 ```
 
-**Lockfile:** Windows GitHub Actions created and pushed `apps/desktop/package-lock.json` using Node 22/npm 10 from real npm registry (commit `a672f58`). The first Windows CI `43486294720` reported `npm ci` PASS, but `npm test` FAIL (8/10). Subsequent PR commits adjust failing tests; check latest workflow run on PR #14 for current evidence. Neither an npm install PASS nor TypeScript build PASS by itself establishes Minecraft or installer E2E.
+**Lockfiles:** Windows GitHub Actions generated and committed `apps/desktop/package-lock.json` using npm 10 (commit `a672f58`) and `src-tauri/Cargo.lock` using Rust Cargo stable after a successful Windows check (commit `b400420`). Neither was hand-generated.
 
-**Windows CI:** `.github/workflows/desktop-windows.yml` runs on PR to develop for desktop paths (single `windows-latest` job). Commands: `npm ci`, `npm test`, `npm run build`, `cargo check` from `src-tauri`. Does not package NSIS on each commit. For reproducibility, run with Node 22 and Rust/MSVC toolchain; do not claim PASS before inspecting job logs.
+**Windows CI:** `.github/workflows/desktop-windows.yml` runs on PR to develop for desktop paths (single `windows-latest` job). Commands: `npm ci`, `npm test`, `npm run build`, `cargo +stable check` from `src-tauri`. [Windows run 43488830996](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43488830996) passed all these checks (9/9 Vitest) and generated the Cargo lockfile. Pinning `tauri 2.11.6` with compatible runtime/wry avoids conflicts with the Foundation-pinned `serde 1.0.219`. Does not package NSIS on each commit. For reproducibility, run with Node 22 and Rust/MSVC toolchain; do not claim PASS before inspecting job logs.
 
 ## Outstanding typed commands / Control decisions
 
