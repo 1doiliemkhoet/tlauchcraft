@@ -20,8 +20,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("expected five CLI arguments".into());
     }
     // Do not accept access tokens in CLI arguments or log files.
-    let token = env::var("TLAUCHCRAFT_ACCESS_TOKEN")
-        .map_err(|_| "TLAUCHCRAFT_ACCESS_TOKEN must be provided through environment")?;
+    // Local offline profiles do not require a Microsoft login. Do not log tokens.
+    let token = env::var("TLAUCHCRAFT_ACCESS_TOKEN").unwrap_or_else(|_| "0".to_owned());
+    let default_user_type = if token == "0" { "legacy" } else { "msa" };
     let version_id = &args[1];
     let root = PathBuf::from(&args[2]);
     let java = PathBuf::from(&args[3]);
@@ -55,7 +56,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         game_uuid: uuid.clone(),
         username: username.clone(),
         access_token: token,
-        user_type: env::var("TLAUCHCRAFT_USER_TYPE").unwrap_or_else(|_| "msa".to_owned()),
+        user_type: env::var("TLAUCHCRAFT_USER_TYPE")
+            .unwrap_or_else(|_| default_user_type.to_owned()),
         client_id: env::var("TLAUCHCRAFT_CLIENT_ID").unwrap_or_default(),
         xuid: env::var("TLAUCHCRAFT_XUID").unwrap_or_default(),
     };
