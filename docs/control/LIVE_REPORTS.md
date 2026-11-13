@@ -19,7 +19,7 @@
 | Chat | Module | Status | PR | Chat tests | Control gate |
 |---|---|---|---|---|---|
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN · unreviewed** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | NOT_REPORTED | NOT_VERIFIED |
-| [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN · unreviewed** | [#12](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | AUTHORED_NOT_TESTED | NOT_VERIFIED |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN · unreviewed** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **PR_OPEN · unreviewed** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | NOT_REPORTED | NOT_VERIFIED |
@@ -56,19 +56,19 @@
 ## Chat 2 — Minecraft Core & Singleplayer
 
 - **Branch:** `feat/tl-02-game-core`
-- **Snapshot branch HEAD:** `9ec18994bfed00178f441bb2b412ff9d0285a362` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **Branch HEAD:** [`9ec18994bfed00178f441bb2b412ff9d0285a362`](https://github.com/1doiliemkhoet/tlauchcraft/commit/9ec18994bfed00178f441bb2b412ff9d0285a362) (6 commits / 4 files / 547 additions in draft PR as checked)
 - **Issue:** [#2](https://github.com/1doiliemkhoet/tlauchcraft/issues/2)
-- **PR to develop:** [#12](https://github.com/1doiliemkhoet/tlauchcraft/pull/12)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 2 updates its own section with concrete results, commits and evidence URLs.
+- **PR to develop:** [#12 — DRAFT, OPEN, NOT MERGED](https://github.com/1doiliemkhoet/tlauchcraft/pull/12)
+- **Status:** `PR_OPEN_UNREVIEWED`, `IN_PROGRESS`; source primitives are **IMPLEMENTED** in the feature branch, not verified as a working launcher.
+- **Updated at:** 2026-11-13 (Chat 2)
+- **Implemented in source:** Standalone Rust `tl-game` crate with version inheritance resolver/cycle detection, ordered OS+feature metadata rules, version-dependent JVM/game arguments, asset paths, download planning (client jar/library/native archive/assets/log config), SHA1 validation, HTTPS origin restrictions, whole-file retries/staging/cancellation checks, Java major parsing/probe, OS argv-based child launch with stdout/stderr files. Does NOT implement complete metadata-to-game launch pipeline, Java provisioning or true verified Singleplayer.
+- **Changed paths:** `crates/tl-game/Cargo.toml`, `crates/tl-game/src/lib.rs`, `crates/tl-game/src/metadata.rs`, `crates/tl-game/README.md`. Only Chat 2-owned crate modified; no shared Chat 1 contract or root workspace edits.
+- **Test commands / actual outcomes:** Hermetic Rust tests **AUTHORED_NOT_TESTED**. Suggested Windows commands: `cargo test --manifest-path crates/tl-game/Cargo.toml`; `cargo fmt --manifest-path crates/tl-game/Cargo.toml -- --check`. **Actual executions: none.** No claim of passed tests or compiler validation.
+- **Real device / Minecraft / modpack evidence:** **NOT_TESTED**. No verified downloaded Minecraft client, game PID, console trace confirming menu, in-game screenshot, Singleplayer world created/saved/reopened, or artifact hashes.
+- **Acceptance gates:** G0 `BLOCKED` pending Chat 1 concrete Rust API; G1 `NOT_TESTED`; G2 `NOT_TESTED`; G3 `NOT_TESTED`; G4 `NOT_TESTED`. All `NOT_VERIFIED` by Control. Other gates outside Chat 2 ownership.
+- **Blockers / risks:** Chat 1 root Cargo workspace and shared types/events not yet integrated; no verified Windows toolchain test; downloader lacks range resume/cache/repair transaction and robust symlink-ancestor checks; rule OS-version regex unimplemented; missing native extraction, full classpath/assets launch placeholders, manifest fetch, lifecycle monitor, verified compatibility and real-world E2E. Existing tests are no substitute for G1–G4.
+- **Pending decisions for Control:** Approve shared-type adapter once Chat 1 API is published; require CI/tests and real Windows G2–G4 evidence before acceptance. Draft PR #12 must remain unmerged.
+- **Next actions:** Compile/repair code on supported toolchain, finish metadata→verified install→Java→game runtime with safe native extraction, add hermetic integration fixtures, integrate Chat 1 public contract without changing another owner's crate, and capture real-world Windows menu/save/reopen evidence.
 
 <!-- CHAT-02:END -->
 
