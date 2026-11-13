@@ -175,10 +175,20 @@ fn rejects_zip_bomb_by_compression_ratio() {
     let temp = tempdir().unwrap();
     let input = temp.path().join("bomb.zip");
     let mut writer = ZipWriter::new(File::create(&input).unwrap());
-    writer.start_file("manifest.json", SimpleFileOptions::default()).unwrap();
-    writer.write_all(br#"{"name":"Bomb","minecraft":{"version":"1.20.1","modLoaders":[]},"files":[]}"#).unwrap();
-    writer.start_file("overrides/config/huge.txt",
-        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).unwrap();
+    writer
+        .start_file("manifest.json", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(
+            br#"{"name":"Bomb","minecraft":{"version":"1.20.1","modLoaders":[]},"files":[]}"#,
+        )
+        .unwrap();
+    writer
+        .start_file(
+            "overrides/config/huge.txt",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
     writer.write_all(&vec![b'A'; 2 * 1024 * 1024]).unwrap();
     writer.finish().unwrap();
     assert!(inspect_archive(&input).is_err());
@@ -188,11 +198,21 @@ fn rejects_zip_bomb_by_compression_ratio() {
 fn changed_archive_cannot_be_staged() {
     let temp = tempdir().unwrap();
     let input = temp.path().join("modrinth.mrpack");
-    create_zip(&input, &[("modrinth.index.json",
-        r#"{"name":"Initial","dependencies":{"minecraft":"1.20.1"},"files":[]}"#)]);
+    create_zip(
+        &input,
+        &[(
+            "modrinth.index.json",
+            r#"{"name":"Initial","dependencies":{"minecraft":"1.20.1"},"files":[]}"#,
+        )],
+    );
     let inspected = inspect_archive(&input).unwrap();
-    create_zip(&input, &[("modrinth.index.json",
-        r#"{"name":"Changed","dependencies":{"minecraft":"1.20.1"},"files":[]}"#)]);
+    create_zip(
+        &input,
+        &[(
+            "modrinth.index.json",
+            r#"{"name":"Changed","dependencies":{"minecraft":"1.20.1"},"files":[]}"#,
+        )],
+    );
     let stage = temp.path().join("stage");
     assert!(stage_overrides(&input, &inspected, &stage).is_err());
     assert!(!stage.exists());
@@ -202,12 +222,18 @@ fn changed_archive_cannot_be_staged() {
 fn rollback_removes_partial_staging_on_unsupported_prism_patch() {
     let temp = tempdir().unwrap();
     let input = temp.path().join("prism.zip");
-    create_zip(&input, &[
-        ("mmc-pack.json", r#"{"components":[{"uid":"net.minecraft","version":"1.20.1"}]}"#),
-        ("instance.cfg", "name=Patch"),
-        ("minecraft/config/safe.txt", "safe"),
-        ("minecraft/patches/legacy.json", "{}"),
-    ]);
+    create_zip(
+        &input,
+        &[
+            (
+                "mmc-pack.json",
+                r#"{"components":[{"uid":"net.minecraft","version":"1.20.1"}]}"#,
+            ),
+            ("instance.cfg", "name=Patch"),
+            ("minecraft/config/safe.txt", "safe"),
+            ("minecraft/patches/legacy.json", "{}"),
+        ],
+    );
     let inspected = inspect_archive(&input).unwrap();
     let stage = temp.path().join("stage");
     assert!(stage_overrides(&input, &inspected, &stage).is_err());
@@ -218,6 +244,9 @@ fn rollback_removes_partial_staging_on_unsupported_prism_patch() {
 fn rejects_unsafe_case_folded_duplicate_and_reserved_filename() {
     let temp = tempdir().unwrap();
     let input = temp.path().join("reserved.zip");
-    create_zip(&input, &[("manifest.json", "{}"), ("overrides/config/AUX.txt", "bad")]);
+    create_zip(
+        &input,
+        &[("manifest.json", "{}"), ("overrides/config/AUX.txt", "bad")],
+    );
     assert!(inspect_archive(&input).is_err());
 }
