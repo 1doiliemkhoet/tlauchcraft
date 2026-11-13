@@ -1,0 +1,71 @@
+<PARSED TEXT FOR SHEET: 1 / 1 TABS
+TAB NAME: OFFLINE_E2E_TEST_MATRIX_v5.csv>
+index,TestID,Module,Priority,Scenario,ExpectedResult,EvidenceToCollect,ExecutionStatus
+0,TC-001,PROFILE,P0,Create profile without any online account,Local username+UUID persisted; no OAuth prompt,profiles.json redacted; UI/log,NOT_RUN
+1,TC-002,PROFILE,P0,Restart launcher,Same profile and selected instance,before/after profile hash,NOT_RUN
+2,TC-003,PROFILE,P0,Two distinct players in LAN,Unique names accepted; no session overwrite,server login log,NOT_RUN
+3,TC-004,PROFILE,P0,Change offline username after world saved,Warning and backup; identity drift explicitly explained,world/playerdata snapshot,NOT_RUN
+4,TC-005,PROFILE,P0,Invalid/duplicate username,Validation prevents invalid or duplicate join,UI error code,NOT_RUN
+5,TC-006,VANILLA,P0,Fetch version manifest v2,List versions with valid remote links and sha1,manifest URL/hash,NOT_RUN
+6,TC-007,VANILLA,P0,Install a supported vanilla version,All client/libs/assets/natives verified,file graph/hash report,NOT_RUN
+7,TC-008,VANILLA,P0,Old version with minecraftArguments,Correct args parsed,"argv redacted, version json",NOT_RUN
+8,TC-009,VANILLA,P0,New version with conditional arguments,rules honored by OS/feature,argv redacted,NOT_RUN
+9,TC-010,VANILLA,P0,Missing one asset object,Only missing object downloaded,before/after hashes,NOT_RUN
+10,TC-011,VANILLA,P0,Corrupt client JAR,No execution; repair via trusted verified download,error and hash,NOT_RUN
+11,TC-012,JAVA,P0,MC 1.16.5 Java8 instance,Major version compatible detected,"java -version, process path",NOT_RUN
+12,TC-013,JAVA,P0,MC 1.20.4 Java17 instance,Java major compatible detected,java -version,NOT_RUN
+13,TC-014,JAVA,P0,MC 1.20.5 Java21 instance,Java major compatible detected,java -version,NOT_RUN
+14,TC-015,JAVA,P0,MC 26.3 Java25 instance,Java major compatible detected,java -version,NOT_RUN
+15,TC-016,JAVA,P0,Wrong arch/Java major selected,Explicit blocker; no fake success,error code,NOT_RUN
+16,TC-017,DOWNLOAD,P0,Interrupted download,No corrupt committed file; retry/resume safe,part file and hashes,NOT_RUN
+17,TC-018,DOWNLOAD,P0,HTTP 429/503,"Bounded exponential backoff, no infinite loop",attempt timestamps,NOT_RUN
+18,TC-019,DOWNLOAD,P0,Hash mismatch,Reject and retry from verified source,expected/actual hash,NOT_RUN
+19,TC-020,DOWNLOAD,P0,Disk full,"Abort safely, original files unchanged",disk and transaction log,NOT_RUN
+20,TC-021,DOWNLOAD,P0,Cancel installation mid-run,"Clean or recoverable staging, no half-installed instance",journal,NOT_RUN
+21,TC-022,MODPACK,P0,Import .mrpack with required+optional,Correct file set and prompts,modrinth.index + lock diff,NOT_RUN
+22,TC-023,MODPACK,P0,Client-only and server-only mods,Correct side placement,inventory by side,NOT_RUN
+23,TC-024,MODPACK,P0,Nested dependency and cycle,Predictable resolution or clear blocker,dependency graph,NOT_RUN
+24,TC-025,MODPACK,P0,Incompatible mod pair,Installation blocked with explanation,dependency solver report,NOT_RUN
+25,TC-026,MODPACK,P0,Missing dependency,Auto-resolve required; do not claim done without file,log/hash,NOT_RUN
+26,TC-027,MODPACK,P0,Override path traversal attack,Reject any path outside instance,rejection report,NOT_RUN
+27,TC-028,MODPACK,P0,Update and rollback,Old pack and world are recoverable,snapshot hashes,NOT_RUN
+28,TC-029,MODPACK,P1,Import CurseForge manifest,Correct projectID/fileID & overrides; restricted files surfaced,"manifest, manual action list",NOT_RUN
+29,TC-030,MODPACK,P1,Local folder pack,"Manifest/lock generated, no unintended executable launch",lockfile,NOT_RUN
+30,TC-031,LOADER,P0,Fabric client loader,Actual modded menu with mod present,game logs + version,NOT_RUN
+31,TC-032,LOADER,P1,Forge client loader,Actual modded menu with mod present,game logs + version,NOT_RUN
+32,TC-033,LOADER,P1,NeoForge client loader,Actual modded menu with mod present,game logs + version,NOT_RUN
+33,TC-034,LOADER,P0,MC version/loader mismatch,Clear compatibility error before launch,loader metadata,NOT_RUN
+34,TC-035,PROCESS,P0,Spawn Minecraft,PID+exe+args+cwd logged; reaches game menu,process details/window/log,NOT_RUN
+35,TC-036,PROCESS,P0,Native extraction/classpath,Required natives present; correct loader mainClass,natives path & argv,NOT_RUN
+36,TC-037,PROCESS,P0,Game process crashes,"Exit code, crash report and classifiable cause",stdout/stderr/crash report,NOT_RUN
+37,TC-038,SINGLE,P0,Vanilla Singleplayer new world,"Playable world, saving successful","saves level.dat, game log",NOT_RUN
+38,TC-039,SINGLE,P0,Modded Singleplayer create world,Modded block/item functional,world + screenshots/log,NOT_RUN
+39,TC-040,SINGLE,P0,Quit/reopen same world,World and modded blocks persist,before/after world data,NOT_RUN
+40,TC-041,SINGLE,P0,Client/instance isolated,Different saves/config in two instances,directory hashes,NOT_RUN
+41,TC-042,BACKUP,P0,Backup saved world,Consistent restorable backup created,backup inventory and checksum,NOT_RUN
+42,TC-043,BACKUP,P0,Restore after accidental deletion,World and modded block state restored,world checksum/game validation,NOT_RUN
+43,TC-044,BACKUP,P0,Backup while game live,Blocked or safe snapshot mechanism,lock state,NOT_RUN
+44,TC-045,BACKUP,P0,Downgrade modpack/world,"Preflight warning + snapshot, prevents destructive migration",warning+snapshot,NOT_RUN
+45,TC-046,LAN,P0,Start dedicated modded server on trusted LAN,"User accepts EULA, readiness and port listen",server.properties/log/port,NOT_RUN
+46,TC-047,LAN,P0,Offline PC A + PC B same pack,Both reach modded server and appear in same world,two game logs + server log,NOT_RUN
+47,TC-048,LAN,P0,PC B Direct Connect by IP:port,Successful join/connection,server logs + TCP reachability,NOT_RUN
+48,TC-049,LAN,P0,Different required modpack fingerprint,Mismatch reported before join or by handshake,pack hashes + rejection,NOT_RUN
+49,TC-050,LAN,P0,Modded block/item interaction,Changes visible and persisted for both players,game evidence + world save,NOT_RUN
+50,TC-051,LAN,P0,Disconnect and rejoin,"Same inventory, spawn/positions, world data",playerdata + server log,NOT_RUN
+51,TC-052,LAN,P0,Server shutdown via stop,World flushed; backup safe,logs world saved,NOT_RUN
+52,TC-053,LAN,P0,No WAN exposure,"No port forwarding, firewall private scope only",firewall/NAT review,NOT_RUN
+53,TC-054,LAN,P1,Open to LAN integrated server,Works in specific tested version/loader or explicitly unsupported,"game logs, join result",NOT_RUN
+54,TC-055,LAN,P1,Multicast discovery blocked,Direct Connect still works,UDP/TCP observations,NOT_RUN
+55,TC-056,LAN,P0,Duplicate nickname join,Duplicate identity refused and owner data not overwritten,server log,NOT_RUN
+56,TC-057,LAN,P0,Wrong server-side mods,"Clear error, no unverified success",loader log,NOT_RUN
+57,TC-058,LAN,P0,No Internet after installed,Offline session + LAN play if game/files present,offline network test,NOT_RUN
+58,TC-059,SYNC,P0,Export pack A and install on B,Stable requiredSharedFingerprint equal,both lockfiles,NOT_RUN
+59,TC-060,SYNC,P0,Client-only shader difference,No false hard mismatch for server-critical pack,shared vs extras hash,NOT_RUN
+60,TC-061,SYNC,P1,Optional resourcepack difference,User choice does not overwrite world/config,lock diff,NOT_RUN
+61,TC-062,SECURITY,P0,Untrusted ZIP symlink/absolute path,Reject on import,security error,NOT_RUN
+62,TC-063,SECURITY,P0,Pack with embedded bat/exe script,No automatic execution,quarantine/log,NOT_RUN
+63,TC-064,SECURITY,P0,Modpack with restricted redistribution license,Do not bundle restricted files; manual download noted,origin/license manifest,NOT_RUN
+64,TC-065,SECURITY,P0,Logs include profile data,No credentials or sensitive data in diagnostics,redaction scan,NOT_RUN
+65,TC-066,SETTINGS,P1,Per-instance RAM/Java override,Applied only to target instance,game argv,NOT_RUN
+66,TC-067,SETTINGS,P1,GameDir path has spaces/unicode,argv escaped correctly; launches,game log,NOT_RUN
+67,TC-068,SETTINGS,P1,Restore settings and instances after restart,Persistent and consistent,settings snapshots,NOT_RUN

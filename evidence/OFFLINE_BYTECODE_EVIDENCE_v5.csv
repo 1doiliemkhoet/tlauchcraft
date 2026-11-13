@@ -1,0 +1,61 @@
+EvidenceID,Class,Method,BytecodePC,InstructionOrFinding,Source,EvidenceLevel,Verification
+EV01,MinecraftLauncher,start(boolean),10,collectInfo(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV02,MinecraftLauncher,start(boolean),14,downloadResources(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV03,MinecraftLauncher,start(boolean),18,checkExtraConditions(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV04,MinecraftLauncher,start(boolean),22,constructProcess(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV05,MinecraftLauncher,start(boolean),26,launchMinecraft(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV06,MinecraftLauncher,start(boolean),30,postLaunch(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV07,FreeAuthentication,pass(),17,UUID.randomUUID() on UUID missing,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV08,ModpackManager,getContainer(),49,checkResources(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV09,ModpackManager,getContainer(),113,ClientInstanceRepo.createModpackRepo(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV10,ModpackManager,getContainer(),139,checkCompositeResources(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV11,ModpackManager,getContainer(),199,MapDownloader,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV12,ModpackManager,getContainer(),290,FileUtil.getChecksum() for additionalFile,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV13,ModpackManager,getContainer(),300,UnzipEntityDownloader,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV14,ModpackManager,checkResources(),58,isUserInstall(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV15,ModpackManager,notExistOrCorrect(),53,FileUtil.getChecksum(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV16,ModpackManager,addDependencies(),63,DependencyType.INCOMPATIBLE check,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV17,ModpackManager,addDependencies(),74,DependencyType.OPTIONAL check,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV18,ModpackManager,addDependencies(),269,addEntityToModpack(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV19,ModpackManager,addDependencies(),339,recursive addDependencies(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV20,ModpackManager,parseCurse(),5,minecraftinstance.json,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV21,ModpackManager,parseCurse(),336,createHandleGameEntities() mods,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV22,ModpackManager,analizeArchiver(),117,RAR archive parsing,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV23,ModpackManager,analizeArchiver(),132,ZIP archive parsing,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV24,ModpackManager,lambda$installModPack$3(),35,FileUtil.unzipUniversal(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV25,ModpackUtil,getPathByVersion(),9,versions/ prefix,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV26,DownloaderThread,downloadURL(),49,FileUtil.makeTemp(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV27,DownloaderThread,downloadURL(),431,Files.move temp destination,2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV28,UnzipEntityDownloader,onComplete(),17,FileUtil.unzipUniversal(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV29,VersionManager,downloadVersion(),31,VersionSyncInfo.getRequiredDownloadables(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV30,MinecraftLauncher,getMinecraftArguments(),225,Argument.appliesToCurrentEnvironment(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV31,MinecraftLauncher,launchMinecraft(),160,JavaProcessLauncher.start(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV32,JavaProcessLauncher,start(),14,ProcessBuilder.start(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV33,MinecraftLauncher,onJavaProcessEnded(),13,JavaProcess.getExitCode(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV34,MinecraftLauncher,onJavaProcessEnded(),54,CrashDescriptor.scan(),2.923 bytecode,BC_2_923,javap observed in prior v4 investigation
+EV35,ProfileManager,updateFreeAccountField(String),90,Account.createFreeAccountByUsername when current missing,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV36,ProfileManager,updateFreeAccountField(String),100,ClientProfile.setFreeAccountUUID,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV37,ProfileManager,updateFreeAccountField(String),115,Remove free account when field blank,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV38,FreeAuthentication,pass(),4,Account.getUUID,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV39,FreeAuthentication,pass(),23,Account.setUUID when absent,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV40,BackupWorldAssistant,constructJavaArguments(),26,collectNewWorlds,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV41,BackupWorldAssistant,constructJavaArguments(),30,checkIfWorldsAreChanged,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV42,BackupWorldAssistant,constructJavaArguments(),34,checkIfModpackWorldsAreChanged,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV43,BackupWorldAssistant,constructJavaArguments(),38,backupWorld,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV44,BackupWorldAssistant,constructJavaArguments(),42,saveWorlds,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV45,BackupWorldAssistant,constructJavaArguments(),46,deleteOldBackupOrNotExistedWorlds,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV46,BackupWorldAssistant,saveWorlds(),16,worlds.json FileMapperService.write,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV47,BackupWorldAssistant,collectNewWorlds(),0,saves directory,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV48,BackupWorldAssistant,collectNewWorlds(),20,versions directory,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV49,BackupWorldAssistant,collectNewWorlds(),32,backup/saves directory,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV50,BackupWorldAssistant,collectNewWorlds(),55,modpacks_saves directory,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV51,DownloaderThread,downloadURL(),49,FileUtil.makeTemp for downloaded target,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV52,DownloaderThread,downloadURL(),68,setConnectTimeout,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV53,DownloaderThread,downloadURL(),72,setSocketTimeout,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV54,DownloaderThread,downloadURL(),140,HTTP status 200 check,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV55,JavaMinecraftComponent,collectInfo(),90,JavaVersionName.getMajorVersion,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV56,JavaMinecraftComponent,prepareDefaultJava(),94,runtime directory key,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV57,InnerMinecraftServersImpl,readServerDatFile(),method,Reads servers.dat server list - not dedicated server,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV58,InnerMinecraftServersImpl,writeServerDatFile(),method,Writes servers.dat server list - not dedicated server,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV59,MinecraftLauncher,start(boolean),14,downloadResources called before constructProcess,javap -p -c,BC_2_923,javap -p -c (current turn)
+EV60,MinecraftLauncher,start(boolean),22,constructProcess called before launchMinecraft,javap -p -c,BC_2_923,javap -p -c (current turn)
