@@ -216,7 +216,7 @@ fn from_mr<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<(String,S
     let loader = match loaders.first() {
         Some((kind, version)) if *kind == "quilt-loader" => return Err(PackError::Unsupported("Quilt loader".into())),
         Some((kind, version)) if !version.is_empty() => Loader {
-            kind: if *kind == "fabric-loader" { "fabric" } else { kind }.into(),
+            kind: if *kind == "fabric-loader" { "fabric" } else { *kind }.into(),
             version: Some((*version).clone()),
         },
         Some(_) => return Err(PackError::Metadata("empty loader version".into())),
@@ -285,7 +285,12 @@ fn from_prism<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<(Strin
 pub fn inspect_archive(path: &Path) -> Result<PackMetadata, PackError> {
     let mut hash_input = File::open(path)?;
     let mut sha = Sha256::new();
-    std::io::copy(&mut hash_input, &mut sha)?;
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let n = hash_input.read(&mut chunk)?;
+        if n == 0 { break; }
+        sha.update(&chunk[..n]);
+    }
     let mut zip = ZipArchive::new(File::open(path)?)?;
     if zip.len() > MAX_FILES { return Err(PackError::UnsafeArchive("too many archive entries".into())); }
     let mut names = HashSet::new();
