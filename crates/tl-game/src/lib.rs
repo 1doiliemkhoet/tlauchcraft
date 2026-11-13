@@ -1,5 +1,6 @@
 //! Standalone game core. Chat 1 owns workspace wiring and shared public types.
 //! No authentication or proprietary game files are provided by this crate.
+pub mod metadata;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{collections::HashMap, fs, io::{Read, Write}, path::{Path, PathBuf}, process::{Child, Command, Stdio}, sync::atomic::{AtomicBool, Ordering}, time::Duration};
@@ -164,6 +165,15 @@ fn check_sha1(path: &Path, expected: &str, size: Option<u64>) -> Result<(), Game
 pub fn install_file(spec: &DownloadSpec, cancelled: &AtomicBool) -> Result<(), GameError> {
     if !spec.url.starts_with("https://") || spec.url.contains('@') || spec.url.contains('#') {
         return Err(GameError::InvalidInput("only HTTPS URLs without credentials/fragments are allowed".into()));
+    }
+    let parsed = reqwest::Url::parse(&spec.url).map_err(|e| GameError::InvalidInput(e.to_string()))?;
+    let trusted = matches!(parsed.host_str(), Some(
+        "piston-meta.mojang.com" | "piston-data.mojang.com" |
+        "resources.download.minecraft.net" | "libraries.minecraft.net" |
+        "launchermeta.mojang.com" | "launcher.mojang.com"
+    ));
+    if !trusted || parsed.port().is_some() {
+        return Err(GameError::InvalidInput("unapproved download origin".into()));
     }
     if spec.target.is_symlink() || spec.target.parent().map_or(false, |p| p.is_symlink()) {
         return Err(GameError::InvalidInput("symlink destination rejected".into()));
