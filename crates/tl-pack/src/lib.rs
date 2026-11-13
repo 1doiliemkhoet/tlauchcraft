@@ -368,7 +368,7 @@ pub fn stage_overrides(archive: &Path, metadata: &PackMetadata, staging: &Path) 
             let doc: CfManifest = serde_json::from_slice(&read_metadata(&mut zip, "manifest.json")?)
                 .map_err(|e| PackError::Metadata(e.to_string()))?;
             let override_dir = doc.overrides.unwrap_or_else(|| "overrides".into());
-            vec![format!("{}/", safe_path(&override_dir)?.to_string_lossy().replace('\\\\', "/"))]
+            vec![format!("{}/", safe_path(&override_dir)?.to_string_lossy().replace('\\', "/"))]
         }
         // Later client overrides intentionally take precedence over shared overrides.
         PackSource::ModrinthMrpack => vec!["overrides/".into(), "client-overrides/".into()],
