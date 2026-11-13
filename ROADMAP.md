@@ -15,6 +15,10 @@
 - [ ] Chạy Vanilla đến main menu, tạo/load Singleplayer world (E2E)
 
 ## 2. Modpack
+- [ ] **P0 Import CurseForge export ZIP** (`manifest.json` + `overrides/`), resolve authorized mod downloads, install as isolated instance (no mock)
+- [ ] **P0 Import Modrinth `.mrpack`** (`modrinth.index.json`), hash/overrides/side filtering
+- [ ] **P1 Import Prism/MultiMC exported ZIP**; generic ZIP import with explicit version and loader
+- [ ] Archive safety, staging, rollback, missing-mod report and lockfile — [technical contract](docs/specs/MODPACK_ARCHIVE_IMPORT_v1.md)
 - [ ] Instance isolation và modpack lockfile
 - [ ] `.mrpack` importer, dependencies & client/server side filtering
 - [ ] Fabric adapter + modded Singleplayer E2E
