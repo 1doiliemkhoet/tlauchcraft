@@ -1,0 +1,247 @@
+{
+  "schema_version": "0.1-research",
+  "subject": {
+    "filename": "TLauncher.exe",
+    "sha256_from_evidence": "c053b982e7ed3ab28eddcc1c74f418bdea7425e1462535a319fde6b2f73197b2",
+    "format": "Windows PE 64-bit",
+    "original_binary_available": false
+  },
+  "research_status": "incomplete_do_not_build",
+  "evidence": {
+    "zip": "re tlaucher.zip",
+    "observed": {
+      "functions_discovered": 37349,
+      "strings_discovered": 193969,
+      "imports": 621,
+      "exports_total": 702,
+      "exports_with_details": 200,
+      "sections": 8,
+      "entry_point": "0x1421ba730"
+    },
+    "limits": [
+      "instruction_limit",
+      "indirect_jumps_unresolved",
+      "stripped_binary",
+      "static_analysis_only",
+      "no_decompile_saved",
+      "no_ghidra_database_in_zip"
+    ]
+  },
+  "hypotheses": [
+    {
+      "claim": "GraalVM Native Image with JavaFX application",
+      "confidence": "strong but unverified",
+      "basis": [
+        ".svm_hea",
+        "IsolateEnterStub__JavaMainWrapper__run",
+        "JNI_OnLoad_javafx_font",
+        "JNI_OnLoad_prism_d3d"
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "L01",
+      "name": "startup",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L02",
+      "name": "ui",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L03",
+      "name": "authentication",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L04",
+      "name": "versions",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L05",
+      "name": "java_runtime",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L06",
+      "name": "install_download",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L07",
+      "name": "game_launch",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L08",
+      "name": "mods",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L09",
+      "name": "self_update",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L10",
+      "name": "network_telemetry",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L11",
+      "name": "system_persistence",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    },
+    {
+      "id": "L12",
+      "name": "errors_recovery",
+      "status": "unknown",
+      "trigger": null,
+      "inputs": null,
+      "validation": null,
+      "state_changes": null,
+      "filesystem_effects": null,
+      "network_effects": null,
+      "process_effects": null,
+      "outputs": null,
+      "error_branches": null,
+      "evidence_ids": []
+    }
+  ],
+  "build_gate": {
+    "ready": false,
+    "required_verified": [
+      "L01",
+      "L02",
+      "L03",
+      "L04",
+      "L05",
+      "L06",
+      "L07"
+    ],
+    "security_review": [
+      "L10",
+      "L11"
+    ],
+    "missing": [
+      "EXE or decompile/xrefs",
+      "UI screenshots",
+      "functional flows",
+      "security behavior evidence"
+    ]
+  },
+  "stack_after_research": "Rust + eframe/egui clean-room"
+}

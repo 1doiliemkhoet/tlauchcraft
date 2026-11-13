@@ -1,0 +1,282 @@
+{
+  "name": "Offline LAN Modpack Minecraft Launcher",
+  "version": "4.0-research",
+  "status": "research_verified_and_design_proposed_not_implemented",
+  "scope": {
+    "account_mode": "offline_only",
+    "microsoft_login": false,
+    "premium_login": false,
+    "gameplay": "modpacks_via_trusted_LAN",
+    "ui_clone": false,
+    "real_launch": true
+  },
+  "source": {
+    "artifact": "original-TLauncher-2.923.zip",
+    "sha256": "0e83efed2a35e23fda8ecc87220516b5369e6628f9fd35da4e9082562b52f250",
+    "classes": 1193,
+    "entries": 1415,
+    "missing_embedded_deps": [
+      "org.tlauncher.modpack.domain.client.ModpackDTO",
+      "org.tlauncher.modpack.domain.client.share.DependencyType"
+    ]
+  },
+  "evidence_levels": {
+    "BC_2923": "Java bytecode verified",
+    "DOC": "external current doc",
+    "DESIGN": "implementation proposal",
+    "UNKNOWN": "needs runtime experiment"
+  },
+  "flows": [
+    {
+      "id": "profile",
+      "entry": "createOfflineProfile(username)",
+      "inputs": [
+        "username"
+      ],
+      "outputs": [
+        "localUuid",
+        "profileId"
+      ],
+      "persistent": [
+        "profile"
+      ],
+      "requires": [
+        "stable_username",
+        "no_duplicate_nickname"
+      ],
+      "evidence": "FreeAuthentication.pass PC 17 randomUUID when missing",
+      "status": "DESIGN"
+    },
+    {
+      "id": "manifest",
+      "entry": "resolveMinecraftVersion",
+      "inputs": [
+        "minecraftVersion",
+        "os",
+        "architecture"
+      ],
+      "outputs": [
+        "versionMetadata",
+        "requiredFiles",
+        "javaMajor"
+      ],
+      "requires": [
+        "manifest_validation",
+        "inheritsFrom",
+        "OS_rules"
+      ],
+      "evidence": "VersionManager.getVersions0 and downloadVersion",
+      "status": "DESIGN"
+    },
+    {
+      "id": "pack_import",
+      "entry": "importModpack",
+      "inputs": [
+        ".mrpack / CurseForge ZIP / local",
+        "targetInstance"
+      ],
+      "outputs": [
+        "resolvedPack",
+        "lockfile"
+      ],
+      "requires": [
+        "safe_extraction",
+        "hash_and_size",
+        "loader_compatibility",
+        "side_filter"
+      ],
+      "evidence": "ModpackManager.installModPack + parseCurse, .mrpack DOC only",
+      "status": "DESIGN"
+    },
+    {
+      "id": "dependency",
+      "entry": "resolvePackDependencies",
+      "inputs": [
+        "mods",
+        "gameVersion",
+        "loader"
+      ],
+      "outputs": [
+        "requiredModGraph",
+        "conflicts"
+      ],
+      "requires": [
+        "cycles",
+        "conflicts",
+        "required_optional",
+        "client_server_side"
+      ],
+      "evidence": "ModpackManager.addDependencies PC 63-80 269 339",
+      "status": "DESIGN"
+    },
+    {
+      "id": "download",
+      "entry": "installInstance",
+      "inputs": [
+        "lockfile",
+        "authorized URLs"
+      ],
+      "outputs": [
+        "verified installed files"
+      ],
+      "requires": [
+        "temp",
+        "integrity",
+        "staging",
+        "rollback"
+      ],
+      "evidence": "DownloaderThread.downloadURL PC 49 239 410-431",
+      "status": "DESIGN"
+    },
+    {
+      "id": "launch",
+      "entry": "launchModdedClient",
+      "inputs": [
+        "profile",
+        "instance",
+        "javaBinary"
+      ],
+      "outputs": [
+        "PID",
+        "stdout",
+        "exitCode"
+      ],
+      "requires": [
+        "classpath",
+        "mainClass",
+        "metadata_args",
+        "natives",
+        "java_validation"
+      ],
+      "evidence": "MinecraftLauncher.start; JavaProcessLauncher.start PC 14",
+      "status": "DESIGN"
+    },
+    {
+      "id": "lan_host_integrated",
+      "entry": "hostIntegratedWorld",
+      "inputs": [
+        "host client",
+        "world",
+        "offline-host-support"
+      ],
+      "outputs": [
+        "lanPort"
+      ],
+      "requires": [
+        "supported_version",
+        "firewall_private",
+        "host_game_running"
+      ],
+      "evidence": "DOC only not TLauncher-managed",
+      "status": "UNKNOWN"
+    },
+    {
+      "id": "lan_host_dedicated",
+      "entry": "startModdedDedicatedServer",
+      "inputs": [
+        "serverLock",
+        "gameVersion",
+        "loader",
+        "lanIp",
+        "port"
+      ],
+      "outputs": [
+        "serverPid",
+        "listeningPort"
+      ],
+      "requires": [
+        "server_side_mods",
+        "trusted_lan_only",
+        "online_mode_false",
+        "world_backup"
+      ],
+      "evidence": "server.properties DOC, no server controller in archive",
+      "status": "DESIGN"
+    },
+    {
+      "id": "lan_join",
+      "entry": "joinLAN",
+      "inputs": [
+        "clientLock",
+        "ip",
+        "port"
+      ],
+      "outputs": [
+        "connected_player",
+        "world_loaded"
+      ],
+      "requires": [
+        "mod_loader_match",
+        "shared_files_match",
+        "username_unique",
+        "server_reachable"
+      ],
+      "evidence": "Minecraft multiplayer behavior DOC; needs runtime E2E",
+      "status": "UNKNOWN"
+    },
+    {
+      "id": "lock_sync",
+      "entry": "compareAndSyncPack",
+      "inputs": [
+        "requiredSharedFingerprint",
+        "localFingerPrint"
+      ],
+      "outputs": [
+        "diffs",
+        "reconciledFiles"
+      ],
+      "requires": [
+        "signed_or_trusted_downloads",
+        "no_user_data_overwrite"
+      ],
+      "evidence": "not present as app-to-app sync in 2.923 bytecode",
+      "status": "DESIGN"
+    }
+  ],
+  "modpack_lock_schema_example": {
+    "schemaVersion": 1,
+    "packId": "sample-lan-pack",
+    "packVersion": "1.0.0",
+    "minecraftVersion": "1.20.1",
+    "loader": {
+      "type": "fabric",
+      "version": "PINNED_VERSION"
+    },
+    "requiredSharedFiles": [
+      {
+        "path": "mods/example.jar",
+        "sha256": "<actual checksum before install>",
+        "size": 0,
+        "side": "both",
+        "source": "<trusted approved download URL>"
+      }
+    ],
+    "sharedConfigFiles": [
+      {
+        "path": "config/example-common.toml",
+        "sha256": "<actual checksum>"
+      }
+    ],
+    "excludedPersonalPaths": [
+      "saves/**",
+      "screenshots/**",
+      "logs/**",
+      "options.txt",
+      "servers.dat",
+      "usercache.json",
+      "playerdata/**"
+    ],
+    "fingerprintAlgorithm": "SHA256(canonical JSON of requiredSharedFiles+sharedConfigFiles+minecraftVersion+loader; define RFC-style normalization before implementation)"
+  },
+  "unknowns": [
+    "2026 starter-runtime equivalence",
+    "missing original domain classes",
+    "modpack supported formats in current EXE",
+    "per-loader installer E2E",
+    "integrated host offline-mode behavior for target version",
+    "2 PC LAN handshake",
+    "world UUID persistence in tested server"
+  ],
+  "accepted_when": "real two-client E2E modded gameplay LAN plus inventory persistence; all P0 test statuses PASS",
+  "test_status": "NOT_RUN"
+}

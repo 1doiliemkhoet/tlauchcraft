@@ -1,0 +1,35 @@
+EvidenceID,Class,Method,BytecodePC,InstructionOrFinding,Source
+EV01,MinecraftLauncher,start(boolean),10,collectInfo(),2.923 bytecode
+EV02,MinecraftLauncher,start(boolean),14,downloadResources(),2.923 bytecode
+EV03,MinecraftLauncher,start(boolean),18,checkExtraConditions(),2.923 bytecode
+EV04,MinecraftLauncher,start(boolean),22,constructProcess(),2.923 bytecode
+EV05,MinecraftLauncher,start(boolean),26,launchMinecraft(),2.923 bytecode
+EV06,MinecraftLauncher,start(boolean),30,postLaunch(),2.923 bytecode
+EV07,FreeAuthentication,pass(),17,UUID.randomUUID() on UUID missing,2.923 bytecode
+EV08,ModpackManager,getContainer(),49,checkResources(),2.923 bytecode
+EV09,ModpackManager,getContainer(),113,ClientInstanceRepo.createModpackRepo(),2.923 bytecode
+EV10,ModpackManager,getContainer(),139,checkCompositeResources(),2.923 bytecode
+EV11,ModpackManager,getContainer(),199,MapDownloader,2.923 bytecode
+EV12,ModpackManager,getContainer(),290,FileUtil.getChecksum() for additionalFile,2.923 bytecode
+EV13,ModpackManager,getContainer(),300,UnzipEntityDownloader,2.923 bytecode
+EV14,ModpackManager,checkResources(),58,isUserInstall(),2.923 bytecode
+EV15,ModpackManager,notExistOrCorrect(),53,FileUtil.getChecksum(),2.923 bytecode
+EV16,ModpackManager,addDependencies(),63,DependencyType.INCOMPATIBLE check,2.923 bytecode
+EV17,ModpackManager,addDependencies(),74,DependencyType.OPTIONAL check,2.923 bytecode
+EV18,ModpackManager,addDependencies(),269,addEntityToModpack(),2.923 bytecode
+EV19,ModpackManager,addDependencies(),339,recursive addDependencies(),2.923 bytecode
+EV20,ModpackManager,parseCurse(),5,minecraftinstance.json,2.923 bytecode
+EV21,ModpackManager,parseCurse(),336,createHandleGameEntities() mods,2.923 bytecode
+EV22,ModpackManager,analizeArchiver(),117,RAR archive parsing,2.923 bytecode
+EV23,ModpackManager,analizeArchiver(),132,ZIP archive parsing,2.923 bytecode
+EV24,ModpackManager,lambda$installModPack$3(),35,FileUtil.unzipUniversal(),2.923 bytecode
+EV25,ModpackUtil,getPathByVersion(),9,versions/ prefix,2.923 bytecode
+EV26,DownloaderThread,downloadURL(),49,FileUtil.makeTemp(),2.923 bytecode
+EV27,DownloaderThread,downloadURL(),431,Files.move temp destination,2.923 bytecode
+EV28,UnzipEntityDownloader,onComplete(),17,FileUtil.unzipUniversal(),2.923 bytecode
+EV29,VersionManager,downloadVersion(),31,VersionSyncInfo.getRequiredDownloadables(),2.923 bytecode
+EV30,MinecraftLauncher,getMinecraftArguments(),225,Argument.appliesToCurrentEnvironment(),2.923 bytecode
+EV31,MinecraftLauncher,launchMinecraft(),160,JavaProcessLauncher.start(),2.923 bytecode
+EV32,JavaProcessLauncher,start(),14,ProcessBuilder.start(),2.923 bytecode
+EV33,MinecraftLauncher,onJavaProcessEnded(),13,JavaProcess.getExitCode(),2.923 bytecode
+EV34,MinecraftLauncher,onJavaProcessEnded(),54,CrashDescriptor.scan(),2.923 bytecode

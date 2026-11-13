@@ -1,0 +1,25 @@
+ID,Priority,Scenario,PASS evidence,Status
+L01,P0,Offline profile create / reopen,Username + local profile remain stable; no Microsoft sign-in,NOT_RUN
+L02,P0,Modpack .mrpack import,"Version, loader, mods, overrides correctly planned and installed",NOT_RUN
+L03,P0,Modpack dependency DAG,Required dependencies installed; OPTIONAL prompted; INCOMPATIBLE blocked,NOT_RUN
+L04,P0,Wrong loader / version,Launcher blocks launch with actionable mismatch reason,NOT_RUN
+L05,P0,Install Minecraft client,Validated version JSON client jars libs assets natives present,NOT_RUN
+L06,P0,Java runtime selection,Correct JVM binary/major for target Minecraft+loader,NOT_RUN
+L07,P0,Actual Fabric modded client launch,Minecraft main menu loads; loader + a real content mod recognized,NOT_RUN
+L08,P1,Actual Forge/NeoForge modded client launch,Mod loader starts real game and mod list is correct,NOT_RUN
+L09,P0,Pack lock match across 2 PCs,Required shared fingerprint equal; client-only extras allowed,NOT_RUN
+L10,P0,Dedicated server LAN only,Correct server mod side; online-mode=false; accessible only on trusted LAN,NOT_RUN
+L11,P0,Machine B direct connects,B joins A server on host LAN IPv4:port without Microsoft login,NOT_RUN
+L12,P0,Real modded interaction,A and B interact with a modded block/item and see same effect,NOT_RUN
+L13,P0,World persistence,"Both rejoin with world, inventories and distinct identities preserved",NOT_RUN
+L14,P1,Integrated host offline join,Open to LAN and compatible host-side mod allow B join,NOT_RUN
+L15,P0,Missing mod,Helpful missing-mod diff; repair changes only instance required files,NOT_RUN
+L16,P0,Interrupted/corrupted download,Not marked installed; retry and hash verify; no corrupted files,NOT_RUN
+L17,P0,World backup / pack update,Backup and rollback preserve saves and playerdata,NOT_RUN
+L18,P0,LAN security and permissions,No public port forward; identity spoof warning; restricted firewall,NOT_RUN
+L19,P1,CurseForge archive import,manifest.json+overrides resolved through permitted API/downloads,NOT_RUN
+L20,P1,Offline replay without internet,Preinstalled approved pack and game assets launch from cache,NOT_RUN
+L21,P0,Zip path and symlink safety,"Traversal, absolute paths, symlinks and zip bombs rejected",NOT_RUN
+L22,P0,Crash diagnostics,"PID, stdout/stderr, exit status and crash-report evidence; no false PASS",NOT_RUN
+L23,P1,Shader/resource pack isolation,Client-only visuals not forced on dedicated server,NOT_RUN
+L24,P1,Profile rename & world playerdata,Warning and backup before nickname/auth mode changes,NOT_RUN

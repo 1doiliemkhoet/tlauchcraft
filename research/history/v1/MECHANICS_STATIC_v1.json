@@ -1,0 +1,1338 @@
+{
+  "schema_version": "1.1",
+  "title": "TLauncher reverse engineering mechanics — static evidence",
+  "source": {
+    "file": "TLauncher.exe",
+    "sha256": "c053b982e7ed3ab28eddcc1c74f418bdea7425e1462535a319fde6b2f73197b2",
+    "size_bytes": 72155352,
+    "file_version_resource": "1.268.0.0",
+    "product_version_resource": "1.268.0.0",
+    "pe_timestamp_utc": "2026-08-29T08:56:10Z",
+    "architecture": "x86_64",
+    "format": "PE32+",
+    "entry_point_va": "0x1421BA730",
+    "native_image_internal_filename": "starter-core-1.269-native.exe",
+    "sections": [
+      {
+        "name": ".text",
+        "rva": "0x1000",
+        "virtual_size": 35376496,
+        "file_offset": "0x1000",
+        "raw_size": 35377152
+      },
+      {
+        "name": ".rdata",
+        "rva": "0x21be000",
+        "virtual_size": 638028,
+        "file_offset": "0x21be000",
+        "raw_size": 638976
+      },
+      {
+        "name": ".data",
+        "rva": "0x225a000",
+        "virtual_size": 24576,
+        "file_offset": "0x225a000",
+        "raw_size": 24576
+      },
+      {
+        "name": ".pdata",
+        "rva": "0x2261000",
+        "virtual_size": 544452,
+        "file_offset": "0x2260000",
+        "raw_size": 544768
+      },
+      {
+        "name": ".rodata",
+        "rva": "0x22e6000",
+        "virtual_size": 52616,
+        "file_offset": "0x22e5000",
+        "raw_size": 53248
+      },
+      {
+        "name": ".svm_hea",
+        "rva": "0x22f3000",
+        "virtual_size": 35258368,
+        "file_offset": "0x22f2000",
+        "raw_size": 35258368
+      },
+      {
+        "name": ".rsrc",
+        "rva": "0x4493000",
+        "virtual_size": 10600,
+        "file_offset": "0x4492000",
+        "raw_size": 12288
+      },
+      {
+        "name": ".reloc",
+        "rva": "0x4496000",
+        "virtual_size": 219728,
+        "file_offset": "0x4495000",
+        "raw_size": 221184
+      }
+    ],
+    "authenticode": {
+      "pkcs7_present": true,
+      "signer_subject": "C=SC, ST=Mahé, L=Victoria, O=TLauncher Inc., CN=TLauncher Inc.",
+      "issuer": "Certum Code Signing 2021 CA",
+      "signature_cryptographically_verified": false,
+      "trust_chain_verified": false
+    },
+    "work_method": "offline static byte search + objdump PE headers/disassembly + openssl PKCS#7 certificate decode; no execution, network calls, or Ghidra decompile",
+    "tools": {
+      "objdump": "GNU objdump",
+      "openssl": "openssl pkcs7 -inform DER",
+      "python": "Python standard library"
+    },
+    "limitations": [
+      "Trích xuất string không thể chứng minh call path hoặc thứ tự chạy",
+      "Các class JavaFX/JDK/GraalVM trong binary gây nhiễu lớn",
+      "Chưa có Ghidra pseudocode hay cross-references cho logic ứng dụng",
+      "Các tên file có thể là mẫu/cấu hình không luôn dùng",
+      "Không có capture request network hoặc filesystem runtime",
+      "Không có JAR/component giai đoạn sau trong input"
+    ],
+    "study_zip": "re tlaucher.zip",
+    "study_ghidra_count_as_reported": {
+      "functions": 37349,
+      "strings": 193969,
+      "exports": 702
+    },
+    "string_scan_ascii_min6_count": 174836
+  },
+  "evidence": [
+    {
+      "id": "E001",
+      "category": "bootstrap",
+      "evidence_text": "starter-core-1.269-native.exe",
+      "meaning": "Tên image trong native image / metadata, không đồng nhất với version resource.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".rdata",
+      "file_offset": "0x0224D4E4",
+      "rva": "0x0224D4E4",
+      "va": "0x14224D4E4"
+    },
+    {
+      "id": "E002",
+      "category": "bootstrap",
+      "evidence_text": "by.gdev.Main",
+      "meaning": "Có class Main của ứng dụng.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02925B3F",
+      "rva": "0x02926B3F",
+      "va": "0x142926B3F"
+    },
+    {
+      "id": "E003",
+      "category": "bootstrap",
+      "evidence_text": "by.gdev.Launcher",
+      "meaning": "Có class Launcher của starter.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02EB3F48",
+      "rva": "0x02EB4F48",
+      "va": "0x142EB4F48"
+    },
+    {
+      "id": "E004",
+      "category": "bootstrap",
+      "evidence_text": "by.gdev.component.Starter",
+      "meaning": "Có class khởi động Starter.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029C5590",
+      "rva": "0x029C6590",
+      "va": "0x1429C6590"
+    },
+    {
+      "id": "E005",
+      "category": "bootstrap",
+      "evidence_text": "tlauncher/starter",
+      "meaning": "Chuỗi định danh thư mục starter.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02C40520",
+      "rva": "0x02C41520",
+      "va": "0x142C41520"
+    },
+    {
+      "id": "E006",
+      "category": "config",
+      "evidence_text": "installer.properties",
+      "meaning": "Tên file cấu hình installer.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02925AB9",
+      "rva": "0x02926AB9",
+      "va": "0x142926AB9"
+    },
+    {
+      "id": "E007",
+      "category": "config",
+      "evidence_text": "Working directory where the files required for the application will be loaded and in which the application will be launched. The param used for test. The second way is to put in file with installer.  The file name is installer.properties which contains work.dir=... This is for production. The default method is DesktopUtil.getSystemPath defined with by.gdev.Main. The priority: StarterAppConfig.workDirectory, file installer.properties and default method",
+      "meaning": "Mô tả rõ thứ tự ưu tiên working directory.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029259E0",
+      "rva": "0x029269E0",
+      "va": "0x1429269E0"
+    },
+    {
+      "id": "E008",
+      "category": "config",
+      "evidence_text": "starter.json",
+      "meaning": "Một file cấu hình starter được nhắc tới.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x026FBB22",
+      "rva": "0x026FCB22",
+      "va": "0x1426FCB22"
+    },
+    {
+      "id": "E009",
+      "category": "config",
+      "evidence_text": "appConfig.json",
+      "meaning": "Tên cấu hình ứng dụng được tải/đọc.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029328E6",
+      "rva": "0x029338E6",
+      "va": "0x1429338E6"
+    },
+    {
+      "id": "E010",
+      "category": "config",
+      "evidence_text": "URI of the directory in which appConfig.json is located, which contains all information about the application being launched, this config is used by all applications by default. URI must be specified without version, see version parameter description, should be end with /",
+      "meaning": "Config có URI cơ sở và tên appConfig.json; chưa biết cách xác thực nguồn.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029328C8",
+      "rva": "0x029338C8",
+      "va": "0x1429338C8"
+    },
+    {
+      "id": "E011",
+      "category": "config",
+      "evidence_text": "Specifies the version of the application to launch. Therefore, the config http://localhost:81/app/1.0/appConfig.json for version 1.0 will be used. This way we can install old versions of the application. For this you need set exactly version.",
+      "meaning": "Có tham số chọn phiên bản cụ thể cho appConfig.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02934330",
+      "rva": "0x02935330",
+      "va": "0x142935330"
+    },
+    {
+      "id": "E012",
+      "category": "java",
+      "evidence_text": "jreConfig.json",
+      "meaning": "Nhắc tới cấu hình Java/JRE.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02D71688",
+      "rva": "0x02D72688",
+      "va": "0x142D72688"
+    },
+    {
+      "id": "E013",
+      "category": "java",
+      "evidence_text": "by.gdev.model.JVMConfig",
+      "meaning": "Model JVMConfig.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02C2C5C0",
+      "rva": "0x02C2D5C0",
+      "va": "0x142C2D5C0"
+    },
+    {
+      "id": "E014",
+      "category": "process",
+      "evidence_text": "by.gdev.process.JavaProcessHelper",
+      "meaning": "Class hỗ trợ tạo tiến trình Java.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x0299E030",
+      "rva": "0x0299F030",
+      "va": "0x14299F030"
+    },
+    {
+      "id": "E015",
+      "category": "process",
+      "evidence_text": "by.gdev.model.StarterAppProcess",
+      "meaning": "Model tiến trình ứng dụng được launcher khởi chạy.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B84B78",
+      "rva": "0x02B85B78",
+      "va": "0x142B85B78"
+    },
+    {
+      "id": "E016",
+      "category": "process",
+      "evidence_text": "by.gdev.process.ProcessMonitor",
+      "meaning": "Class giám sát process.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B8ED78",
+      "rva": "0x02B8FD78",
+      "va": "0x142B8FD78"
+    },
+    {
+      "id": "E017",
+      "category": "network",
+      "evidence_text": "https://repo.tlauncher.ru/tlauncher-sources/prod/release/tlauncher/",
+      "meaning": "Repository URL nhúng (sử dụng runtime chưa xác minh).",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A302D8",
+      "rva": "0x02A312D8",
+      "va": "0x142A312D8"
+    },
+    {
+      "id": "E018",
+      "category": "network",
+      "evidence_text": "http://advancedrepository.net/tlauncher-sources/prod/release/tlauncher/",
+      "meaning": "URL HTTP không mã hóa nhúng trong binary (được sử dụng runtime hay không chưa xác minh).",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A30330",
+      "rva": "0x02A31330",
+      "va": "0x142A31330"
+    },
+    {
+      "id": "E019",
+      "category": "network",
+      "evidence_text": "https://repo.fastrepo.org/tlauncher-sources/prod/release/tlauncher/",
+      "meaning": "Repository URL nhúng.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A30388",
+      "rva": "0x02A31388",
+      "va": "0x142A31388"
+    },
+    {
+      "id": "E020",
+      "category": "network",
+      "evidence_text": "https://repo.tlauncher.org/tlauncher-sources/prod/release/tlauncher/",
+      "meaning": "Repository URL nhúng.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A303E0",
+      "rva": "0x02A313E0",
+      "va": "0x142A313E0"
+    },
+    {
+      "id": "E021",
+      "category": "network",
+      "evidence_text": "List of url which use to do requests. When some url or servers are not available, it doesn't do request. It will skip for download file and to do reuests. If we have server file http://example.com/repo than this field should be http://example.com",
+      "meaning": "Mô tả danh sách URL và bỏ qua server không sẵn sàng; chưa xác minh thuật toán chọn mirror.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02934228",
+      "rva": "0x02935228",
+      "va": "0x142935228"
+    },
+    {
+      "id": "E022",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.impl.DownloaderImpl",
+      "meaning": "Class downloader.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02973B60",
+      "rva": "0x02974B60",
+      "va": "0x142974B60"
+    },
+    {
+      "id": "E023",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.impl.DownloadRunnableImpl",
+      "meaning": "Class thực thi tác vụ download.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02ADD078",
+      "rva": "0x02ADE078",
+      "va": "0x142ADE078"
+    },
+    {
+      "id": "E024",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.config.HttpClientConfig",
+      "meaning": "Class cấu hình HTTP client.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02AC49F8",
+      "rva": "0x02AC59F8",
+      "va": "0x142AC59F8"
+    },
+    {
+      "id": "E025",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.impl.FileCacheServiceImpl",
+      "meaning": "Class dịch vụ cache file.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02967F08",
+      "rva": "0x02968F08",
+      "va": "0x142968F08"
+    },
+    {
+      "id": "E026",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.handler.ArchiveHandler",
+      "meaning": "Class xử lý archive.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029743E8",
+      "rva": "0x029753E8",
+      "va": "0x1429753E8"
+    },
+    {
+      "id": "E027",
+      "category": "download",
+      "evidence_text": "by.gdev.http.download.exeption.HashSumAndSizeError",
+      "meaning": "Loại lỗi hash/kích thước.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A98150",
+      "rva": "0x02A99150",
+      "va": "0x142A99150"
+    },
+    {
+      "id": "E028",
+      "category": "download",
+      "evidence_text": "upload.error.hash.sum=Hash sum problem with uri %s.\\n%s",
+      "meaning": "Thông báo lỗi mismatch hash theo URI.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x027626F5",
+      "rva": "0x027636F5",
+      "va": "0x1427636F5"
+    },
+    {
+      "id": "E029",
+      "category": "download",
+      "evidence_text": "download.lock.message=Application is already downloading or a previous instance did not exit cleanly.\\nClose the other process in Task Manager and try again.",
+      "meaning": "UI thông báo single download lock.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02763625",
+      "rva": "0x02764625",
+      "va": "0x142764625"
+    },
+    {
+      "id": "E030",
+      "category": "update",
+      "evidence_text": "by.gdev.handler.UpdateCore",
+      "meaning": "Class xử lý update.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x029C5538",
+      "rva": "0x029C6538",
+      "va": "0x1429C6538"
+    },
+    {
+      "id": "E031",
+      "category": "update",
+      "evidence_text": "by.gdev.updater.Update",
+      "meaning": "Class updater.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x0297A708",
+      "rva": "0x0297B708",
+      "va": "0x14297B708"
+    },
+    {
+      "id": "E032",
+      "category": "update",
+      "evidence_text": "by.gdev.updater.UpdaterFormController",
+      "meaning": "Controller UI cập nhật.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x0297A708",
+      "rva": "0x0297B708",
+      "va": "0x14297B708"
+    },
+    {
+      "id": "E033",
+      "category": "update",
+      "evidence_text": "launcher.update.message.mandatory=-fx-font-family: Calibri; -fx-font-size: 18px; -fx-padding: 16px 0px 0px 0px;|Found a mandatary updater.",
+      "meaning": "Có thông báo cập nhật bắt buộc.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02762E2B",
+      "rva": "0x02763E2B",
+      "va": "0x142763E2B"
+    },
+    {
+      "id": "E034",
+      "category": "update",
+      "evidence_text": "launcher.update.message.optional=-fx-font-family: Calibri; -fx-font-size: 18px; -fx-padding: 16px 0px 0px 0px;|New update found!",
+      "meaning": "Có thông báo cập nhật tùy chọn.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02762EB7",
+      "rva": "0x02763EB7",
+      "va": "0x142763EB7"
+    },
+    {
+      "id": "E035",
+      "category": "update",
+      "evidence_text": "launcher.update.later.button=Remind me later",
+      "meaning": "UI có tùy chọn hoãn cập nhật.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x0276321B",
+      "rva": "0x0276421B",
+      "va": "0x14276421B"
+    },
+    {
+      "id": "E036",
+      "category": "offers",
+      "evidence_text": "accept.and.update=Accept offer and Update",
+      "meaning": "UI cập nhật có nút chấp nhận offer.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02763560",
+      "rva": "0x02764560",
+      "va": "0x142764560"
+    },
+    {
+      "id": "E037",
+      "category": "offers",
+      "evidence_text": "decline.and.update=Decline offer and Update",
+      "meaning": "UI cập nhật có nút từ chối offer.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02763533",
+      "rva": "0x02764533",
+      "va": "0x142764533"
+    },
+    {
+      "id": "E038",
+      "category": "offers",
+      "evidence_text": "by.gdev.updater.InstalledOffer",
+      "meaning": "Model liên quan offer đã cài.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02A810E0",
+      "rva": "0x02A820E0",
+      "va": "0x142A820E0"
+    },
+    {
+      "id": "E039",
+      "category": "offers",
+      "evidence_text": "by.gdev.updater.PointOffer",
+      "meaning": "Model liên quan offer.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B92588",
+      "rva": "0x02B93588",
+      "va": "0x142B93588"
+    },
+    {
+      "id": "E040",
+      "category": "offers",
+      "evidence_text": "installedOffers.json",
+      "meaning": "Tên file ghi nhận offer đã cài.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02C552B8",
+      "rva": "0x02C562B8",
+      "va": "0x142C562B8"
+    },
+    {
+      "id": "E041",
+      "category": "network",
+      "evidence_text": "https://stat.fastrepo.org/updater/save",
+      "meaning": "Endpoint có tên đường dẫn updater/save, chưa chứng minh có request runtime.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B1B0E0",
+      "rva": "0x02B1C0E0",
+      "va": "0x142B1C0E0"
+    },
+    {
+      "id": "E042",
+      "category": "network",
+      "evidence_text": "https://stat.tlauncher.ru/check.bin",
+      "meaning": "Chuỗi URL dùng kiểm tra/đánh giá server (mục đích thực tế chưa xác minh).",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B4B4D8",
+      "rva": "0x02B4C4D8",
+      "va": "0x142B4C4D8"
+    },
+    {
+      "id": "E043",
+      "category": "network",
+      "evidence_text": "https://resource.tlauncher.org/check.bin",
+      "meaning": "Chuỗi URL check.bin nhúng.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B4B580",
+      "rva": "0x02B4C580",
+      "va": "0x142B4C580"
+    },
+    {
+      "id": "E044",
+      "category": "update",
+      "evidence_text": "starterUpdateV2.json",
+      "meaning": "Tên file mô tả bản cập nhật starter.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x03A76470",
+      "rva": "0x03A77470",
+      "va": "0x143A77470"
+    },
+    {
+      "id": "E045",
+      "category": "update",
+      "evidence_text": "additionalUpdateConfiguration-1.4.json",
+      "meaning": "Tên cấu hình update bổ sung.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B4B698",
+      "rva": "0x02B4C698",
+      "va": "0x142B4C698"
+    },
+    {
+      "id": "E046",
+      "category": "config",
+      "evidence_text": "tlauncher-2.0.properties",
+      "meaning": "Tên file cấu hình TLauncher.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02C2A9F0",
+      "rva": "0x02C2B9F0",
+      "va": "0x142C2B9F0"
+    },
+    {
+      "id": "E047",
+      "category": "validation",
+      "evidence_text": "by.gdev.handler.ValidateEnvironment",
+      "meaning": "Class kiểm tra environment.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B24220",
+      "rva": "0x02B25220",
+      "va": "0x142B25220"
+    },
+    {
+      "id": "E048",
+      "category": "validation",
+      "evidence_text": "by.gdev.handler.ValidateWorkDir",
+      "meaning": "Class kiểm tra quyền working directory.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02BB8E38",
+      "rva": "0x02BB9E38",
+      "va": "0x142BB9E38"
+    },
+    {
+      "id": "E049",
+      "category": "validation",
+      "evidence_text": "by.gdev.handler.ValidateTempDir",
+      "meaning": "Class kiểm tra TEMP directory.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B961B8",
+      "rva": "0x02B971B8",
+      "va": "0x142B971B8"
+    },
+    {
+      "id": "E050",
+      "category": "validation",
+      "evidence_text": "by.gdev.handler.ValidatedPartionSize",
+      "meaning": "Class kiểm tra dung lượng phân vùng.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B1ED08",
+      "rva": "0x02B1FD08",
+      "va": "0x142B1FD08"
+    },
+    {
+      "id": "E051",
+      "category": "validation",
+      "evidence_text": "by.gdev.handler.X32Interceptor",
+      "meaning": "Class xử lý OS x86.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02B8E238",
+      "rva": "0x02B8F238",
+      "va": "0x142B8F238"
+    },
+    {
+      "id": "E052",
+      "category": "update",
+      "evidence_text": "update.app=The current application version is %s. Do you want to update application to version %s?\\nThe changes you can see by link.",
+      "meaning": "UI so sánh phiên bản hiện tại và mới.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02762ADB",
+      "rva": "0x02763ADB",
+      "va": "0x142763ADB"
+    },
+    {
+      "id": "E053",
+      "category": "game_unknown",
+      "evidence_text": "https://launchermeta.mojang.com/v1/packages/3d8e55480977e32acd9844e545177e69a52f594b/pre-1.6.json",
+      "meaning": "Có 1 URL Mojang trong EXE; riêng sự hiện diện không chứng minh game version management.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02960720",
+      "rva": "0x02961720",
+      "va": "0x142961720"
+    },
+    {
+      "id": "E054",
+      "category": "ui",
+      "evidence_text": "JNI_OnLoad_javafx_font",
+      "meaning": "Có JavaFX native bindings.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".rdata",
+      "file_offset": "0x0224DA03",
+      "rva": "0x0224DA03",
+      "va": "0x14224DA03"
+    },
+    {
+      "id": "E055",
+      "category": "runtime",
+      "evidence_text": "IsolateEnterStub__JavaMainWrapper__run",
+      "meaning": "Có GraalVM isolate main wrapper.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".rdata",
+      "file_offset": "0x0224D92B",
+      "rva": "0x0224D92B",
+      "va": "0x14224D92B"
+    },
+    {
+      "id": "E056",
+      "category": "runtime",
+      "evidence_text": "com.oracle.svm.core.VM.Target.CCompiler=cl|microsoft|x64|19.51.36248",
+      "meaning": "GraalVM SVM metadata + MSVC compiler info.",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".data",
+      "file_offset": "0x0225B4D0",
+      "rva": "0x0225B4D0",
+      "va": "0x14225B4D0"
+    },
+    {
+      "id": "E057",
+      "category": "ui",
+      "evidence_text": "/newTlauncher.png",
+      "meaning": "Tên tài nguyên UI (không phải screenshot toàn launcher).",
+      "support": "binary exact bytes",
+      "confidence": "direct",
+      "section": ".svm_hea",
+      "file_offset": "0x02C48860",
+      "rva": "0x02C49860",
+      "va": "0x142C49860"
+    }
+  ],
+  "flows": [
+    {
+      "id": "L01",
+      "name": "Bootstrap/khởi động",
+      "status": "supported_structure",
+      "confidence": "high",
+      "evidence_ids": [
+        "E002",
+        "E003",
+        "E004",
+        "E001",
+        "E005",
+        "E055"
+      ],
+      "observed": "Có entrypoint native GraalVM; các class Main, Launcher và Starter. Thứ tự gọi thực tế chưa xác nhận.",
+      "needs_verification": "Entry point → native runtime → JavaMainWrapper → Main/Launcher/Starter [sơ đồ suy luận, cần xref].",
+      "code_written": false,
+      "contract": {
+        "trigger": "Windows starts TLauncher.exe",
+        "inputs": [
+          {
+            "name": "PE entry point",
+            "status": "direct",
+            "value": "0x1421BA730"
+          }
+        ],
+        "decisions": [],
+        "side_effects": [],
+        "output": "Run GraalVM native image entrypoint; subsequent Java class order unknown",
+        "uncertainties": [
+          "by.gdev.Main call path",
+          "initial JVM/GraalVM isolation init sequence",
+          "single-instance policy"
+        ]
+      }
+    },
+    {
+      "id": "L02",
+      "name": "Workdir/config",
+      "status": "partial_verified",
+      "confidence": "high",
+      "evidence_ids": [
+        "E007",
+        "E006",
+        "E008",
+        "E010",
+        "E011",
+        "E046"
+      ],
+      "observed": "Thứ tự ưu tiên working directory được mô tả rõ trong string. Cấu hình appConfig được định vị theo base URI và phiên bản.",
+      "needs_verification": "Cần xem nội dung thực tế các JSON và code parse + default values.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Starter resolves application paths and remote config (exact call order unverified)",
+        "inputs": [
+          {
+            "name": "StarterAppConfig.workDirectory",
+            "status": "documented_in_binary"
+          },
+          {
+            "name": "installer.properties:work.dir",
+            "status": "documented_in_binary"
+          },
+          {
+            "name": "DesktopUtil.getSystemPath",
+            "status": "documented_default"
+          },
+          {
+            "name": "remote app config URI",
+            "status": "documented_in_binary"
+          },
+          {
+            "name": "application version",
+            "status": "documented_in_binary"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "working_directory_precedence",
+            "status": "documented_in_binary",
+            "order": [
+              "StarterAppConfig.workDirectory",
+              "installer.properties work.dir",
+              "DesktopUtil.getSystemPath"
+            ]
+          },
+          {
+            "rule": "remote_application_config_resolves_from_base_URI_and_version",
+            "status": "documented_in_binary",
+            "example_only": "http://localhost:81/app/1.0/appConfig.json"
+          }
+        ],
+        "side_effects": [],
+        "output": "Working directory and app config location; actual config content unknown",
+        "uncertainties": [
+          "behavior with absent/invalid config",
+          "normalization/validation of URL",
+          "whether directory is created"
+        ]
+      }
+    },
+    {
+      "id": "L03",
+      "name": "Repository/network selection",
+      "status": "partial_verified",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E017",
+        "E018",
+        "E019",
+        "E020",
+        "E021",
+        "E042"
+      ],
+      "observed": "Các repo cố định và mô tả bỏ qua server không phản hồi xuất hiện trong EXE.",
+      "needs_verification": "Không biết trình tự fallback, timeout, TLS pinning, proxy/auth, URL thực sự được gọi.",
+      "code_written": false,
+      "contract": {
+        "trigger": "When remote app metadata/file requests needed (unverified timing)",
+        "inputs": [
+          {
+            "name": "repository URL list",
+            "status": "direct",
+            "count_embedded": 4
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "Some unavailable servers may be skipped",
+            "status": "documented_in_binary"
+          }
+        ],
+        "side_effects": [
+          {
+            "name": "network requests",
+            "status": "inferred_from_module_names"
+          }
+        ],
+        "output": "Remote metadata/files; not captured",
+        "uncertainties": [
+          "priority/fallback order",
+          "actual contacted hosts",
+          "HTTPS pinning/certificate checks",
+          "HTTP plaintext used?",
+          "timeouts"
+        ]
+      }
+    },
+    {
+      "id": "L04",
+      "name": "Download/cache/verify",
+      "status": "supported_structure",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E022",
+        "E023",
+        "E024",
+        "E025",
+        "E026",
+        "E027",
+        "E028",
+        "E029"
+      ],
+      "observed": "Có downloader, cache, archive, lỗi hash/size, thông báo lock; không suy ra chính xác giải thuật hash hay retry.",
+      "needs_verification": "Đòi pseudocode hoặc request/response và file hashes thực tế.",
+      "code_written": false,
+      "contract": {
+        "trigger": "When application dependency files must be downloaded",
+        "inputs": [
+          {
+            "name": "remote metadata / file URLs",
+            "status": "inferred"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "hash and size mismatch can surface error",
+            "status": "supported_by_class_and_UI"
+          },
+          {
+            "rule": "another download in progress can surface lock error",
+            "status": "supported_by_UI"
+          }
+        ],
+        "side_effects": [
+          {
+            "name": "download/cache/archive",
+            "status": "supported_structure"
+          }
+        ],
+        "output": "Local files (names and paths unknown)",
+        "uncertainties": [
+          "hash algorithm",
+          "resume/retry rules",
+          "secure extraction",
+          "atomic move",
+          "file permissions"
+        ]
+      }
+    },
+    {
+      "id": "L05",
+      "name": "Java runtime provisioning",
+      "status": "supported_structure",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E012",
+        "E013",
+        "E014"
+      ],
+      "observed": "Có JVMConfig và jreConfig; cách lựa chọn / tải JVM chưa được xác nhận.",
+      "needs_verification": "Cần JRE config thực tế + Process command-line sanitized.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Prior to child process launch (ordering unverified)",
+        "inputs": [
+          {
+            "name": "jreConfig.json",
+            "status": "name_only"
+          },
+          {
+            "name": "JVMConfig",
+            "status": "class_only"
+          }
+        ],
+        "decisions": [],
+        "side_effects": [
+          {
+            "name": "possible JVM setup/download",
+            "status": "inferred"
+          }
+        ],
+        "output": "Java runtime path/config (unknown)",
+        "uncertainties": [
+          "exact Java version selection",
+          "JVM args",
+          "runtime source and integrity"
+        ]
+      }
+    },
+    {
+      "id": "L06",
+      "name": "Launch child application",
+      "status": "supported_structure",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E015",
+        "E014",
+        "E016"
+      ],
+      "observed": "Có lớp tạo và theo dõi process; chưa biết lệnh thực tế, đối tượng được gọi là JAR, exe hay module khác.",
+      "needs_verification": "Cần full child process image/path/arguments (ẩn token), xrefs.",
+      "code_written": false,
+      "contract": {
+        "trigger": "After files and runtime prepared (ordering inferred)",
+        "inputs": [
+          {
+            "name": "StarterAppProcess",
+            "status": "class_name"
+          },
+          {
+            "name": "JavaProcessHelper",
+            "status": "class_name"
+          }
+        ],
+        "decisions": [],
+        "side_effects": [
+          {
+            "name": "child process creation and monitoring",
+            "status": "supported_structure"
+          }
+        ],
+        "output": "Child process identity/exit code (not captured)",
+        "uncertainties": [
+          "child app path",
+          "argv",
+          "launch token handling",
+          "exit code behavior",
+          "log storage"
+        ]
+      }
+    },
+    {
+      "id": "L07",
+      "name": "Update starter/application",
+      "status": "partial_verified",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E030",
+        "E031",
+        "E032",
+        "E033",
+        "E034",
+        "E035",
+        "E044",
+        "E045",
+        "E052"
+      ],
+      "observed": "Có UI bắt buộc/tùy chọn, so sánh version, tên JSON update; không rõ xác thực các bản cập nhật.",
+      "needs_verification": "Cần config response + logic verify/rollback.",
+      "code_written": false,
+      "contract": {
+        "trigger": "When application / starter update is available (condition unknown)",
+        "inputs": [
+          {
+            "name": "current version / new version",
+            "status": "UI_text"
+          },
+          {
+            "name": "starterUpdateV2.json",
+            "status": "filename_only"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "mandatory vs optional update message",
+            "status": "UI_labels_only"
+          },
+          {
+            "rule": "remind me later",
+            "status": "UI_label_only"
+          }
+        ],
+        "side_effects": [
+          {
+            "name": "possible download/replace restart",
+            "status": "inferred_from_UI"
+          }
+        ],
+        "output": "Updated version / postponement (unknown)",
+        "uncertainties": [
+          "mandatory criteria",
+          "update source verification",
+          "rollback",
+          "how restart invoked"
+        ]
+      }
+    },
+    {
+      "id": "L08",
+      "name": "Update offers",
+      "status": "partial_verified",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E036",
+        "E037",
+        "E038",
+        "E039",
+        "E040"
+      ],
+      "observed": "Có UI chấp nhận/từ chối offer và model tracking offers. Không chứng minh phần mềm ngoài được cài tự động.",
+      "needs_verification": "Cần xác định tải gì, checkbox default, consent/side-effects, dữ liệu offer.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Offer shown during update (actual trigger unknown)",
+        "inputs": [
+          {
+            "name": "Offer / InstalledOffer / PointOffer",
+            "status": "class_names"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "Accept offer and Update",
+            "status": "UI_label_only"
+          },
+          {
+            "rule": "Decline offer and Update",
+            "status": "UI_label_only"
+          }
+        ],
+        "side_effects": [
+          {
+            "name": "potential install or offer tracking",
+            "status": "unverified"
+          }
+        ],
+        "output": "Update flow proceeds, side effect unverified",
+        "uncertainties": [
+          "offer payload",
+          "consent default",
+          "automatic installation",
+          "persistence"
+        ]
+      }
+    },
+    {
+      "id": "L09",
+      "name": "Environment validation",
+      "status": "partial_verified",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E047",
+        "E048",
+        "E049",
+        "E050",
+        "E051"
+      ],
+      "observed": "Có class kiểm tra working dir, TEMP, free space, OS 32-bit.",
+      "needs_verification": "Cần xrefs để biết các lỗi có chặn khởi động không.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Startup validation (order unknown)",
+        "inputs": [
+          {
+            "name": "working directory/temp/free space/architecture",
+            "status": "classes_and_messages"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "emit errors for access/space/32-bit",
+            "status": "UI_supported"
+          }
+        ],
+        "side_effects": [],
+        "output": "validation message/status (not captured)",
+        "uncertainties": [
+          "checks that block launch",
+          "filesystem/registry effects"
+        ]
+      }
+    },
+    {
+      "id": "L10",
+      "name": "UI/errors/logging",
+      "status": "partial_verified",
+      "confidence": "medium",
+      "evidence_ids": [
+        "E054",
+        "E057",
+        "E028",
+        "E029"
+      ],
+      "observed": "UI JavaFX + đa ngôn ngữ và thông báo updater.",
+      "needs_verification": "Không có ảnh runtime hoặc handler UI đủ chi tiết.",
+      "code_written": false,
+      "contract": {
+        "trigger": "User interacts with starter/updater",
+        "inputs": [
+          {
+            "name": "JavaFX localization resources",
+            "status": "direct"
+          }
+        ],
+        "decisions": [
+          {
+            "rule": "Update/Remind later/Offer buttons",
+            "status": "UI_text"
+          }
+        ],
+        "side_effects": [
+          {
+            "name": "copy log link to clipboard",
+            "status": "UI_label_only"
+          }
+        ],
+        "output": "Starter UI, not verified Minecraft main UI",
+        "uncertainties": [
+          "UI navigation graph",
+          "screenshots",
+          "button event handlers"
+        ]
+      }
+    },
+    {
+      "id": "L11",
+      "name": "Telemetry/security",
+      "status": "unverified_behavior",
+      "confidence": "low",
+      "evidence_ids": [
+        "E041",
+        "E018",
+        "E036",
+        "E037"
+      ],
+      "observed": "Có chuỗi endpoint stat, HTTP repository và update offers.",
+      "needs_verification": "Chưa có network capture/hành vi thực tế; không khẳng định malware/đánh cắp dữ liệu.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Any network/update operation (actual events unknown)",
+        "inputs": [
+          {
+            "name": "stat.fastrepo.org/updater/save",
+            "status": "embedded_url"
+          },
+          {
+            "name": "HTTP repository",
+            "status": "embedded_url"
+          }
+        ],
+        "decisions": [],
+        "side_effects": [
+          {
+            "name": "possible telemetry / remote download / third-party offers",
+            "status": "not_verified"
+          }
+        ],
+        "output": "No observed runtime evidence",
+        "uncertainties": [
+          "data sent",
+          "frequency",
+          "tracking ID",
+          "security posture",
+          "registry/task modifications"
+        ]
+      }
+    },
+    {
+      "id": "L12",
+      "name": "Minecraft accounts/versions/mods",
+      "status": "not_in_evidence",
+      "confidence": "low",
+      "evidence_ids": [
+        "E053"
+      ],
+      "observed": "Không tìm thấy chứng cứ trực tiếp cho full account/versions/mod management trong tập string chuyên biệt của EXE này; có thể nằm ở payload/launcher giai đoạn sau.",
+      "needs_verification": "Phải lấy JAR/module được starter tải rồi mới mô tả đúng login/version/launch Minecraft.",
+      "code_written": false,
+      "contract": {
+        "trigger": "Game launcher after bootstrap (not analyzed)",
+        "inputs": [],
+        "decisions": [],
+        "side_effects": [],
+        "output": "UNKNOWN: no downstream payload in current inputs",
+        "uncertainties": [
+          "login/account flows",
+          "version manifest & installer",
+          "Forge/Fabric/mods",
+          "game JVM command",
+          "game exit/logging"
+        ]
+      }
+    }
+  ],
+  "confidence_rule": {
+    "direct": "Chuỗi/metadata chính xác trong EXE",
+    "high": "Có dấu vết app-specific hoặc mô tả rõ",
+    "medium": "Có class hoặc UI string nhưng thiếu call graph",
+    "low": "Chỉ suy luận/không có evidence runtime"
+  },
+  "critical_finding": "TLauncher.exe hiện có cấu trúc starter/updater; không đủ chứng minh logic quản lý Minecraft chính nằm trong chính file này.",
+  "build_gate": "NOT_READY: chưa có child launcher payload và luồng auth/version/game launch verified",
+  "next_required_artifacts": [
+    "File JAR/component được tải bởi starter (ưu tiên) và SHA256",
+    "appConfig.json, starter.json, jreConfig.json đã lược bỏ token/secret",
+    "Log/tên tiến trình con và arguments được lược bỏ thông tin cá nhân",
+    "Network requests sanitized trong VM nếu cần",
+    "Ghidra function pseudocode/xrefs cho by.gdev.* các chức năng trọng yếu nếu vẫn thiếu"
+  ]
+}
