@@ -1,0 +1,24 @@
+# tlauchcraft — Minecraft Offline / LAN Launcher Research
+
+> Research and specifications only. **No launcher implementation or E2E validation yet.**
+
+## Goal
+
+Build a functional Minecraft Java launcher focused on **local/offline player profiles**, **Singleplayer**, real **modpack installation and launch** (Fabric, Forge, NeoForge), and **LAN play between machines**. No Microsoft/Xbox/Premium login integration in scope.
+
+## Acceptance criteria
+
+- Start a real Minecraft Java client with a local profile.
+- Create, save and reopen Singleplayer worlds.
+- Install, resolve dependencies and launch real modpacks.
+- Support host/join over trusted LAN, with verified mod compatibility.
+- Preserve world and player identity through restarts, with logs and crash diagnostics.
+- Treat each behavior as unverified until demonstrated by actual runs. A UI mock is insufficient.
+
+## Study basis
+
+Research from static inspection of TLauncher 2026 starter/installer and historical TLauncher 2.923 bytecode. Findings from the historical bytecode are not automatically proof of behavior in the 2026 binary. Any reverse-engineered references must be verified before implementation.
+
+**Legal/security note:** Local/offline profiles do not confer a Minecraft license. This repository does not include third-party EXEs, JARs, Minecraft game assets, access tokens, credentials or any copyrighted binary payloads. Restrict offline servers to trusted LANs because names/identities may be spoofed.
+
+See `ROADMAP.md`, `PROVENANCE.md`, and `docs/` for the study materials as they are imported.
