@@ -254,6 +254,9 @@ pub struct VanillaIdentity {
     /// Caller supplies an appropriate token from their authorized game session.
     pub access_token: String,
     pub user_type: String,
+    /// Optional session claims used by current Mojang argument templates.
+    pub client_id: String,
+    pub xuid: String,
 }
 
 #[derive(Debug, Clone)]
@@ -315,6 +318,14 @@ pub fn build_vanilla_launch(
     {
         return Err(GameError::InvalidInput("invalid player username".into()));
     }
+    if !(identity.game_uuid.len() == 32 || identity.game_uuid.len() == 36)
+        || !identity
+            .game_uuid
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit() || c == b'-')
+    {
+        return Err(GameError::InvalidInput("invalid game UUID".into()));
+    }
     let id = version_text(version, "id")?;
     let values = HashMap::from([
         ("auth_player_name".to_owned(), identity.username.clone()),
@@ -324,6 +335,8 @@ pub fn build_vanilla_launch(
             identity.access_token.clone(),
         ),
         ("user_type".to_owned(), identity.user_type.clone()),
+        ("clientid".to_owned(), identity.client_id.clone()),
+        ("auth_xuid".to_owned(), identity.xuid.clone()),
         ("version_name".to_owned(), id.to_owned()),
         ("version_type".to_owned(), "release".to_owned()),
         (
@@ -378,6 +391,25 @@ pub fn build_vanilla_launch(
     jvm_values.insert("classpath".into(), classpath_value);
     jvm_values.insert("classpath_separator".into(), ";".into());
     jvm_args = expand_arguments(&filtered, &jvm_values)?;
+    if let Some(argument) = version
+        .get("logging")
+        .and_then(|v| v.get("client"))
+        .and_then(|v| v.get("argument"))
+        .and_then(Value::as_str)
+    {
+        let log_config = planned
+            .iter()
+            .find(|file| file.role == FileRole::LoggingConfig)
+            .ok_or_else(|| GameError::InvalidInput("logging config missing".into()))?;
+        if !log_config.target.is_file() {
+            return Err(GameError::InvalidInput("logging config not installed".into()));
+        }
+        let expanded = argument.replace("${path}", &log_config.target.to_string_lossy());
+        if expanded.contains("${") {
+            return Err(GameError::InvalidInput("unresolved logging argument".into()));
+        }
+        jvm_args.push(expanded);
+    }
     game_args.shrink_to_fit();
     Ok(LaunchConfig {
         java: paths.java.clone(),
@@ -453,6 +485,8 @@ mod tests {
             username: "Player_01".into(),
             access_token: String::new(),
             user_type: "legacy".into(),
+            client_id: String::new(),
+            xuid: String::new(),
         };
         assert!(build_vanilla_launch(
             &json!({"id":"1.21.1","javaVersion":{"majorVersion":21}}),
