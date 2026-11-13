@@ -102,7 +102,7 @@
 ## Chat 4 — Modpack ZIP Import
 
 - **Branch:** `feat/tl-04-modpack`
-- **Branch HEAD:** [`356b4ba0d6157894fb6e02e4d06af56d0fae18fb`](https://github.com/1doiliemkhoet/tlauchcraft/commit/356b4ba0d6157894fb6e02e4d06af56d0fae18fb)
+- **Branch HEAD:** [`b10a83b66e0bdda33eb446b94f00a6b3fcffda39`](https://github.com/1doiliemkhoet/tlauchcraft/commit/b10a83b66e0bdda33eb446b94f00a6b3fcffda39)
 - **Issue:** [#4](https://github.com/1doiliemkhoet/tlauchcraft/issues/4)
 - **PR to develop:** [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) — OPEN, DRAFT, UNREVIEWED, not merged.
 - **Status:** `PR_OPEN_UNREVIEWED` / `IN_PROGRESS`; archive inspector `IMPLEMENTED` as source code; testing `NOT_TESTED`; end-to-end `BLOCKED` / `NOT_VERIFIED`.
