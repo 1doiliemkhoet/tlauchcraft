@@ -72,15 +72,15 @@ pub fn permitted(rules: Option<&Value>, env: &Environment) -> bool {
     };
     let mut result = false;
     for rule in items {
-        let os_matches = rule.get("os").is_none_or( |os| {
+        let os_matches = rule.get("os").is_none_or(|os| {
             os.get("name")
                 .and_then(Value::as_str)
-                .is_none_or( |v| v == env.os)
+                .is_none_or(|v| v == env.os)
                 && os
                     .get("arch")
                     .and_then(Value::as_str)
-                    .is_none_or( |v| v == env.arch || (v == "x86" && env.arch == "x86"))
-                && os.get("version").and_then(Value::as_str).is_none_or( |v| {
+                    .is_none_or(|v| v == env.arch || (v == "x86" && env.arch == "x86"))
+                && os.get("version").and_then(Value::as_str).is_none_or(|v| {
                     // Fail closed on regex constraints until a tested regex engine is integrated.
                     !v.is_empty() && v == env.os_version
                 })
@@ -88,7 +88,7 @@ pub fn permitted(rules: Option<&Value>, env: &Environment) -> bool {
         let features_match = rule
             .get("features")
             .and_then(Value::as_object)
-            .is_none_or( |f| {
+            .is_none_or(|f| {
                 f.iter().all(|(k, v)| {
                     env.features.get(k).copied().unwrap_or(false) == v.as_bool().unwrap_or(false)
                 })
@@ -154,7 +154,7 @@ pub fn inherit(parent: &Value, child: &Value) -> Result<Value, GameError> {
                 args.insert(kind.clone(), Value::Array(old));
             }
             base.insert(key.clone(), Value::Object(args));
-        } else if value.is_object() && base.get(key).is_some_and( Value::is_object) {
+        } else if value.is_object() && base.get(key).is_some_and(Value::is_object) {
             let mut old = base
                 .get(key)
                 .and_then(Value::as_object)
