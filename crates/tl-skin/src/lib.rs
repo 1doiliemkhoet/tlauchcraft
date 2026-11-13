@@ -32,8 +32,8 @@ impl From<std::io::Error> for SkinError { fn from(e: std::io::Error) -> Self { S
 impl From<serde_json::Error> for SkinError { fn from(e: serde_json::Error) -> Self { Self::Json(e) } }
 pub type Result<T> = std::result::Result<T, SkinError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Model { Classic, Slim }
+// Share the canonical Foundation model and selection contract (no duplicate UUID types).
+pub use tl_core::{SkinModel as Model, SkinSelection};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Visibility { PreviewOnly, ProviderReadyUnverified, LocalVerified, PeerVerified }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,13 +43,6 @@ pub struct SkinRecord {
     pub sha256: String,
     pub model: Model,
     pub legacy: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SkinSelection {
-    pub profile_id: Uuid,
-    pub skin_id: Uuid,
-    pub model: Model,
-    pub cape_id: Option<Uuid>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct Catalog {
