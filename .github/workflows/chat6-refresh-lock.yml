@@ -1,0 +1,34 @@
+name: Chat 6 temporary Windows Cargo.lock regeneration
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/chat6-refresh-lock.yml'
+permissions:
+  contents: read
+concurrency:
+  group: chat6-lock-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  lock:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+      - name: Cargo lock from Windows
+        shell: pwsh
+        run: |
+          cargo generate-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $meta = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output ("WORKSPACE_PACKAGES:" + (($meta.packages | ForEach-Object { $_.name }) -join ','))
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("Cargo.lock"))
+          for ($i = 0; $i -lt $b64.Length; $i += 3000) {
+            Write-Output ("LOCK_PART:" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i)))
+          }
