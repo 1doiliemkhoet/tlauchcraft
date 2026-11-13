@@ -40,7 +40,8 @@ jobs:
           $missing = @()
           Get-ChildItem -Path crates -Directory | ForEach-Object {
             $manifest = Join-Path $_.FullName 'Cargo.toml'
-            if ((Test-Path $manifest) -and ($members -notcontains [IO.Path]::GetFullPath($manifest).ToLowerInvariant())) {
+            $candidate = [IO.Path]::GetFullPath($manifest).ToLowerInvariant()
+            if ((Test-Path $manifest) -and ($members -notcontains $candidate)) {
               $missing += $manifest
             }
           }
