@@ -91,3 +91,23 @@ fn fill_mirror_palette_and_undo() {
     assert!(e.mirror_region(63,63,2,2).is_err());
     assert_eq!(atlas_regions().len(),12);
 }
+
+#[test]
+fn foundation_identity_and_skin_selection_stay_aligned() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = SkinLibrary::open(dir.path()).unwrap();
+    let mut profile = tl_core::OfflineProfile::new("SkinPlayer").unwrap();
+    let stable_id = profile.id;
+    assert!(db.validate_foundation_profile(&profile).is_ok());
+    let skin = db.import_png("Local", &encode_png(&image(64)).unwrap(), Model::Slim).unwrap();
+    db.assign_foundation_profile(&mut profile, skin.id, Model::Slim).unwrap();
+    assert_eq!(profile.id, stable_id);
+    assert_eq!(profile.skin_id, Some(skin.id));
+    assert_eq!(db.selection(profile.id, None).unwrap().model, Model::Slim);
+    assert!(db.validate_foundation_profile(&profile).is_ok());
+    let mut stale = profile.clone();
+    stale.skin_id = None;
+    assert!(db.validate_foundation_profile(&stale).is_err());
+    let reopened = SkinLibrary::open(dir.path()).unwrap();
+    assert_eq!(reopened.selection(stable_id, None).unwrap().skin_id, skin.id);
+}
