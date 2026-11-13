@@ -24,7 +24,7 @@
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 9 AUTHORED · NOT_TESTED | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
-| [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN · unreviewed** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_TESTED | NOT_VERIFIED |
 
 ---
 
@@ -167,19 +167,19 @@
 ## Chat 7 — Desktop UI & Packaging
 
 - **Branch:** `feat/tl-07-desktop`
-- **Snapshot branch HEAD:** `9be7001d7c3ed6fc3f94d82639340d0d8c6fe46b` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **Branch HEAD:** [`9be7001d7c3ed6fc3f94d82639340d0d8c6fe46b`](https://github.com/1doiliemkhoet/tlauchcraft/commit/9be7001d7c3ed6fc3f94d82639340d0d8c6fe46b)
 - **Issue:** [#7](https://github.com/1doiliemkhoet/tlauchcraft/issues/7)
-- **PR to develop:** [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 7 updates its own section with concrete results, commits and evidence URLs.
+- **PR to develop:** [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) — OPEN DRAFT; NOT MERGED
+- **Status:** `PR_OPEN_UNREVIEWED` / `IN_PROGRESS`; source scaffold `IMPLEMENTED`, functionality `NOT_VERIFIED`
+- **Updated at:** 2026-11-13 (Chat 7 report)
+- **Summary / implemented functionality:** Tauri 2 + React/TypeScript desktop scaffold, navigation for offline profiles, instance/version selection, pack archive picker (.zip/.mrpack), skin preview/visibility status, trusted LAN status, settings, download progress, session logs and error feedback. Typed backend adapter negotiates capabilities; Tauri host currently advertises all core features as unavailable. Controls requiring real backend are disabled; no simulated game launch, download or successful archive import.
+- **Changed paths / API impact:** `apps/desktop/src/App.tsx`, `src/backend.ts`, `src/backend.test.ts`, `src/main.tsx`, `src/style.css`, `src-tauri/src/main.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.png`, package/toolchain setup and `apps/desktop/README.md`. Only `apps/desktop/**` changed in feature PR. Proposed command names (`desktop_capabilities`, `profile_list`, `profile_create`, `instance_list`, `version_list`, `pack_import`, `game_launch`, `operation_cancel`, `skin_list`, `lan_status`) are NOT frozen/implemented interfaces; pending Control approval.
+- **Test commands and observed results:** `cd apps/desktop; npm install; npm run test` — `NOT_TESTED` (not executed). `npm run build`, `npm run tauri dev`, `npm run tauri build` — `NOT_TESTED`. Source unit tests cover capability gating, extension filter and percent bounds but have NOT been executed; do not infer PASS. GitHub branch/PR existence confirmed through GitHub API.
+- **Real device / Minecraft / modpack evidence:** `NOT_TESTED`; no Windows installer hash, clean-machine smoke, Java/Minecraft PID, world, two-PC LAN or real skin screenshot.
+- **Acceptance gates G0–G8:** G0 `BLOCKED` (shared Rust/Tauri facade pending); G1 `NOT_VERIFIED` (build/test not run); G2–G8 `NOT_VERIFIED`.
+- **Blockers / dependencies / risks:** Requires Chat 1 frozen Rust shared types and registered Tauri facade; Chat 2/3 game/versions; Chat 4 pack import; Chat 5 LAN; Chat 6 skin integration. Browser drag/drop intentionally does not trust a native path; native file dialog used. Windows toolchain, NSIS and WebView2 packaging untested.
+- **Pending decisions for Control:** Approve stable Tauri command names/argument/return shapes, error schema, capability negotiation, event subscription/cancellation semantics, frontend packaging/signing/update policy. Decide integration sequencing after Chat 1.
+- **Next actions:** Run and fix npm/Vitest/TypeScript checks, add UI and command integration tests; wire actual feature commands only after Rust API approval; build unsigned NSIS and record Windows clean-machine smoke evidence. Control to review PR; DO NOT MERGE.
 
 <!-- CHAT-07:END -->
 
