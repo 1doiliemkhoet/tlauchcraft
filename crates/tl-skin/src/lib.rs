@@ -300,7 +300,7 @@ pub fn lan_share_payload(consent: bool, image: &SkinImage) -> Result<Option<Vec<
     Ok(Some(encoded))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UvRegion { pub name: &'static str, pub x: u32, pub y: u32, pub width: u32, pub height: u32 }
 /// Atlas rectangles for the main 64x64 Minecraft skin regions. UI can use these
 /// for layer toggles and texture inspection; a 3D mesh renderer is still required.
