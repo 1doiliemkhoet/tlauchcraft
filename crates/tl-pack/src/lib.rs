@@ -227,11 +227,16 @@ fn parse_loader(id: &str) -> Result<Loader, PackError> {
     })
 }
 
-type ParsedPack = (String, String, Loader, Vec<PlannedFile>, String, Vec<String>);
+type ParsedPack = (
+    String,
+    String,
+    Loader,
+    Vec<PlannedFile>,
+    String,
+    Vec<String>,
+);
 
-fn from_cf<R: Read + std::io::Seek>(
-    zip: &mut ZipArchive<R>,
-) -> Result<ParsedPack, PackError> {
+fn from_cf<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<ParsedPack, PackError> {
     let doc: CfManifest = serde_json::from_slice(&read_metadata(zip, "manifest.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     if doc.name.trim().is_empty() || doc.minecraft.version.trim().is_empty() {
@@ -278,9 +283,7 @@ fn from_cf<R: Read + std::io::Seek>(
     Ok((doc.name, doc.minecraft.version, loader, files, format!("{normalized}/"),
         vec!["CurseForge project/file IDs require an authorized API resolver; files are NOT downloaded or READY".into()]))
 }
-fn from_mr<R: Read + std::io::Seek>(
-    zip: &mut ZipArchive<R>,
-) -> Result<ParsedPack, PackError> {
+fn from_mr<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<ParsedPack, PackError> {
     let doc: MrIndex = serde_json::from_slice(&read_metadata(zip, "modrinth.index.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     let game = doc
@@ -394,9 +397,7 @@ fn from_mr<R: Read + std::io::Seek>(
     Ok((doc.name, game, loader, files, "overrides/".into(),
         vec!["URLs are metadata only; future downloader MUST validate DNS, redirects, IP ranges and hashes".into()]))
 }
-fn from_prism<R: Read + std::io::Seek>(
-    zip: &mut ZipArchive<R>,
-) -> Result<ParsedPack, PackError> {
+fn from_prism<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<ParsedPack, PackError> {
     let doc: PrismPack = serde_json::from_slice(&read_metadata(zip, "mmc-pack.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     let game = doc
