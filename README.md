@@ -34,3 +34,7 @@ Import modpacks from **CurseForge exported ZIP** (`manifest.json`), **Modrinth `
 Skin Manager for local/offline profiles: PNG import/export, Classic/Slim models, 3D preview, and real in-game skin application on supported Minecraft versions (P0). Pixel editor, optional custom capes and visibility between trusted LAN peers are P1. Local preview, Singleplayer rendering and LAN peer rendering have distinct verification gates. **Not yet implemented.**
 
 - [Offline Skin Manager & Editor Functional Contract](docs/specs/OFFLINE_SKIN_MANAGER_v1.md)
+
+## Multi-chat Control Room
+
+Seven feature chats are coordinated by Control. The **live shared status report** is [docs/control/LIVE_REPORTS.md on develop](https://github.com/1doiliemkhoet/tlauchcraft/blob/develop/docs/control/LIVE_REPORTS.md). [Control rules](docs/control/CONTROL_ROOM.md) and [task prompts](docs/control/tasks/) are maintained in Git. Code changes must go through PRs; only this live report document is updated directly on develop.
