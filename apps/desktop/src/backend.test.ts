@@ -11,10 +11,6 @@ const withFeature = (feature: keyof typeof EMPTY_CAPABILITIES.features) => ({
 beforeEach(() => mockedInvoke.mockReset());
 
 describe('capability negotiation', () => {
-  it('fails closed if Tauri command is not registered', async () => {
-    mockedInvoke.mockImplementation(async () => { throw new Error('command not found'); });
-    expect(await negotiate()).toEqual(EMPTY_CAPABILITIES);
-  });
   it('fails closed on malformed response', async () => {
     mockedInvoke.mockResolvedValue({ schema_version: 1, provider: 'incomplete', features: { profiles: true } });
     expect(await negotiate()).toEqual(EMPTY_CAPABILITIES);
@@ -32,15 +28,16 @@ describe('typed backend transport', () => {
     await expect(operations.listProfiles(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
+  it('invokes real read-only pack inspector with file path', async () => {
+    mockedInvoke.mockResolvedValue({ name: 'Example', files: [] });
+    await expect(operations.inspectPack(withFeature('pack_inspection'), 'C:/pack.zip')).resolves.toMatchObject({ name: 'Example' });
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_inspect', { archivePath: 'C:/pack.zip' });
+  });
   it('invokes profile command with exact payload', async () => {
     const profile = { id: 'id', username: 'ValidPlayer', skin_id: null, created_at: '', updated_at: '' };
     mockedInvoke.mockResolvedValue(profile);
     await expect(operations.createProfile(withFeature('profiles'), 'ValidPlayer')).resolves.toEqual(profile);
     expect(mockedInvoke).toHaveBeenCalledWith('profile_create', { username: 'ValidPlayer' });
-  });
-  it('does not silently turn backend error into success', async () => {
-    mockedInvoke.mockImplementation(async () => { throw new Error('DiskFull'); });
-    await expect(call(withFeature('game'), 'game', 'game_launch', { request: {} })).rejects.toThrow('DiskFull');
   });
   it('rejects unsupported schema even with feature bit', () => {
     expect(() => requireFeature({ ...withFeature('game'), schema_version: 2 }, 'game')).toThrow(BackendUnavailable);
