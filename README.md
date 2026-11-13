@@ -22,3 +22,9 @@ Research from static inspection of TLauncher 2026 starter/installer and historic
 **Legal/security note:** Local/offline profiles do not confer a Minecraft license. This repository does not include third-party EXEs, JARs, Minecraft game assets, access tokens, credentials or any copyrighted binary payloads. Restrict offline servers to trusted LANs because names/identities may be spoofed.
 
 See `ROADMAP.md`, `PROVENANCE.md`, and `docs/` for the study materials as they are imported.
+
+## Modpack archive import (P0)
+
+Import modpacks from **CurseForge exported ZIP** (`manifest.json`), **Modrinth `.mrpack`** (`modrinth.index.json`), and later **Prism/MultiMC instance ZIP**. Each import must create an isolated runnable instance, validate loader/game/dependencies and clearly report unavailable mods. **Specification only; not yet implemented.**
+
+- [Modpack Import Functional Contract v1](docs/specs/MODPACK_ARCHIVE_IMPORT_v1.md)
