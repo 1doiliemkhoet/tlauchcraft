@@ -6,6 +6,7 @@ use tl_game::{
         build_vanilla_launch, extract_natives, install_vanilla, resolve_official_version,
         write_launch_evidence, VanillaIdentity, VanillaPaths,
     },
+    vanilla_evidence::{write_install_checksums, write_world_snapshot},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -44,7 +45,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let version = resolve_official_version(version_id)?;
     let cancelled = AtomicBool::new(false);
     let installed = install_vanilla(&version, &root, &cancelled)?;
-    eprintln!("Verified {} planned files", installed.downloaded_files);
+    eprintln!("Installed {} planned files", installed.downloaded_files);
+    let count = write_install_checksums(
+        &version,
+        &root,
+        &evidence.join(format!("install-checksums-{native_nonce}.json")),
+    )?;
+    eprintln!("Rehashed {count} installed files for G2 evidence");
     extract_natives(&installed.native_archives, &natives_dir)?;
     let paths = VanillaPaths {
         root: root.clone(),
@@ -80,6 +87,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Evidence directory: {}", evidence.display());
     let result = child.wait()?;
     println!("Game process exited: {result}");
+    let worlds = write_world_snapshot(
+        &paths.game_dir,
+        &evidence.join(format!("world-snapshot-{native_nonce}.json")),
+    )?;
+    println!("Captured {worlds} saved world directories (not G4 proof)");
     println!("Exit alone does not establish G3 or G4.");
     Ok(())
 }
