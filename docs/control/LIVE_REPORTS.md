@@ -97,6 +97,8 @@
 ---
 
 <!-- CHAT-04:START -->
+- **2026-11-14 recheck:** Control requested Windows Cargo regeneration and locked workspace checks. Verified PR #10 remains Draft/Open at `08532c9772d97cf20af19e6a0cfe8352efdeac6e`; latest CI run `43470699059` still FAILED after Windows fmt PASS, at Clippy `--locked` because `Cargo.lock` is stale; tests skipped. Execution environment has no Cargo and is not Windows, so Windows `cargo generate-lockfile`, Clippy, tests, commit/push of lockfile are **BLOCKED / NOT_EXECUTED**. Reproduction on a real Windows checkout: `cargo generate-lockfile`, `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`; commit Cargo.lock only after the commands succeed. No new PASS, commit, or CI evidence claimed.
+
 ## Chat 4 — Modpack ZIP Import
 
 - **Branch:** `feat/tl-04-modpack`
