@@ -28,3 +28,9 @@ See `ROADMAP.md`, `PROVENANCE.md`, and `docs/` for the study materials as they a
 Import modpacks from **CurseForge exported ZIP** (`manifest.json`), **Modrinth `.mrpack`** (`modrinth.index.json`), and later **Prism/MultiMC instance ZIP**. Each import must create an isolated runnable instance, validate loader/game/dependencies and clearly report unavailable mods. **Specification only; not yet implemented.**
 
 - [Modpack Import Functional Contract v1](docs/specs/MODPACK_ARCHIVE_IMPORT_v1.md)
+
+## Local Skins (P0 + P1)
+
+Skin Manager for local/offline profiles: PNG import/export, Classic/Slim models, 3D preview, and real in-game skin application on supported Minecraft versions (P0). Pixel editor, optional custom capes and visibility between trusted LAN peers are P1. Local preview, Singleplayer rendering and LAN peer rendering have distinct verification gates. **Not yet implemented.**
+
+- [Offline Skin Manager & Editor Functional Contract](docs/specs/OFFLINE_SKIN_MANAGER_v1.md)
