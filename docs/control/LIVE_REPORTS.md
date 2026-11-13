@@ -21,7 +21,7 @@
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN · unreviewed** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | AUTHORED_NOT_TESTED | NOT_VERIFIED |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
-| [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN · unreviewed** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **PR_OPEN · unreviewed** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN · unreviewed** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN · unreviewed** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_REPORTED | NOT_VERIFIED |
@@ -100,19 +100,19 @@
 ## Chat 4 — Modpack ZIP Import
 
 - **Branch:** `feat/tl-04-modpack`
-- **Snapshot branch HEAD:** `736ff790e140cef0d32fbe6213aa0d26f34529f1` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **Branch HEAD:** [`736ff790e140cef0d32fbe6213aa0d26f34529f1`](https://github.com/1doiliemkhoet/tlauchcraft/commit/736ff790e140cef0d32fbe6213aa0d26f34529f1)
 - **Issue:** [#4](https://github.com/1doiliemkhoet/tlauchcraft/issues/4)
-- **PR to develop:** [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 4 updates its own section with concrete results, commits and evidence URLs.
+- **PR to develop:** [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) — OPEN, DRAFT, UNREVIEWED, not merged.
+- **Status:** `PR_OPEN_UNREVIEWED` / `IN_PROGRESS`; archive inspector `IMPLEMENTED` as source code; testing `NOT_TESTED`; end-to-end `BLOCKED` / `NOT_VERIFIED`.
+- **Updated at:** 2026-11-13 (Chat 4)
+- **Implemented source slice:** Rust crate `tl-pack` structurally recognizes CurseForge export ZIP (`manifest.json`), Modrinth `.mrpack` (`modrinth.index.json`) and Prism/MultiMC exported ZIP (`mmc-pack.json` + `instance.cfg`). Parses Minecraft/loader versions, CurseForge project/file identifiers, Modrinth hashes/download references/client environment and Prism components. Checks archive entry paths, Windows case-folded duplicates, Unix symlink/special file modes, excessive decompression size/count/ratio; checks original ZIP SHA-256 before extracting supported overrides into a fresh staging path. Does not execute archive content.
+- **Changed paths:** `crates/tl-pack/Cargo.toml`, `crates/tl-pack/src/lib.rs`, `crates/tl-pack/tests/archive.rs`, `crates/tl-pack/README.md`. Standalone package, shared API not modified, root workspace not modified.
+- **Test commands / observed results:** `cargo test --manifest-path crates/tl-pack/Cargo.toml` — `NOT_TESTED` (not executed; Rust/Cargo unavailable in prior execution environment). `cargo fmt --manifest-path crates/tl-pack/Cargo.toml --check` — `NOT_TESTED`. Seven hermetic test cases committed, no passing test count claimed. No CI evidence available in this report.
+- **Real device / Minecraft / modpack evidence:** `NOT_TESTED`; no real download, installation, runtime process PID, menu, worlds or LAN traces. `READY` is deliberately not produced by this parser/staging slice.
+- **Acceptance gates:** G0 contract pending Control integration review; G1 `NOT_VERIFIED`; G2 install `NOT_VERIFIED`; G3 launch `NOT_VERIFIED`; G5 modpack `NOT_VERIFIED`; others not asserted.
+- **Blockers / dependencies / risks:** Chat 1 `GameInstance`/`InstanceStore`, Chat 2 downloader with permitted HTTPS redirect/DNS/private-IP protection and checksum/cache/retry, Chat 3 LoaderInstaller/Java version compatibility. Authorized CurseForge API access required; no CDN bypass. Dependency graph, complete `client-overrides`, signed lockfile, atomic publish/rollback, cancellation/resume, real downloaded mod hashes and real launch are pending. No code execution evidence yet.
+- **Pending Control decisions:** Freeze concrete `PackImporter` ↔ `InstanceStore`/`FileInstaller`/`LoaderInstaller` interface and integrate root workspace after Chat 1; confirm approved CurseForge source policy; decide readiness gates for P0.
+- **Next actions:** Harden archive validation and stage handling within `tl-pack`, run Cargo tests and Windows checks where toolchain is accessible, integrate dependencies only after shared contracts settle, perform genuine CurseForge + Modrinth installation/launch E2E before declaring VERIFIED.
 
 <!-- CHAT-04:END -->
 
