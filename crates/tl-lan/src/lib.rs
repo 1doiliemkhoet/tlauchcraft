@@ -279,7 +279,7 @@ impl ServerProcess {
         root: &Path,
         max_ram_mb: u32,
     ) -> Result<Self> {
-        if max_ram_mb < 512 || max_ram_mb > 65536 {
+        if !(512..=65536).contains(&max_ram_mb) {
             return Err(LanError::InvalidInput("RAM out of supported bounds".into()));
         }
         let root = fs::canonicalize(root)?;
@@ -423,10 +423,8 @@ pub fn backup_stopped_world(
         }
         Ok(())
     }
-    if let Err(e) = copy_dir(world, &destination) {
-        // Preserve partial evidence for diagnosis; never touch the source world.
-        return Err(e);
-    }
+    // An incomplete backup remains available for diagnosis; source world is untouched.
+    copy_dir(world, &destination)?;
     Ok(destination)
 }
 
