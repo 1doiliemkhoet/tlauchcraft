@@ -5,6 +5,7 @@ use thiserror::Error;
 
 pub mod fabric;
 pub mod maven;
+pub mod installer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
