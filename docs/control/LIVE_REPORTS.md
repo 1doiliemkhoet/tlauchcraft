@@ -23,7 +23,7 @@
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **PR_OPEN · unreviewed** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | NOT_REPORTED | NOT_VERIFIED |
-| [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN · unreviewed** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN · unreviewed** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_REPORTED | NOT_VERIFIED |
 
 ---
@@ -144,19 +144,19 @@
 ## Chat 6 — Offline Skin Manager
 
 - **Branch:** `feat/tl-06-skins`
-- **Snapshot branch HEAD:** `551a2a21cdcd82fef68625c2538cf286096f910a` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **HEAD:** `551a2a21cdcd82fef68625c2538cf286096f910a` (2026-11-13)
 - **Issue:** [#6](https://github.com/1doiliemkhoet/tlauchcraft/issues/6)
-- **PR to develop:** [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 6 updates its own section with concrete results, commits and evidence URLs.
+- **PR:** [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) → `develop`, OPEN / DRAFT / not merged.
+- **Status:** `PR_OPEN_UNREVIEWED` + `IN_PROGRESS`. Source files committed and pushed; compilation and acceptance NOT_TESTED.
+- **Updated:** 2026-11-13 (Chat 6 report).
+- **Implemented in source (not yet runtime-validated):** PNG 64×64 and legacy 64×32 decoding/encoding with bounds validation; app-managed skin catalog, SHA-256 integrity, import/export/rename/duplicate/confirmed delete; stable profile UUID selections, Classic/Slim model, per-instance override; pixel paint/sample/erase/flood fill/mirror/palette/undo/redo; UV atlas descriptors; explicit preview/local/peer visibility states and consent-gated bounded PNG payload (does not transfer data itself).
+- **Changed paths:** `crates/tl-skin/Cargo.toml`, `crates/tl-skin/src/lib.rs`, `crates/tl-skin/tests/skin_tests.rs`, `crates/tl-skin/README.md`, `docs/control/tasks/CHAT-06-IMPLEMENTATION-NOTES.md`. Public crate interfaces are provisional; root workspace/shared contract untouched.
+- **Test command (proposed, NOT RUN):** `cargo test --manifest-path crates/tl-skin/Cargo.toml`; `cargo fmt --manifest-path crates/tl-skin/Cargo.toml -- --check`. **Observed result: NOT_TESTED** (no executable Rust toolchain/test logs in this session). Hermetic Rust test source covers PNG, invalid inputs, persistence, per-instance override, pixel editor, consent and visibility state transitions; existence is not PASS.
+- **E2E evidence:** NONE. Singleplayer skin visibility NOT_TESTED; 2-PC LAN peer skin visibility NOT_TESTED. G1 code, G7 skin and all other gates NOT_VERIFIED.
+- **Incomplete/risks:** 3D renderer, complete legacy UV conversion, custom cape storage/application, cosmetics packs, actual Minecraft skin provider installation and supported-version matrix, LAN transport and peer cache handling, real-game evidence. Offline LAN identity is spoofable; consent required. Provider metadata cannot prove actual skin display.
+- **Dependencies:** Chat 1 profile/instance shared Rust types and workspace; Chat 2/3 version/loader-aware provider; Chat 5 trusted LAN appearance transport; Chat 7 UI, 3D preview and editor integration.
+- **Control decisions requested:** Approve SkinService adapter and ownership of profile/instance cosmetic selections; establish provider/version compatibility matrix and LAN consent handshake contract before cross-crate integration. Keep PR Draft until G1 tests pass; Control owns merge/gate signoff.
+- **Next:** audit/fix crate; run real Windows cargo tests once toolchain accessible; implement additional P1 skin editing/storage without modifying other chats' files; collect actual Singleplayer and 2-PC evidence after integration.
 
 <!-- CHAT-06:END -->
 
