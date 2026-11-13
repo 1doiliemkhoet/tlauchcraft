@@ -1,7 +1,7 @@
 //! Trusted LAN primitives. Standalone until tl-core freezes its shared API.
 //! Does not download Minecraft, install a server loader, or bypass authentication.
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -190,6 +190,19 @@ impl ServerProcess {
         let jar = fs::canonicalize(server_jar)?;
         if !jar.starts_with(&root) || jar.extension().and_then(|s| s.to_str()) != Some("jar") {
             return Err(LanError::InvalidInput("server JAR must be within the isolated server root".into()));
+        }
+        // A standalone process start must not bypass the LAN-only configuration gate.
+        let properties = fs::read_to_string(root.join("server.properties"))
+            .map_err(|_| LanError::NotVerified("missing trusted-LAN server.properties".into()))?;
+        let setting = |key: &str| -> Option<String> {
+            properties.lines().filter_map(|line| line.split_once('='))
+                .find(|(k, _)| k.trim() == key).map(|(_, v)| v.trim().to_string())
+        };
+        let bind = setting("server-ip").and_then(|v| v.parse::<Ipv4Addr>().ok());
+        if !bind.map(|ip| ip.is_private()).unwrap_or(false)
+            || setting("online-mode").as_deref() != Some("false")
+            || setting("enable-rcon").as_deref() != Some("false") {
+            return Err(LanError::UnsafeBind("server configuration is not restricted to trusted LAN".into()));
         }
         if !root.join("eula.txt").is_file() || !fs::read_to_string(root.join("eula.txt"))?.lines().any(|l| l.trim() == "eula=true") {
             return Err(LanError::NotVerified("server EULA must be explicitly accepted".into()));
