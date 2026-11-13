@@ -24,7 +24,7 @@
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **MERGED · G1 CONTROL_ACCEPTED** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | Windows 75/75 workspace tests; fmt/clippy PASS | **G1 ACCEPTED · G5 NOT_VERIFIED** |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **MERGED · G1 CONTROL_ACCEPTED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | Windows 44/44 tests; fmt/clippy PASS | **G1 ACCEPTED · G6 NOT_VERIFIED** |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **MERGED · G1 CONTROL_ACCEPTED** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) | Windows 62/62 tests; fmt/clippy PASS | **G1 ACCEPTED · G7 NOT_VERIFIED** |
-| [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_TESTED (npm lock/toolchain blocker) | NOT_VERIFIED |
+| [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | npm ci PASS · npm test PASS · build pending | NOT_VERIFIED |
 
 ---
 
@@ -176,22 +176,19 @@
 <!-- CHAT-07:START -->
 ## Chat 7 — Desktop UI & Packaging
 
-- **Branch:** `feat/tl-07-desktop`
-- **Latest branch HEAD:** [`04cfc6dc913008b4659e751730741aebdca6b21f`](https://github.com/1doiliemkhoet/tlauchcraft/commit/04cfc6dc913008b4659e751730741aebdca6b21f)
-- **PR:** [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) — OPEN DRAFT, NOT MERGED. **Issue:** [#7](https://github.com/1doiliemkhoet/tlauchcraft/issues/7)
-- **Status:** `IN_PROGRESS`, `PR_OPEN_UNREVIEWED`. Source `IMPLEMENTED` (unverified build); Windows tests `NOT_TESTED`.
-- **Updated:** 2026-11-14 (Chat 7)
-- **Foundation/Game Core sync:** Merged current `develop` `fb89c40cf33403323bfbae57a68e15716d74079d` into Chat 7 at [`7f347e63740f918bb620e4e374bb9fe8011efdda`](https://github.com/1doiliemkhoet/tlauchcraft/commit/7f347e63740f918bb620e4e374bb9fe8011efdda) (2 parents, no source modifications on develop). Includes `tl-core`, `tl-storage`, `tl-game`.
-- **Implemented:** Tauri 2 + React/TypeScript scaffold; real Rust `profile_list`, `profile_create`, `instance_list` using `tl-core` Rust types, `tl-storage` SQLite, platform local data directory; `desktop_capabilities` only advertises profiles and instances. Fixed snake_case serde enum mismatch (`ready`, `vanilla`, `neo_forge`) and progress event contract_version validation. Native modpack picker, typed progress handlers, logs, disabled/informational LAN/Skin/Play/Import navigation; no fake success. Added separate desktop Cargo workspace and Windows ICO resource. Windows NSIS config present but NOT BUILT.
-- **Changed paths:** `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/src/main.rs`, `apps/desktop/src-tauri/icons/icon.ico`, `apps/desktop/src/backend.ts`, `apps/desktop/src/backend.test.ts`, `apps/desktop/src/App.tsx`, `apps/desktop/README.md`. No files owned by other feature chats modified.
-- **Test commands / actual results:** `npm ci`, `npm test`, `npm run build`, `npm run tauri dev`, `npm run tauri build`: **NOT_TESTED on Windows**; cannot claim PASS. Authoring Linux container Node 22/npm 10 present, Rust toolchain absent; npm registry reachability probe `npm view vite version --fetch-timeout=5000 --fetch-retries=0` **FAILED** (`EAI_AGAIN`); `package-lock.json` not generated, so `npm ci` is blocked until generating real dependency lockfile on networked Windows and committing it. No Windows E2E log, installer output or artifact hashes.
-- **Tests authored:** Capability fail-closed, malformed negotiation, command arguments, backend errors, supported ZIP/MRPACK suffix, percent clamping and snake_case wire type checks. **NOT_RUN**, not evidence of G1.
-- **Evidence:** GitHub merge + feature commits [`d954e1360b0b6826ca9a9e40118d5b5bb62b2332`](https://github.com/1doiliemkhoet/tlauchcraft/commit/d954e1360b0b6826ca9a9e40118d5b5bb62b2332), [`04cfc6dc913008b4659e751730741aebdca6b21f`](https://github.com/1doiliemkhoet/tlauchcraft/commit/04cfc6dc913008b4659e751730741aebdca6b21f); no G1–G8 device evidence.
-- **Gates:** G0 API v1 types integrated in desktop, final command surface unapproved; G1–G8 **NOT_VERIFIED**.
-- **Blockers:** No npm package-lock; cannot run npm ci or compile Windows in current environment. Chat 2 currently provides launch primitives, not full safe client install/launch facade; Chats 4/5/6 needed for real modpack/LAN/skin. Core storage uses local SQLite; no destructive world changes.
-- **Control decisions:** Approve command name/error/event facade and sequencing; provide Windows CI runner or Windows acceptance evidence; decide signing/update/rollback policy. Do not enable Play/Import/LAN/Skin until registered native backends with evidence.
-- **Next:** On networked Windows: generate reproducible package lock, run `npm ci`, `npm test`, `npm run build`, desktop Tauri compile and smoke; fix failures and report logs. PR remains Draft; **do not merge**.
-
+- **Branch:** `feat/tl-07-desktop` — **PR:** [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) (DRAFT, not merged). **Issue:** [#7](https://github.com/1doiliemkhoet/tlauchcraft/issues/7).
+- **Latest reported HEAD:** [`a349534348204ec17a8df670bc50cd5052ac2bea`](https://github.com/1doiliemkhoet/tlauchcraft/commit/a349534348204ec17a8df670bc50cd5052ac2bea).
+- **Status:** `IN_PROGRESS`, `PR_OPEN_UNREVIEWED`. Windows npm tests PASS in CI run below, final Windows code gate NOT_VERIFIED while Rust cargo check pending.
+- **Updated:** 2026-11-14 (Chat 7).
+- **Foundation and 6-module baseline:** Synchronized `develop` at `a848f841612acd8b99283f3ce25f4c0afbced3e8` with merge commit [`90bc29055bd962a711b3dd41b13f8cad44dec0ff`](https://github.com/1doiliemkhoet/tlauchcraft/commit/90bc29055bd962a711b3dd41b13f8cad44dec0ff). Preserved Tauri/React branch code; did not merge PR.
+- **Implemented code:** Real `desktop_capabilities`, `profile_list`, `profile_create`, `instance_list` (tl-core/tl-storage SQLite persistence); `pack_inspect { archivePath }` (read-only Rust `tl-pack::inspect_archive`, returns real hash/metadata/warnings; **no install**). UI displays inspection result and states not installed. Aligned TypeScript with Rust serde names; typed events/capability denial. Play, full Modpack Install, LAN Host/Join, Skin Editor remain disabled because no complete verified facade yet. Installer NSIS config exists but not built. Valid generated ICO/PNG replaced placeholder.
+- **Changed paths on feature branch:** `apps/desktop/src-tauri/src/main.rs`, `src-tauri/Cargo.toml`, `src-tauri/icons/icon.ico`, `src-tauri/icons/icon.png`, `src/backend.ts`, `src/backend.test.ts`, `src/App.tsx`, `apps/desktop/package-lock.json`, `apps/desktop/README.md`, `.github/workflows/desktop-windows.yml`. The root Rust manifests/other chat crates were only inherited from develop.
+- **Real npm lockfile evidence:** Created on `windows-latest` with Node 22/npm 10 via `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`, committed by GitHub Actions as [`a672f58`](https://github.com/1doiliemkhoet/tlauchcraft/commit/a672f58). **Not hand-generated**.
+- **Windows CI evidence:** [run 43486294720](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43486294720): `npm ci` PASS; `npm test` FAIL 8/10; build and cargo skipped. [run 43487010721](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43487010721): `npm ci` PASS, `npm test` PASS (9 tests), `npm run build` FAIL (TS6133 unused import); cargo skipped. Unused import fixed in latest commit. [run 43487168912](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43487168912) launched for latest commit; result **PENDING at report time**. No PASS claim for `npm run build` or `cargo check` until run completes.
+- **E2E evidence:** NO Minecraft main menu, world, imported runnable modpack, LAN two-PC, skin in-game or clean Windows installer evidence. G1–G8 `NOT_VERIFIED` pending Control review; no G8 claim from desktop compile.
+- **Blockers/risks:** Tauri Windows Rust compile requires current CI result; `tl-game` exposes lower-level helpers, not full verified launch/install orchestration. Full modpack install, LAN and skin require follow-up safe typed commands and on-device evidence.
+- **Control decisions:** Review command/event/error contract, approve enabling features only when real complete service exists. No auto-sign/update until update/rollback and release policy approved.
+- **Next:** Inspect latest Windows CI job logs; fix TypeScript and Tauri Rust failures on feature branch; keep Draft and update this block after each result. Do not merge.
 <!-- CHAT-07:END -->
 
 ---
