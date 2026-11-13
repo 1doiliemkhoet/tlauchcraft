@@ -68,29 +68,88 @@ fn snapshot_backup_is_restorable() {
     assert_eq!(restored.get_profile(p.id).unwrap(), Some(p));
 }
 #[test]
-fn concurrent_writes_keep_a_single_stable_id() {
+fn concurrent_writes_detect_stale_revision_on_two_connections() {
     let root = tempfile::tempdir().unwrap();
-    let mut db = SqliteStore::open(root.path()).unwrap();
+    let mut initial = SqliteStore::open(root.path()).unwrap();
     let p = OfflineProfile::new("Concurrent").unwrap();
-    db.create_profile(&p).unwrap();
-    let handles: Vec<_> = (0..8)
-        .map(|i| {
-            let path = root.path().to_path_buf();
-            let id = p.id;
-            std::thread::spawn(move || {
-                let mut db = SqliteStore::open(&path).unwrap();
-                let mut profile = db.get_profile(id).unwrap().unwrap();
-                profile.rename(format!("Player_{i}")).unwrap();
-                db.update_profile(&profile).unwrap();
-            })
-        })
-        .collect();
-    for h in handles {
-        h.join().unwrap();
+    initial.create_profile(&p).unwrap();
+    let mut one = SqliteStore::open(root.path()).unwrap();
+    let mut two = SqliteStore::open(root.path()).unwrap();
+    let mut first = one.get_profile_versioned(p.id).unwrap().unwrap();
+    let mut second = two.get_profile_versioned(p.id).unwrap().unwrap();
+    assert_eq!(first.revision, 0);
+    first.value.rename("Winner").unwrap();
+    second.value.rename("Stale").unwrap();
+    assert_eq!(one.update_profile_if_revision(&first.value, first.revision), Ok(1));
+    assert_eq!(
+        two.update_profile_if_revision(&second.value, second.revision),
+        Err(CoreError::CompatibilityConflict)
+    );
+    assert_eq!(two.get_profile(p.id).unwrap().unwrap().username, "Winner");
+    assert_eq!(two.get_profile_versioned(p.id).unwrap().unwrap().revision, 1);
+}
+
+#[test]
+fn legacy_update_path_also_rejects_stale_profile_and_instance() {
+    let root = tempfile::tempdir().unwrap();
+    let mut one = SqliteStore::open(root.path()).unwrap();
+    let mut two = SqliteStore::open(root.path()).unwrap();
+    let p = OfflineProfile::new("Legacy").unwrap();
+    one.create_profile(&p).unwrap();
+    let mut a = one.get_profile(p.id).unwrap().unwrap();
+    let mut b = two.get_profile(p.id).unwrap().unwrap();
+    a.rename("Newest").unwrap(); b.rename("Outdated").unwrap();
+    one.update_profile(&a).unwrap();
+    assert_eq!(two.update_profile(&b), Err(CoreError::CompatibilityConflict));
+    let i = GameInstance::new("Instance","1.20.1", LoaderSpec {
+        kind: LoaderKind::Vanilla, version: None
+    },p.id).unwrap();
+    one.create_instance(&i).unwrap();
+    let mut ia=one.get_instance(i.id).unwrap().unwrap();
+    let mut ib=two.get_instance(i.id).unwrap().unwrap();
+    ia.state=InstanceState::Ready;ib.state=InstanceState::Failed;
+    one.update_instance(&ia).unwrap();
+    assert_eq!(two.update_instance(&ib),Err(CoreError::CompatibilityConflict));
+}
+
+#[test]
+fn migrated_v1_profiles_and_instances_retain_data() {
+    let root=tempfile::tempdir().unwrap();
+    let path=root.path().join("launcher.sqlite3");
+    let p=OfflineProfile::new("Migrated").unwrap();
+    let i=GameInstance::new("OldInstance","1.20.1",LoaderSpec {
+        kind: LoaderKind::Vanilla,version:None
+    },p.id).unwrap();
+    {
+        let conn=rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE profiles(id TEXT PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE, payload TEXT NOT NULL); CREATE TABLE instances(id TEXT PRIMARY KEY,profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,payload TEXT NOT NULL); CREATE INDEX instances_profile_idx ON instances(profile_id); PRAGMA user_version=1;").unwrap();
+        conn.execute("INSERT INTO profiles VALUES (?1,?2,?3)",rusqlite::params![p.id.to_string(),p.username,serde_json::to_string(&p).unwrap()]).unwrap();
+        conn.execute("INSERT INTO instances VALUES (?1,?2,?3)",rusqlite::params![i.id.to_string(),p.id.to_string(),serde_json::to_string(&i).unwrap()]).unwrap();
     }
-    let db = SqliteStore::open(root.path()).unwrap();
-    assert_eq!(db.list_profiles().unwrap().len(), 1);
-    assert_eq!(db.get_profile(p.id).unwrap().unwrap().id, p.id);
+    let store=SqliteStore::open(root.path()).unwrap();
+    assert_eq!(store.schema_version().unwrap(),2);
+    assert_eq!(store.get_profile_versioned(p.id).unwrap().unwrap().value,p);
+    assert_eq!(store.get_instance_versioned(i.id).unwrap().unwrap().value,i);
+    assert_eq!(store.get_profile_versioned(p.id).unwrap().unwrap().revision,0);
+    drop(store);
+    assert_eq!(SqliteStore::open(root.path()).unwrap().schema_version().unwrap(),2);
+}
+
+#[test]
+fn backup_symlink_is_not_overwritten_and_no_temp_artifacts() {
+    let root=tempfile::tempdir().unwrap();
+    let backups=tempfile::tempdir().unwrap();
+    let db=SqliteStore::open(root.path()).unwrap();
+    let existing=backups.path().join("original.sqlite3");
+    std::fs::write(&existing,b"must stay").unwrap();
+    let target=backups.path().join("backup.sqlite3");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&existing,&target).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(&existing,&target).unwrap();
+    assert_eq!(db.backup_to(&target),Err(CoreError::AlreadyExists));
+    assert_eq!(std::fs::read(&existing).unwrap(),b"must stay");
+    assert_eq!(std::fs::read_dir(backups.path()).unwrap().count(),2);
 }
 #[test]
 fn invalid_instance_path_is_rejected() {
