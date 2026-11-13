@@ -617,8 +617,7 @@ impl SkinEditor {
         if width == 0
             || height == 0
             || x.checked_add(width).is_none_or(|n| n > 64)
-            || y.checked_add(height)
-                .is_none_or(|n| n > self.image.height)
+            || y.checked_add(height).is_none_or(|n| n > self.image.height)
         {
             return Err(SkinError::InvalidInput("invalid mirror rectangle".into()));
         }
