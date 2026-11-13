@@ -262,7 +262,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
  );
  CREATE TABLE instances (
  id TEXT PRIMARY KEY,profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
- payload TEXT NOT NULL
+ payload TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0
  );
  CREATE INDEX instances_profile_idx ON instances(profile_id);
  PRAGMA user_version = 2;",
