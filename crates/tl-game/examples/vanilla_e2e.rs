@@ -1,11 +1,5 @@
 //! Windows-only manual G2/G3/G4 harness. No automated menu/world success claim.
-use std::{
-    env,
-    error::Error,
-    fs,
-    path::PathBuf,
-    sync::atomic::AtomicBool,
-};
+use std::{env, error::Error, fs, path::PathBuf, sync::atomic::AtomicBool};
 use tl_game::{
     launch,
     vanilla::{
@@ -39,7 +33,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     fs::create_dir_all(&root)?;
     let game_dir = root.join("instance");
-    let natives_dir = root.join("natives");
+    let native_nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let natives_dir = root.join(format!("natives-{native_nonce}"));
     let evidence = root.join("evidence");
     fs::create_dir_all(&evidence)?;
     eprintln!("Resolving verified official release metadata for {version_id}...");
