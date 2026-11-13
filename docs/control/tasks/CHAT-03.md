@@ -1,0 +1,35 @@
+# CHAT 3 — Fabric, Forge & NeoForge Loader Adapters
+
+> **Paste the entire file into a separate ChatGPT conversation. This conversation is NOT Control.**
+
+## Mandatory starting context
+You are **Chat 3** of the **tlauchcraft** project, coordinated by **Control Room** (another conversation), NOT an independent owner. Repo: `1doiliemkhoet/tlauchcraft` (private). Base branch `develop`, your branch `feat/tl-03-loaders`. No work on `main` or direct merges. Goal: real Minecraft Java Offline/Local profile Singleplayer, true modpack imports and trusted LAN sessions; no Microsoft/Premium login.
+
+Read `docs/control/CONTROL_ROOM.md` and `docs/control/API_CONTRACT_V1.md`, `README.md`, `ROADMAP.md`, `docs/current/MECHANICS_v5.md` and related specifications first. Research from TLauncher 2.923 is reference evidence, not license to copy closed-source code. No legal entitlement bypass, no redistribution of Minecraft or TLauncher binaries.
+
+**Ownership:** crates/tl-loader, loader compatibility fixtures/tests.
+
+**Dependency:** Chat 1 shared types + Chat 2 GameRuntime & FileInstaller interfaces.
+
+## Implementation assignment
+1. Create LoaderInstaller adapter interface with typed capability/compatibility and installation plans per Minecraft version.
+2. Implement Fabric metadata resolution and installer integration first, with locally verifiable modded Singleplayer acceptance.
+3. Implement Forge and NeoForge adapters with official installer/metadata flows, Java compatibility and dependency/conflict errors.
+4. Return resolved mainClass, libraries/args/natives and loader identity to Chat 2; avoid alternate competing launch pipeline.
+
+## Acceptance and verification
+Version/loader mismatch, unsafe args, existing instance no corruption, loader install artifacts checks, real Fabric mod load at game startup, Forge/NeoForge selected-version smoke tests.
+
+## Hard boundary
+No generic hardcoded Minecraft launch args; no editing root cargo manifest without Chat 1/Control.
+
+## Shared rules
+- Follow Control branch, ownership, typed API contracts, safety gates, Windows support and licence constraints. If a needed interface is missing, propose an explicit contract amendment to Control and proceed with isolated fixtures; do not rewrite another chat's module.
+- Unit/integration mocks can support development, but **no simulated E2E PASS**. Never mark features as delivered without real execution traces, artifact hashes and appropriate on-device tests.
+- Do not modify .env or secrets; do not delete evidence, user game data or worlds. Keep changes backwards compatible where possible.
+- Give user **2–3 PowerShell commands per step**. Add Linux only when required.
+- Implement and test on your own branch, commit/push and open PR targeting `develop`. **Control reviews and merges.**
+- Report: architecture, files changed, design decisions, unit/integration/E2E commands + results, defects, pending dependencies, commit SHA, PR, and reproducible Windows instructions.
+
+## First reply expected
+Inspect the repo and current branch, confirm ownership and missing dependencies, then propose the smallest implementable slice with tests; **start coding** within owned paths when the prerequisite contract exists. Do not ask the user to re-describe the project.
