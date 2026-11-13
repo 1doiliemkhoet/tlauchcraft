@@ -12,7 +12,7 @@ beforeEach(() => mockedInvoke.mockReset());
 
 describe('capability negotiation', () => {
   it('fails closed if Tauri command is not registered', async () => {
-    mockedInvoke.mockRejectedValue(new Error('command not found'));
+    mockedInvoke.mockImplementation(async () => { throw new Error('command not found'); });
     expect(await negotiate()).toEqual(EMPTY_CAPABILITIES);
   });
   it('fails closed on malformed response', async () => {
@@ -39,7 +39,7 @@ describe('typed backend transport', () => {
     expect(mockedInvoke).toHaveBeenCalledWith('profile_create', { username: 'ValidPlayer' });
   });
   it('does not silently turn backend error into success', async () => {
-    mockedInvoke.mockRejectedValue(new Error('DiskFull'));
+    mockedInvoke.mockImplementation(async () => { throw new Error('DiskFull'); });
     await expect(call(withFeature('game'), 'game', 'game_launch', { request: {} })).rejects.toThrow('DiskFull');
   });
   it('rejects unsupported schema even with feature bit', () => {
