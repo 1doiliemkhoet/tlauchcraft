@@ -172,7 +172,7 @@ impl SkinLibrary {
         self.save()
     }
     pub fn duplicate(&mut self, id: Uuid, name: &str) -> Result<SkinRecord> {
-        let model = self.catalog.skins.get(&id).ok_or(SkinError::NotFound)?.model;
+        let model = self.catalog.skins.get(&id).ok_or(SkinError::NotFound)?.model.clone();
         let bytes = self.export_png(id)?;
         self.import_png(name, &bytes, model)
     }
@@ -191,6 +191,26 @@ impl SkinLibrary {
         if !self.catalog.skins.contains_key(&selection.skin_id) { return Err(SkinError::NotFound); }
         self.catalog.profiles.insert(selection.profile_id, selection);
         self.save()
+    }
+    /// Bind a selection to Foundation's stable offline profile identity.
+    /// Caller must persist the returned profile through tl-storage::ProfileStore.
+    /// The skin catalog and the profile database are distinct stores.
+    pub fn assign_foundation_profile(
+        &mut self, profile: &mut tl_core::OfflineProfile, skin_id: Uuid, model: Model,
+    ) -> Result<()> {
+        let selection = SkinSelection { profile_id: profile.id, skin_id, model, cape_id: None };
+        self.assign_profile(selection)?;
+        profile.skin_id = Some(skin_id);
+        Ok(())
+    }
+    pub fn validate_foundation_profile(
+        &self, profile: &tl_core::OfflineProfile,
+    ) -> Result<()> {
+        let stored = self.catalog.profiles.get(&profile.id).map(|s| s.skin_id);
+        if stored != profile.skin_id {
+            return Err(SkinError::InvalidInput("Foundation profile.skin_id and local catalog disagree; reconcile before launch".into()));
+        }
+        Ok(())
     }
     pub fn assign_instance_override(&mut self, instance: Uuid, selection: SkinSelection) -> Result<()> {
         if !self.catalog.skins.contains_key(&selection.skin_id) { return Err(SkinError::NotFound); }
