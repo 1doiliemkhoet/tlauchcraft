@@ -12,6 +12,24 @@ This branch adds a **library-level** install and launch orchestrator. It does no
 
 Not yet complete: trusted Windows Java auto-provisioning, old native handling and collisions, secure extraction review, executable GUI integration and end-to-end Singleplayer tests. This code does **not** establish that launch of real Minecraft works; no game runtime is available in this assistant's execution environment.
 
+
+## Run on a real Windows desktop (manual G2/G3/G4)
+
+Use an isolated, fresh root directory that does not contain personal worlds. Install a compatible Java runtime separately; Minecraft 1.21.1 expects Java 21. Use a local offline username and its **game/server UUID**, not the `tl-core` stored profile ID.
+
+From PowerShell in the repository worktree on this branch:
+
+```powershell
+git switch feat/tl-02-game-e2e
+cargo run --locked --release -p tl-game --example vanilla_e2e -- 1.21.1 'C:\TLaunchCraft\E2E' 'C:\Program Files\Java\jdk-21\bin\java.exe' TestPlayer 00000000000000000000000000000001
+```
+
+Replace the Java path and game UUID with test-machine values. In offline/local mode the harness uses a local placeholder token and `legacy` user type by default; it does **not** authenticate a Microsoft account, bypass an online-mode server or establish a Minecraft entitlement. To use an authorized online session instead, set `TLAUCHCRAFT_ACCESS_TOKEN`, `TLAUCHCRAFT_USER_TYPE`, and optionally `TLAUCHCRAFT_XUID` / `TLAUCHCRAFT_CLIENT_ID` in the environment without saving the token in scripts or logs.
+
+When the game exits, run the same `cargo run` command again to reopen the saved Singleplayer world. Every invocation creates a distinct natives directory, stdout/stderr logs and launch JSON evidence; the same `instance/saves` directory is reused. The harness does **not** automatically detect a displayed main menu, create a world, or verify world re-opening: a tester must collect observable screenshots and precise evidence, then update the PR. Launching the Java process alone is not G3.
+
+**Known constraints:** `tar.exe` extraction has not been security-reviewed for symlinks/hardlinks and duplicate entries; do not feed untrusted modpack/native archives to this tool. It operates on hash-verified official Vanilla archives only. A future hardened ZIP extractor and integration tests are needed before declaring installer production-ready.
+
 ## Windows CI
 
 Use the existing PR Windows Rust pipeline:
