@@ -87,10 +87,10 @@ impl crate::LoaderInstaller for Forge {
 
 pub struct NeoForge;
 impl crate::LoaderInstaller for NeoForge {
-    fn plan(&self, spec: &crate::LoaderSpec, metadata: &str, game_java_major: u32) -> Result<crate::LoaderPlan, LoaderError> {
+    fn plan(&self, minecraft_version: &str, spec: &crate::LoaderSpec, metadata: &str, _game_java_major: u32) -> Result<crate::LoaderPlan, LoaderError> {
         if spec.kind != crate::LoaderKind::NeoForge { return Err(LoaderError::InvalidInput); }
         let available = parse_catalog(metadata)?;
-        if !available.contains(loader_version) { return Err(LoaderError::CompatibilityConflict); }
+        if !available.iter().any(|v| Some(v.as_str()) == spec.version.as_deref()) { return Err(LoaderError::CompatibilityConflict); }
         // NeoForge's version-to-Minecraft mapping is not derivable from a bare Maven
         // version reliably; refuse to assert compatibility without official metadata.
         Err(LoaderError::UnsupportedVersion(format!(
