@@ -22,7 +22,7 @@
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **G1 ACCEPTED · E2E P0 IN_PROGRESS** | [#19 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/19) | [Windows fmt, Clippy, 27/27 tests PASS](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43472405584) | **G2–G4 NOT_VERIFIED** |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **READY_FOR_CONTROL_REVIEW · G1 CI PASS** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | Windows CI 35 PASS / 0 failed | G1 review pending; G2/G3/G5 NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
-| [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 20 AUTHORED · CI IN_PROGRESS | NOT_VERIFIED |
+| [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | FMT PASS · CLIPPY FIX PUSHED · TEST PENDING | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · G1 TESTED PASS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | **Windows 31 PASS (7 skin)** | G1 awaiting Control; G7 NOT_VERIFIED |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_TESTED (npm lock/toolchain blocker) | NOT_VERIFIED |
 
@@ -123,20 +123,20 @@
 ## Chat 5 — Trusted LAN Multiplayer
 
 - **Branch:** `feat/tl-05-lan`; source changes remain in feature branch, not pushed to `develop`.
-- **Branch HEAD:** [`8ed09db250313740c0ba7cecce446f9ffd75fece`](https://github.com/1doiliemkhoet/tlauchcraft/commit/8ed09db250313740c0ba7cecce446f9ffd75fece).
+- **Branch HEAD:** [`245e96f4a23ff737cfb39cb17fd471873bd62f1a`](https://github.com/1doiliemkhoet/tlauchcraft/commit/245e96f4a23ff737cfb39cb17fd471873bd62f1a).
 - **Issue:** [#5](https://github.com/1doiliemkhoet/tlauchcraft/issues/5); offline identity coordination [#16](https://github.com/1doiliemkhoet/tlauchcraft/issues/16) with [Chat 5 comment](https://github.com/1doiliemkhoet/tlauchcraft/issues/16#issuecomment-6860186854) (comment link ID may be connector-specific).
 - **PR:** [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) OPEN/DRAFT, NOT MERGED.
 - **Status:** `IN_PROGRESS`, `PR_OPEN_UNREVIEWED`; G1/G6 not approved.
-- **Updated at:** 2026-11-14, Chat 5.
+- **Updated at:** 2026-11-14 (Chat 5, CI follow-up).
 - **Code / changes:** Synced branch with `develop` by merge commit `b288c1d`, included `tl-lan` in root `Cargo.toml` workspace (`a688488`), aligned workspace crate entry in `Cargo.lock` (`5e8e63e`; **edited without running cargo; --locked verification still required**). `crates/tl-lan/src/lib.rs`: trusted LAN server config, safe private bind, server startup requires offline-safe properties/EULA, PID/logs, graceful stop, path-safe cold world backup, gameplay SHA256 fingerprint comparison (hashes supplied by caller), name stability guard, new bounded private TCP reachability probe; 20 Windows-oriented hermetic unit tests authored (including server lifecycle rejection, mod mismatch, backup bytes/inventory fixture, connection refusal and port conflict). `crates/tl-lan/G6_WINDOWS_E2E.md`: real two-PC Windows test plan and evidence gate. `crates/tl-lan/README.md`: contract and integration notes. Rust formatting fixes from Windows CI log committed `8ed09db`.
 - **Changed paths:** `Cargo.toml`, `Cargo.lock`, `crates/tl-lan/Cargo.toml`, `crates/tl-lan/src/lib.rs`, `crates/tl-lan/README.md`, `crates/tl-lan/G6_WINDOWS_E2E.md`.
-- **CI (observed evidence):** Windows GitHub Actions run [43473255122](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473255122) failed `cargo fmt --all -- --check`; workspace inclusion check passed; clippy/tests were skipped. Run [43473411652](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473411652) also reported failure before formatting remediation. New Windows run [43473706394](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473706394) is IN_PROGRESS at this report snapshot; **do not claim PASS** until inspected.
+- **CI (observed evidence):** Run [43473121205](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473121205) failed formatting. Later Windows run [43473706394](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473706394) **PASS workspace inclusion and `cargo fmt --all -- --check`**, then **FAIL Clippy** on `manual_range_contains` and `question_mark`; tests skipped. Both Clippy findings fixed in [`245e96f`](https://github.com/1doiliemkhoet/tlauchcraft/commit/245e96f4a23ff737cfb39cb17fd471873bd62f1a). New [Windows run 43476043990](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43476043990) is IN_PROGRESS at report time. **No claim of Clippy/test PASS.**
 - **Windows commands to reproduce:** `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`.
 - **E2E reality:** `NOT_TESTED` — no two actual PCs, game handshake, mod interaction, reconnect, playerdata/inventory or world persistence evidence; socket fixtures are not Minecraft server E2E.
 - **Identity design (#16):** Chat 1 owns immutable internal profile UUID and distinct game/offline server identity contract. Chat 5 blocks username renames; does NOT migrate inventory, force server UUID, or equate app ID and playerdata UUID. Need observed server playerdata UUID and two-PC persistence evidence after Chat 1 contract.
 - **Dependencies/risks:** Chat 1 typed mapping; Chat 2 runnable game and process contract; Chat 3 Fabric/Forge/NeoForge dedicated-server recipes; Chat 4 verified lockfile/hash/side semantics; Chat 7 UI. Offline nicknames are spoofable; no public bind, firewall changes or port forwarding. `java -jar` is insufficient for some modded launch recipes.
 - **Control decisions:** Approve server-scoped identity mapping/rename migration and loader-specific server launch interface; review CI once green. G0/G1 `UNVERIFIED`, G6 `NOT_TESTED`; no merge.
-- **Next:** Resolve Windows CI outcomes, add verified test counts/logs, obtain two separate Windows PCs and real modpack/loader to execute `G6_WINDOWS_E2E.md`; retain hashes and logs.
+- **Next:** Inspect CI run 43476043990, fix additional Clippy or unit-test failures if present, update exact Windows test counts. G6 two-PC remains NOT_TESTED.
 
 <!-- CHAT-05:END -->
 
