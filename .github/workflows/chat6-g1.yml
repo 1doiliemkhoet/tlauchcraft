@@ -1,0 +1,40 @@
+name: Chat 6 Windows lockfile generation and test evidence
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/tl-skin/**'
+      - '.github/workflows/chat6-g1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-skins:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
+      - name: Generate canonical lockfile using real Cargo
+        shell: pwsh
+        run: |
+          cargo generate-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("Cargo.lock"))
+          Write-Output "LOCKFILE_BASE64_BEGIN"
+          for ($i = 0; $i -lt $b64.Length; $i += 3000) {
+            $length = [Math]::Min(3000, $b64.Length - $i)
+            Write-Output ("LOCK_PART:" + $b64.Substring($i, $length))
+          }
+          Write-Output "LOCKFILE_BASE64_END"
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check clippy warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run workspace tests on Windows
+        run: cargo test --workspace --all-targets
