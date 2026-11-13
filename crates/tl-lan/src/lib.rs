@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -17,6 +17,7 @@ pub enum LanError {
     NotVerified(String),
     LaunchFailed(String),
     Io(String),
+    NetworkFailure(String),
 }
 impl From<io::Error> for LanError {
     fn from(e: io::Error) -> Self { Self::Io(e.to_string()) }
@@ -127,6 +128,18 @@ pub fn validate_server_spec(spec: &LanServerSpec) -> Result<()> {
     }
     Ok(())
 }
+/// Performs exactly one bounded TCP probe to a private LAN endpoint.
+/// This only diagnoses reachability: it does NOT verify Minecraft protocol/identity.
+pub fn probe_lan_endpoint(host: Ipv4Addr, port: u16, timeout: Duration) -> Result<()> {
+    if !(host.is_private() || host.is_loopback()) || port == 0 || timeout.is_zero()
+        || timeout > Duration::from_secs(10) {
+        return Err(LanError::InvalidInput("unsafe address, port or probe timeout".into()));
+    }
+    TcpStream::connect_timeout(&SocketAddr::new(IpAddr::V4(host), port), timeout)
+        .map(|_| ())
+        .map_err(|e| LanError::NetworkFailure(e.to_string()))
+}
+
 /// Preflight bind only; OS firewall configuration and WAN reachability require on-device tests.
 pub fn check_port_available(bind: Ipv4Addr, port: u16) -> Result<()> {
     match TcpListener::bind(SocketAddr::new(IpAddr::V4(bind), port)) {
@@ -358,6 +371,55 @@ mod tests {
         let listener=TcpListener::bind((Ipv4Addr::LOCALHOST,0)).unwrap();
         let port=listener.local_addr().unwrap().port();
         assert!(matches!(check_port_available(Ipv4Addr::LOCALHOST,port),Err(LanError::PortInUse(_))));
+    }
+    #[test] fn probe_success_and_connection_refused() {
+        let listener=TcpListener::bind((Ipv4Addr::LOCALHOST,0)).unwrap();
+        let port=listener.local_addr().unwrap().port();
+        assert!(probe_lan_endpoint(Ipv4Addr::LOCALHOST,port,Duration::from_millis(250)).is_ok());
+        drop(listener);
+        assert!(matches!(
+            probe_lan_endpoint(Ipv4Addr::LOCALHOST,port,Duration::from_millis(250)),
+            Err(LanError::NetworkFailure(_))
+        ));
+    }
+    #[test] fn probe_rejects_public_targets() {
+        assert!(matches!(
+            probe_lan_endpoint(Ipv4Addr::new(8,8,8,8),25565,Duration::from_millis(100)),
+            Err(LanError::InvalidInput(_))
+        ));
+    }
+    #[test] fn server_start_fails_without_verified_config() {
+        let root=std::env::temp_dir().join(format!("tl-lan-start-{}",std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let jar=root.join("test.jar");
+        fs::write(&jar,b"fixture only").unwrap();
+        let error=ServerProcess::start(Path::new("java"),&jar,&root,1024);
+        assert!(matches!(error,Err(LanError::NotVerified(_))));
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test] fn server_start_rejects_unsafe_config_even_with_eula() {
+        let root=std::env::temp_dir().join(format!("tl-lan-unsafe-{}",std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let jar=root.join("test.jar");
+        fs::write(&jar,b"fixture only").unwrap();
+        fs::write(root.join("server.properties"),b"server-ip=0.0.0.0\nonline-mode=false\nenable-rcon=false\n").unwrap();
+        fs::write(root.join("eula.txt"),b"eula=true\n").unwrap();
+        assert!(matches!(ServerProcess::start(Path::new("java"),&jar,&root,1024),Err(LanError::UnsafeBind(_))));
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test] fn cold_backup_preserves_world_bytes() {
+        let root=std::env::temp_dir().join(format!("tl-lan-cold-{}",std::process::id()));
+        let world=root.join("world");
+        fs::create_dir_all(world.join("playerdata")).unwrap();
+        fs::write(world.join("level.dat"),b"NBT-fixture").unwrap();
+        fs::write(world.join("playerdata").join("123.dat"),b"inventory-fixture").unwrap();
+        let backups=root.join("backups");
+        let dest=backup_stopped_world(&world,&backups,"snapshot_1",true).unwrap();
+        assert_eq!(fs::read(dest.join("level.dat")).unwrap(),b"NBT-fixture");
+        assert_eq!(fs::read(dest.join("playerdata").join("123.dat")).unwrap(),b"inventory-fixture");
+        assert!(backup_stopped_world(&world,&backups,"snapshot_1",true).is_err());
+        assert_eq!(fs::read(world.join("level.dat")).unwrap(),b"NBT-fixture");
+        fs::remove_dir_all(&root).unwrap();
     }
     #[test] fn rename_blocks_inventory_risk() {
         assert!(require_stable_identity("Player_1","Player_1").is_ok());
