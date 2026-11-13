@@ -1,0 +1,56 @@
+name: Desktop Windows checks
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate npm lock with real npm (only when missing)
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          if (!(Test-Path package-lock.json)) {
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "build(desktop): lock npm dependencies using Windows npm"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: npm ci
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      - name: npm test
+        working-directory: apps/desktop
+        run: npm test
+      - name: npm run build
+        working-directory: apps/desktop
+        run: npm run build
+      - name: Tauri cargo check (Windows MSVC)
+        working-directory: apps/desktop/src-tauri
+        run: cargo check
