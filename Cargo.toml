@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tl-core", "crates/tl-storage", "crates/tl-game"]
+members = ["crates/tl-core", "crates/tl-storage", "crates/tl-game", "crates/tl-lan"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
