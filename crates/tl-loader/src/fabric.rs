@@ -37,15 +37,17 @@ pub fn parse_versions(json: &str) -> Result<Vec<String>, LoaderError> {
     struct Version {
         version: String,
     }
-    let versions: Vec<Version> = serde_json::from_str(json)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let versions: Vec<Version> =
+        serde_json::from_str(json).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let mut out = Vec::new();
     for version in versions {
         validate_component(&version.version)?;
         out.push(version.version);
     }
     if out.is_empty() {
-        return Err(LoaderError::InvalidMetadata("empty Fabric version list".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "empty Fabric version list".into(),
+        ));
     }
     Ok(out)
 }
@@ -86,7 +88,9 @@ impl LoaderInstaller for Fabric {
             ));
         }
         if profile.libraries.is_empty() {
-            return Err(LoaderError::InvalidMetadata("empty Fabric classpath".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "empty Fabric classpath".into(),
+            ));
         }
         let mut libraries = Vec::new();
         for library in profile.libraries {

@@ -110,8 +110,8 @@ pub fn merge_fabric_version(
     if instance.loader.kind != LoaderKind::Fabric {
         return Err(LoaderError::InvalidInput);
     }
-    let profile_text = serde_json::to_string(profile)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let profile_text =
+        serde_json::to_string(profile).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let plan = plan_for_instance(instance, &profile_text, required_java_major)?;
     if parent.get("id").and_then(serde_json::Value::as_str)
         != Some(instance.minecraft_version.as_str())
@@ -123,10 +123,10 @@ pub fn merge_fabric_version(
     }
     let result = tl_game::inherit(parent, profile)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
-    if result.get("mainClass").and_then(serde_json::Value::as_str)
-        != plan.main_class.as_deref()
-    {
-        return Err(LoaderError::InvalidMetadata("merged mainClass differs".into()));
+    if result.get("mainClass").and_then(serde_json::Value::as_str) != plan.main_class.as_deref() {
+        return Err(LoaderError::InvalidMetadata(
+            "merged mainClass differs".into(),
+        ));
     }
     Ok(result)
 }
@@ -134,9 +134,9 @@ pub fn merge_fabric_version(
 pub fn validate_component(value: &str) -> Result<(), LoaderError> {
     if value.is_empty()
         || value.len() > 128
-        || !value.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+')
-        })
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
         || value == "."
         || value == ".."
         || value.contains("..")

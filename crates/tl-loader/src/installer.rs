@@ -1,8 +1,8 @@
 //! Safe inspection of official Forge / NeoForge installer profile JSON.
 //! The caller MUST obtain and checksum-verify the official installer JAR first.
 //! This module never executes an installer, arbitrary Java processors, or writes files.
-use serde::{Deserialize, Serialize};
 use crate::{maven, LoaderError};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessorStep {
@@ -43,36 +43,46 @@ struct RawProcessor {
 /// Inspect an installation profile for the selected Minecraft version.
 /// Unsupported legacy profiles are rejected rather than guessed.
 pub fn inspect_install_profile(
-    json: &str, expected_minecraft: &str
+    json: &str,
+    expected_minecraft: &str,
 ) -> Result<ProcessorInspection, LoaderError> {
     crate::validate_component(expected_minecraft)?;
-    let raw: InstallProfile = serde_json::from_str(json)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let raw: InstallProfile =
+        serde_json::from_str(json).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     if raw.minecraft != expected_minecraft {
         return Err(LoaderError::CompatibilityConflict);
     }
     if raw.processors.is_empty() {
         return Err(LoaderError::UnsupportedVersion(
-            "installer profile has no processor list; legacy layouts require a dedicated adapter".into()
+            "installer profile has no processor list; legacy layouts require a dedicated adapter"
+                .into(),
         ));
     }
     let mut processors = Vec::with_capacity(raw.processors.len());
     for p in raw.processors {
         maven::artifact_path(&p.jar)?;
         if p.classpath.len() > 256 || p.args.len() > 256 {
-            return Err(LoaderError::InvalidMetadata("excessive processor entries".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "excessive processor entries".into(),
+            ));
         }
-        for item in &p.classpath { maven::artifact_path(item)?; }
+        for item in &p.classpath {
+            maven::artifact_path(item)?;
+        }
         for side in &p.sides {
             if side != "client" && side != "server" {
-                return Err(LoaderError::InvalidMetadata("unknown processor side".into()));
+                return Err(LoaderError::InvalidMetadata(
+                    "unknown processor side".into(),
+                ));
             }
         }
         // Never interpret these as command lines. Reject control characters,
         // and enforce bounded strings before passing to a future trusted runner.
         for arg in &p.args {
             if arg.is_empty() || arg.len() > 8192 || arg.chars().any(|ch| ch.is_control()) {
-                return Err(LoaderError::InvalidMetadata("unsafe processor argument".into()));
+                return Err(LoaderError::InvalidMetadata(
+                    "unsafe processor argument".into(),
+                ));
             }
         }
         processors.push(ProcessorStep {
@@ -95,27 +105,34 @@ mod tests {
     #[test]
     fn inspects_valid_processor_without_execution() {
         let profile = r#"{"minecraft":"1.20.1","processors":[{"jar":"net.minecraftforge:installertools:1.4.1","classpath":["net.minecraftforge:installertools:1.4.1"],"args":["--task","EXTRACT_FILES"],"sides":["client"]}]}"#;
-        let p = inspect_install_profile(profile,"1.20.1").unwrap();
-        assert_eq!(p.processors.len(),1);
+        let p = inspect_install_profile(profile, "1.20.1").unwrap();
+        assert_eq!(p.processors.len(), 1);
         assert!(!p.ready_to_execute);
-        assert_eq!(p.processors[0].opaque_arguments,vec!["--task","EXTRACT_FILES"]);
+        assert_eq!(
+            p.processors[0].opaque_arguments,
+            vec!["--task", "EXTRACT_FILES"]
+        );
     }
     #[test]
     fn rejects_minecraft_mismatch() {
-        let p=r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:1"}]}"#;
-        assert_eq!(inspect_install_profile(p,"1.21.1"),Err(LoaderError::CompatibilityConflict));
+        let p = r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:1"}]}"#;
+        assert_eq!(
+            inspect_install_profile(p, "1.21.1"),
+            Err(LoaderError::CompatibilityConflict)
+        );
     }
     #[test]
     fn rejects_bad_coordinates_and_untrusted_side() {
-        let bad=r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:../../x"}]}"#;
-        assert!(inspect_install_profile(bad,"1.20.1").is_err());
-        let bad_side=r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:1","sides":["internet"]}]}"#;
-        assert!(inspect_install_profile(bad_side,"1.20.1").is_err());
+        let bad = r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:../../x"}]}"#;
+        assert!(inspect_install_profile(bad, "1.20.1").is_err());
+        let bad_side =
+            r#"{"minecraft":"1.20.1","processors":[{"jar":"x:y:1","sides":["internet"]}]}"#;
+        assert!(inspect_install_profile(bad_side, "1.20.1").is_err());
     }
     #[test]
     fn rejects_legacy_unknown_processor_layout() {
         assert!(matches!(
-            inspect_install_profile(r#"{"minecraft":"1.12.2"}"#,"1.12.2"),
+            inspect_install_profile(r#"{"minecraft":"1.12.2"}"#, "1.12.2"),
             Err(LoaderError::UnsupportedVersion(_))
         ));
     }
