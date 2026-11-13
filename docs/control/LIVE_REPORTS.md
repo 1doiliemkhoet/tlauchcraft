@@ -19,7 +19,7 @@
 | Chat | Module | Status | PR | Chat tests | Control gate |
 |---|---|---|---|---|---|
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **MERGED · CONTROL_ACCEPTED G0/G1** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | Windows fmt/clippy/test PASS | **G0/G1 ACCEPTED** |
-| [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | [Windows CI 43459887778 pending](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43459887778) | NOT_VERIFIED |
+| [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · WINDOWS TESTS PASS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | [Windows fmt, Clippy, tests PASS](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43459887778) | NOT_VERIFIED (Control pending) |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN_UNREVIEWED · Draft** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | 11 authored; NOT_TESTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 15 AUTHORED · NOT_TESTED | NOT_VERIFIED |
@@ -62,16 +62,16 @@
 - **Branch:** `feat/tl-02-game-core`
 - **HEAD:** [`0b3c479eb8b373d971f6b545d1d6e5549e993f3a`](https://github.com/1doiliemkhoet/tlauchcraft/commit/0b3c479eb8b373d971f6b545d1d6e5549e993f3a)
 - **Issue / PR:** [#2](https://github.com/1doiliemkhoet/tlauchcraft/issues/2) / [#12 — draft, open, unmerged](https://github.com/1doiliemkhoet/tlauchcraft/pull/12)
-- **Status:** `PR_OPEN_UNREVIEWED`, `IN_PROGRESS`; six Clippy fixes **IMPLEMENTED**; Windows CI result **PENDING** as of this update.
+- **Status:** `PR_OPEN_UNREVIEWED`, `IN_PROGRESS`; six Clippy fixes **IMPLEMENTED**; Windows CI **fmt PASS / Clippy PASS / tests PASS**, awaiting final overall job conclusion if cleanup still running.
 - **Updated at:** 2026-11-13 (Chat 02)
 - **Recent Control changes retained:** Control refreshed root `Cargo.lock` and Rust toolchain to 1.88.0 on this branch. This Chat 2 fix edited **only** `crates/tl-game/src/lib.rs`; did not touch `Cargo.lock`, CI configuration, toolchain, other crates or `develop` source.
 - **Fix:** Replaced six `clippy::unnecessary_map_or` sites at approx. lines 75, 78, 82, 83, 91 with `Option::is_none_or` and at line 157 with `Option::is_some_and`. Predicate closures and defaults preserved. Code commit [`1e5cb22e`](https://github.com/1doiliemkhoet/tlauchcraft/commit/1e5cb22e5613f1b02bea798e787214d562d68c79), follow-up formatting commit [`0b3c479e`](https://github.com/1doiliemkhoet/tlauchcraft/commit/0b3c479eb8b373d971f6b545d1d6e5549e993f3a).
 - **Prior Windows CI evidence:** [Run 43456243159](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43456243159) — workspace registration PASS, `cargo fmt --all -- --check` PASS, `cargo clippy --locked --workspace --all-targets -- -D warnings` FAIL (six unnecessary_map_or), `cargo test --locked --workspace --all-targets` SKIPPED.
-- **New Windows CI:** [Run 43459887778](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43459887778) triggered for `0b3c479e`; not yet concluded at the time of this report. Await fmt/clippy/test output; no PASS claim before evidence.
+- **New Windows CI:** [Run 43459887778](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43459887778) triggered for `0b3c479e`; **RESULTS OBSERVED:** workspace registration PASS; `cargo fmt --all -- --check` PASS; `cargo clippy --locked --workspace --all-targets -- -D warnings` PASS; `cargo test --locked --workspace --all-targets` PASS. GitHub run steps all succeeded; verify overall CI status separately.
 - **Existing implementation paths:** `Cargo.toml` workspace registration; `crates/tl-game/Cargo.toml` `tl-core` integration; `crates/tl-game/src/foundation.rs` launch context; `crates/tl-game/src/lib.rs` metadata/download/Java command primitives; `crates/tl-game/src/metadata.rs` install planning; `crates/tl-game/README.md` limitations.
 - **Actual local testing:** This execution environment has no Cargo/Windows runner; no local Rust tests executed. GitHub Actions Windows CI is the authoritative actual runner. No `--locked` removal, disabled Clippy or test bypass.
-- **Gates:** G0 shared Foundation integrated but pending Control review. G1 `NOT_VERIFIED` until Windows fmt/clippy/tests fully PASS. G2 install, G3 launch/PID/menu, G4 Singleplayer world reopening: `NOT_TESTED`; no E2E claims.
-- **Risks/pending:** If new CI finds more warnings or tests fail, diagnose exact log/file/line, repair on Chat 2 feature branch, and rerun CI. Real Minecraft pipeline and real Windows E2E remain incomplete.
+- **Gates:** G0 shared Foundation integrated but pending Control review. G1 `TESTED`: Windows fmt/clippy/tests all PASS in run 43459887778; Control gate remains `NOT_VERIFIED` until Control review. G2 install, G3 launch/PID/menu, G4 Singleplayer world reopening: `NOT_TESTED`; no E2E claims.
+- **Risks/pending:** CI checks successful; remaining risk is integration/E2E not covered by unit tests. Real Minecraft pipeline and real Windows E2E remain incomplete.
 - **Control decision:** Review PR #12 only after Windows CI evidence; only Control merges PR. Do not claim game E2E PASS from unit tests.
 
 <!-- CHAT-02:END -->
