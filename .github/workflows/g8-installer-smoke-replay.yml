@@ -1,0 +1,38 @@
+name: G8 NSIS install-smoke replay
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/desktop/scripts/g8-installer-smoke.ps1'
+      - '.github/workflows/g8-installer-smoke-replay.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: tl-g8-replay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke-replay:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve actual NSIS built by Windows G8 run 43498282763
+        uses: actions/download-artifact@v4
+        with:
+          name: g8-windows-nsis-43498282763
+          run-id: 43498282763
+          github-token: ${{ github.token }}
+          path: apps/desktop
+      - name: Smoke actual signed-by-none NSIS payload on fresh hosted Windows runner
+        shell: pwsh
+        run: ./apps/desktop/scripts/g8-installer-smoke.ps1
+      - name: Upload installation diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g8-install-smoke-evidence-${{ github.run_id }}
+          path: apps/desktop/g8-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
