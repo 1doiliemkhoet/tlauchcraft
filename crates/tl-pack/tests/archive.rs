@@ -31,6 +31,8 @@ fn curseforge_requires_authorized_resolution() {
     );
     let metadata = inspect_archive(&input).unwrap();
     assert_eq!(metadata.source, PackSource::CurseforgeZip);
+    assert_eq!(metadata.loader.kind, "forge");
+    assert_eq!(metadata.loader.version.as_deref(), Some("47.3.0"));
     assert_eq!(metadata.files[0].project_id, Some(3));
     assert_eq!(initial_state(&metadata), ImportState::NeedsAction);
     let stage = temp.path().join("new-stage");

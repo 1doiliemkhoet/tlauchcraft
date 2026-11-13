@@ -80,6 +80,7 @@ struct CfManifest {
     overrides: Option<String>,
 }
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CfMinecraft {
     version: String,
     #[serde(default)]
@@ -94,7 +95,9 @@ struct CfLoader {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CfFile {
+    #[serde(rename = "projectID", alias = "projectId")]
     project_id: u64,
+    #[serde(rename = "fileID", alias = "fileId")]
     file_id: u64,
     #[serde(default = "default_true")]
     required: bool,
