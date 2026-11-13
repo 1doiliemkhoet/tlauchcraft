@@ -22,8 +22,7 @@ const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_
 const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
 
 fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, GameError> {
-    let u = reqwest::Url::parse(url)
-        .map_err(|e| GameError::InvalidInput(e.to_string()))?;
+    let u = reqwest::Url::parse(url).map_err(|e| GameError::InvalidInput(e.to_string()))?;
     if u.scheme() != "https"
         || u.port().is_some()
         || !matches!(
@@ -31,7 +30,9 @@ fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, Ga
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
         )
     {
-        return Err(GameError::InvalidInput("untrusted metadata endpoint".into()));
+        return Err(GameError::InvalidInput(
+            "untrusted metadata endpoint".into(),
+        ));
     }
     let mut response = client
         .get(u)
@@ -43,7 +44,10 @@ fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, Ga
             response.status()
         )));
     }
-    if response.content_length().is_some_and(|len| len > MAX_JSON_BYTES) {
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_JSON_BYTES)
+    {
         return Err(GameError::InvalidInput("metadata too large".into()));
     }
     let mut bytes = Vec::new();
@@ -205,10 +209,7 @@ fn verify_native_listing(output: &[u8]) -> Result<(), GameError> {
 
 /// Extract verified Mojang native ZIP/JAR archives into a launcher-owned empty directory.
 /// No user-provided archives. Does not follow archive symlinks and rejects unexpected files.
-pub fn extract_natives(
-    archives: &[PathBuf],
-    destination: &Path,
-) -> Result<(), GameError> {
+pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), GameError> {
     if !cfg!(windows) {
         return Err(GameError::UnsupportedVersion("Windows only".into()));
     }
@@ -220,10 +221,7 @@ pub fn extract_natives(
     fs::create_dir_all(destination)?;
     let work = (|| -> Result<(), GameError> {
         for archive in archives {
-            let listing = Command::new("tar.exe")
-                .arg("-tf")
-                .arg(archive)
-                .output()?;
+            let listing = Command::new("tar.exe").arg("-tf").arg(archive).output()?;
             if !listing.status.success() {
                 return Err(GameError::InvalidInput(
                     "could not inspect native archive".into(),
@@ -321,16 +319,31 @@ pub fn build_vanilla_launch(
     let values = HashMap::from([
         ("auth_player_name".to_owned(), identity.username.clone()),
         ("auth_uuid".to_owned(), identity.game_uuid.clone()),
-        ("auth_access_token".to_owned(), identity.access_token.clone()),
+        (
+            "auth_access_token".to_owned(),
+            identity.access_token.clone(),
+        ),
         ("user_type".to_owned(), identity.user_type.clone()),
         ("version_name".to_owned(), id.to_owned()),
         ("version_type".to_owned(), "release".to_owned()),
-        ("game_directory".to_owned(), paths.game_dir.to_string_lossy().into_owned()),
-        ("assets_root".to_owned(), paths.root.join("assets").to_string_lossy().into_owned()),
+        (
+            "game_directory".to_owned(),
+            paths.game_dir.to_string_lossy().into_owned(),
+        ),
+        (
+            "assets_root".to_owned(),
+            paths.root.join("assets").to_string_lossy().into_owned(),
+        ),
         ("assets_index_name".to_owned(), asset_index.to_owned()),
-        ("natives_directory".to_owned(), paths.natives_dir.to_string_lossy().into_owned()),
+        (
+            "natives_directory".to_owned(),
+            paths.natives_dir.to_string_lossy().into_owned(),
+        ),
         ("launcher_name".to_owned(), "TLaunchCraft".to_owned()),
-        ("launcher_version".to_owned(), env!("CARGO_PKG_VERSION").to_owned()),
+        (
+            "launcher_version".to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
+        ),
         ("resolution_width".to_owned(), "854".to_owned()),
         ("resolution_height".to_owned(), "480".to_owned()),
     ]);
@@ -397,7 +410,9 @@ pub fn write_launch_evidence(
         "menu_verified": false,
         "world_reopened_verified": false
     });
-    let parent = path.parent().ok_or_else(|| GameError::InvalidInput("evidence path".into()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| GameError::InvalidInput("evidence path".into()))?;
     fs::create_dir_all(parent)?;
     let mut out = fs::File::create_new(path)?;
     out.write_all(serde_json::to_string_pretty(&report)?.as_bytes())?;
