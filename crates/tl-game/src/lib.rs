@@ -3,6 +3,7 @@
 pub mod foundation;
 pub mod metadata;
 pub mod vanilla;
+pub mod vanilla_evidence;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{
