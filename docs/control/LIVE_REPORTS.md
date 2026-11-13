@@ -18,7 +18,7 @@
 
 | Chat | Module | Status | PR | Chat tests | Control gate |
 |---|---|---|---|---|---|
-| [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN · unreviewed** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN_UNREVIEWED · TESTED CI** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | 9/9 Windows + 9/9 Ubuntu; fmt/clippy PASS | NOT_VERIFIED |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | AUTHORED_NOT_TESTED | NOT_VERIFIED |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
@@ -34,19 +34,21 @@
 ## Chat 1 — Foundation & Persistence
 
 - **Branch:** `feat/tl-01-foundation`
-- **Snapshot branch HEAD:** `1a5980574e431e67c7de1aa135a65099877293e6` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **Current branch HEAD / last tested commit:** `1a5980574e431e67c7de1aa135a65099877293e6` ([commit](https://github.com/1doiliemkhoet/tlauchcraft/commit/1a5980574e431e67c7de1aa135a65099877293e6)).
 - **Issue:** [#1](https://github.com/1doiliemkhoet/tlauchcraft/issues/1)
-- **PR to develop:** [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 1 updates its own section with concrete results, commits and evidence URLs.
+- **PR to develop:** [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) — OPEN, DRAFT, NOT MERGED.
+- **Status:** `PR_OPEN_UNREVIEWED`; `IMPLEMENTED` shared Foundation code; `TESTED` Windows/Ubuntu CI; `NOT_VERIFIED` by Control.
+- **Updated at:** 2026-11-13 (Chat 1).
+- **Implemented functionality:** Rust 1.85.1 workspace with `tl-core` and `tl-storage`; shared serde v1 DTOs (`OfflineProfile`, `GameInstance`, loader/state, download/install/launch/LAN/skin/event/error types), stable local UUID and username validation/rename, isolated relative `instances/<UUID>` paths, SQLite schema v1 transaction, WAL/foreign keys, profile+instance CRUD, metadata-only deletion, SQLite backup API, path validation and typed/redacted public errors. Committed `Cargo.lock` for reproducible dependency resolution. This does not implement Minecraft game launch, installed packs or UI.
+- **Changed files:** `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `crates/tl-core/Cargo.toml`, `crates/tl-core/src/lib.rs`, `crates/tl-storage/Cargo.toml`, `crates/tl-storage/src/lib.rs`, `crates/tl-storage/tests/storage.rs`, `.github/workflows/rust.yml`, `docs/foundation/README.md`. Source changes isolated to feature branch, not develop.
+- **Shared API impact:** `OfflineProfile.id` persistent local UUID independent of username (NOT the server-assigned offline UUID); `GameInstance.root_path` fixed to launcher-owned relative `instances/<UUID>`; public serialized DTOs and error vocabulary. Other chats must use Control-approved contract changes; interfaces not frozen by Control yet.
+- **CI evidence:** [GitHub Actions run 43441813351](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43441813351), latest tested commit above, Windows and Ubuntu matrix `success`.
+- **Test commands / observed results:** `cargo test --locked --workspace --all-targets` => Windows **9 passed, 0 failed** (4 core unit + 5 storage integration), Ubuntu **9 passed, 0 failed**; `cargo clippy --locked --workspace --all-targets -- -D warnings` => **PASS** on both; `cargo fmt --all -- --check` => **PASS** on both. Tests cover identity persistence on rename/restart, case-insensitive username uniqueness, instance state round-trip, foreign-key protection, snapshot backup, concurrent writes remaining structurally valid and traversal rejection.
+- **Real device / Minecraft / modpack / LAN evidence:** `NOT_TESTED` for real Minecraft installation, game launch, world lifecycle, modpack import, two-machine LAN, skins and Windows installer. GitHub-hosted Windows CI is not a real on-device Minecraft E2E.
+- **Acceptance gates:** `G0: IMPLEMENTED + TESTED, Control review PENDING`; `G1: CI TESTED (9/9 Windows + 9/9 Ubuntu, fmt/clippy PASS), Control gate NOT_VERIFIED`; `G2–G8: NOT_TESTED / NOT_VERIFIED by Chat 1`.
+- **Blockers / dependencies / risks:** Requires Control contract review/PR merge before Chat 2–7 depend on shared APIs. No automatic compare-and-swap/lost-update protection across concurrent edits (concurrency test is not a lost-update proof). Schema v2 migration downgrade/rollback recovery not tested. Symlink escape prevention at actual game/archive IO boundaries remains the caller's responsibility; storage path checks alone are insufficient. No real Minecraft E2E yet.
+- **Decisions requested from Control:** Approve or amend local UUID vs server UUID separation; launcher-relative instance path convention; serde DTO/error compatibility and public interface freeze; decide revision/CAS design for concurrent profile updates.
+- **Next actions:** Control reviews PR #13 and G0/G1 evidence. Continue Chat 1 safety hardening / storage tests on feature branch only, update this report after each verified change. Do not merge without Control authorization.
 
 <!-- CHAT-01:END -->
 
