@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN_UNREVIEWED · TESTED CI** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | 9/9 Windows + 9/9 Ubuntu; fmt/clippy PASS | NOT_VERIFIED |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | AUTHORED_NOT_TESTED | NOT_VERIFIED |
-| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN_UNREVIEWED · Draft** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | 7 authored; NOT_TESTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 9 AUTHORED · NOT_TESTED | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
@@ -80,19 +80,19 @@
 ## Chat 3 — Mod Loader Adapters
 
 - **Branch:** `feat/tl-03-loaders`
-- **Snapshot branch HEAD:** `1177b93b99ad447dd258f6c9d0cd2277f4989bc0` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **HEAD:** [`1177b93b99ad447dd258f6c9d0cd2277f4989bc0`](https://github.com/1doiliemkhoet/tlauchcraft/commit/1177b93b99ad447dd258f6c9d0cd2277f4989bc0) (checked 2026-11-13)
 - **Issue:** [#3](https://github.com/1doiliemkhoet/tlauchcraft/issues/3)
-- **PR to develop:** [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 3 updates its own section with concrete results, commits and evidence URLs.
+- **PR:** [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8), OPEN DRAFT, **NOT MERGED**
+- **Status:** `PR_OPEN_UNREVIEWED`; partial metadata planning code **IMPLEMENTED**, integration **BLOCKED**, real installation **NOT_VERIFIED**
+- **Updated:** 2026-11-13 (Chat 3)
+- **Functionality implemented:** isolated Rust `LoaderInstaller` trait and typed errors/spec/plan; official Fabric profile JSON parsing, Minecraft/loader ID/inheritance/mainClass validation, approved Maven host filtering, artifact paths, Java-major check; Forge Maven XML catalog and acquisition-only installer plan; NeoForge catalog parsing and fail-closed unsupported game-version mapping. No Minecraft game launcher or installer execution in this crate.
+- **Changed paths:** `crates/tl-loader/Cargo.toml`, `crates/tl-loader/src/{lib.rs,fabric.rs,maven.rs}`, `crates/tl-loader/tests/metadata.rs` (5 files, only Chat 3 ownership).
+- **Tests:** 7 fixture tests authored, **NOT_TESTED** (0 observed PASS). Suggested but **not executed**: `cargo test --manifest-path crates/tl-loader/Cargo.toml` and `cargo fmt --manifest-path crates/tl-loader/Cargo.toml -- --check`. No linked CI status.
+- **E2E proof:** **NOT_TESTED / NOT_VERIFIED**: no Fabric mod loading, Forge/NeoForge processor output, artifact hash evidence, PID or game startup logs.
+- **Gates:** G0 provisional/unapproved; G1 NOT_TESTED; G2/G3/G5 NOT_VERIFIED.
+- **Dependencies / risks:** Chat 1 shared types + workspace; Chat 2 verified FileInstaller, GameRuntime and version metadata inheritance; official Forge/NeoForge installation processors not integrated. Fabric artifact integrity and compatible Java runtime verification required.
+- **Control decisions:** approve loader-plan merge contract with Chat 2 and select Fabric + Minecraft + Java E2E test matrix; confirm authoritative NeoForge version mapping policy.
+- **Next steps:** run Rust compilation/unit/fmt with evidence, harden metadata parsing, integrate installer via Chat 1/2 approved APIs, then on-device Fabric mod-load and Forge/NeoForge smoke tests.
 
 <!-- CHAT-03:END -->
 
