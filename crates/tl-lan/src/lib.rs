@@ -241,8 +241,18 @@ pub fn backup_stopped_world(world: &Path, backups: &Path, backup_name: &str, ser
     if !world.is_dir() || fs::symlink_metadata(world)?.file_type().is_symlink() {
         return Err(LanError::InvalidInput("world must be a real directory".into()));
     }
+    // Never recurse into a backup root nested in the world itself.
+    // Reject symlinked backup roots so writes cannot escape the intended location.
+    if backups.exists() && fs::symlink_metadata(backups)?.file_type().is_symlink() {
+        return Err(LanError::InvalidInput("backup root cannot be a symlink".into()));
+    }
     fs::create_dir_all(backups)?;
-    let destination = backups.join(backup_name);
+    let canonical_world = fs::canonicalize(world)?;
+    let canonical_backups = fs::canonicalize(backups)?;
+    if canonical_backups.starts_with(&canonical_world) {
+        return Err(LanError::InvalidInput("backup directory must be outside source world".into()));
+    }
+    let destination = canonical_backups.join(backup_name);
     fs::create_dir(&destination)?;
     fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
         for entry in fs::read_dir(src)? {
@@ -305,6 +315,49 @@ mod tests {
         let s=LanServerSpec {server_root:"server".into(),bind:Ipv4Addr::new(192,168,1,2),port:25565,
             max_players:4,whitelist:true,acknowledged_offline_risk:false,confirmed_private_network:true};
         assert!(validate_server_spec(&s).is_err());
+    }
+    #[test] fn rejects_backup_inside_source_world() {
+        let unique = format!("tl-lan-world-{}-{:?}", std::process::id(), std::thread::current().id());
+        let world=std::env::temp_dir().join(unique);
+        fs::create_dir(&world).unwrap();
+        let inside=world.join("backups");
+        assert!(matches!(backup_stopped_world(&world,&inside,"snapshot",true),Err(LanError::InvalidInput(_))));
+        fs::remove_dir_all(&world).unwrap();
+    }
+    #[test] fn refuses_live_backup() {
+        assert!(matches!(backup_stopped_world(Path::new("no-world"),Path::new("no-backup"),"snap",false),Err(LanError::NotVerified(_))));
+    }
+    #[test] fn rejects_bad_hash_and_duplicate_paths() {
+        let mut a=pack(Side::Both,&hash('a'));
+        a.files[0].sha256="not-sha256".into();
+        assert!(!compare_packs(&a,&a).compatible);
+        a.files[0].sha256=hash('a');
+        let mut duplicate=a.files[0].clone();
+        duplicate.relative_path="MODS/GAMEPLAY.JAR".into();
+        a.files.push(duplicate);
+        assert!(!compare_packs(&a,&a).compatible);
+    }
+    #[test] fn rejects_invalid_direct_connect_address() {
+        assert!(direct_connect_address(Ipv4Addr::new(8,8,8,8),25565).is_err());
+        assert!(direct_connect_address(Ipv4Addr::new(192,168,1,5),25565).is_ok());
+    }
+    #[test] fn creates_lan_properties_only_once() {
+        let unique = format!("tl-lan-config-{}-{:?}", std::process::id(), std::thread::current().id());
+        let root=std::env::temp_dir().join(unique);
+        let spec=LanServerSpec {server_root:root.clone(),bind:Ipv4Addr::new(192,168,2,15),port:25565,
+            max_players:3,whitelist:true,acknowledged_offline_risk:true,confirmed_private_network:true};
+        let path=initialize_server_properties(&spec).unwrap();
+        let contents=fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("online-mode=false"));
+        assert!(contents.contains("enable-rcon=false"));
+        assert!(contents.contains("white-list=true"));
+        assert!(initialize_server_properties(&spec).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn occupied_port_is_detected() {
+        let listener=TcpListener::bind((Ipv4Addr::LOCALHOST,0)).unwrap();
+        let port=listener.local_addr().unwrap().port();
+        assert!(matches!(check_port_available(Ipv4Addr::LOCALHOST,port),Err(LanError::PortInUse(_))));
     }
     #[test] fn rename_blocks_inventory_risk() {
         assert!(require_stable_identity("Player_1","Player_1").is_ok());
