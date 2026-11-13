@@ -31,6 +31,23 @@ jobs:
           toolchain: '1.85.1'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Ensure every Rust crate is tested by the workspace
+        shell: pwsh
+        run: |
+          $meta = cargo metadata --locked --format-version 1 --no-deps | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $members = @($meta.packages | ForEach-Object { [IO.Path]::GetFullPath($_.manifest_path).ToLowerInvariant() })
+          $missing = @()
+          Get-ChildItem -Path crates -Directory | ForEach-Object {
+            $manifest = Join-Path $_.FullName 'Cargo.toml'
+            if ((Test-Path $manifest) -and ($members -notcontains [IO.Path]::GetFullPath($manifest).ToLowerInvariant())) {
+              $missing += $manifest
+            }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Error "Unregistered crate(s): $($missing -join ', '). Add to root workspace and update Cargo.lock before merging."
+            exit 1
+          }
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
