@@ -1,0 +1,12 @@
+[package]
+name = "tl-lan"
+version = "0.1.0"
+edition = "2021"
+description = "Trusted-LAN server and modpack compatibility primitives for tlauchcraft"
+license = "MIT"
+
+[lib]
+name = "tl_lan"
+path = "src/lib.rs"
+
+[dependencies]
