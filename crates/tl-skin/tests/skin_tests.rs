@@ -75,3 +75,19 @@ fn preview_does_not_equal_real_visibility_and_opt_in_is_enforced() {
     s.verify_peer("real-local-evidence".into(),"real-friend-evidence".into()).unwrap();
     assert_eq!(s.peer, Visibility::PeerVerified);
 }
+
+#[test]
+fn fill_mirror_palette_and_undo() {
+    let mut e = SkinEditor::new(image(64));
+    assert_eq!(e.palette(0).len(), 0);
+    assert_eq!(e.flood_fill(0, 0, [5,6,7,8]).unwrap(), 4096);
+    assert_eq!(e.sample(63,63).unwrap(), [5,6,7,8]);
+    assert!(e.undo());
+    assert_eq!(e.sample(63,63).unwrap(), [255;4]);
+    e.paint(0,0,[1,2,3,4]).unwrap();
+    e.paint(1,0,[7,8,9,10]).unwrap();
+    e.mirror_region(0,0,2,1).unwrap();
+    assert_eq!(e.sample(0,0).unwrap(), [7,8,9,10]);
+    assert!(e.mirror_region(63,63,2,2).is_err());
+    assert_eq!(atlas_regions().len(),12);
+}
