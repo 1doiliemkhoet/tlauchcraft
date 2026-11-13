@@ -35,7 +35,7 @@
 
 - **Baseline:** Foundation PR [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) MERGED into develop; Control approved G0/G1 for baseline only (2026-11-13). No further work on PR #13.
 - **New branch:** `feat/tl-01-concurrency-identity` (created from `develop`).
-- **Current HEAD:** [`1b7a0c8494c3e5e6d29ab204a610511ee96acf90`](https://github.com/1doiliemkhoet/tlauchcraft/commit/33f564df76dbd75fc0dc672f292866d1202e54a2).
+- **Current HEAD:** [`1b7a0c8494c3e5e6d29ab204a610511ee96acf90`](https://github.com/1doiliemkhoet/tlauchcraft/commit/1b7a0c8494c3e5e6d29ab204a610511ee96acf90).
 - **New PR:** [#18](https://github.com/1doiliemkhoet/tlauchcraft/pull/18) into `develop`, DRAFT/OPEN/UNMERGED, covering [Issue #17](https://github.com/1doiliemkhoet/tlauchcraft/issues/17) and Chat 1 contract scope of [Issue #16](https://github.com/1doiliemkhoet/tlauchcraft/issues/16).
 - **Status 2026-11-14:** `IN_PROGRESS` / `PR_OPEN_UNREVIEWED`, source `IMPLEMENTED`, Windows CI `TESTED: PASS` on current head; G0/G1 new changes `NOT_VERIFIED` by Control.
 - **Implemented:** SQLite schema v2 adds `revision INTEGER NOT NULL DEFAULT 0` to profiles and instances with transactional v1→v2 migration; versioned reads and conditional CAS updates reject stale revisions. Existing `update_profile`/`update_instance` methods use observed revisions to reject stale data, preserving serialized profile and instance formats. Safe SQLite backup uses staging file + `persist_noclobber` and checks backup parent symlink, refusing existing targets; no world data mutation.
