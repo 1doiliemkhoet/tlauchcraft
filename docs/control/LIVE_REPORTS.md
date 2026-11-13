@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **MERGED · CONTROL_ACCEPTED G0/G1** | [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) | Windows fmt/clippy/test PASS | **G0/G1 ACCEPTED** |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **MERGED · CONTROL_ACCEPTED G1** | [#12](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | Windows 24/24 tests; fmt/clippy PASS | **G1 ACCEPTED · G2–G4 NOT_VERIFIED** |
-| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN_UNREVIEWED · Draft** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | 11 authored; NOT_TESTED | NOT_VERIFIED |
+| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN_UNREVIEWED · BLOCKED on lockfile/CI** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | 11 authored; NOT_TESTED on current head | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 15 AUTHORED · NOT_TESTED | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
@@ -84,19 +84,19 @@
 ## Chat 3 — Mod Loader Adapters
 
 - **Branch:** `feat/tl-03-loaders`
-- **HEAD:** [`c1b26d0180c2c02023cdf76c0039fb08a95d0ec1`](https://github.com/1doiliemkhoet/tlauchcraft/commit/c1b26d0180c2c02023cdf76c0039fb08a95d0ec1) (checked 2026-11-13)
-- **Issue:** [#3](https://github.com/1doiliemkhoet/tlauchcraft/issues/3)
-- **PR:** [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8), OPEN DRAFT, **NOT MERGED**
-- **Status:** `PR_OPEN_UNREVIEWED`; partial metadata planning code **IMPLEMENTED**, integration **BLOCKED**, real installation **NOT_VERIFIED**
-- **Updated:** 2026-11-13 (Chat 3)
-- **Functionality implemented:** isolated Rust `LoaderInstaller` trait and typed errors/spec/plan; official Fabric profile JSON parsing, Minecraft/loader ID/inheritance/mainClass validation, approved Maven host filtering, artifact paths, Java-major check; Forge Maven XML catalog and acquisition-only installer plan; NeoForge catalog parsing and fail-closed unsupported game-version mapping; Forge/NeoForge installer-profile processor inspection with coordinate, side, argument and Minecraft-version validation (inspection only, never executes Java processors). No Minecraft game launcher or installer execution in this crate.
-- **Changed paths:** `crates/tl-loader/Cargo.toml`, `crates/tl-loader/src/{lib.rs,fabric.rs,maven.rs}`, `crates/tl-loader/tests/metadata.rs`, `crates/tl-loader/src/installer.rs` (6 files, only Chat 3 ownership).
-- **Tests:** 11 fixture tests authored, **NOT_TESTED** (0 observed PASS). Suggested but **not executed**: `cargo test --manifest-path crates/tl-loader/Cargo.toml` and `cargo fmt --manifest-path crates/tl-loader/Cargo.toml -- --check`. No linked CI status.
-- **E2E proof:** **NOT_TESTED / NOT_VERIFIED**: no Fabric mod loading, Forge/NeoForge processor output, artifact hash evidence, PID or game startup logs.
-- **Gates:** G0 provisional/unapproved; G1 NOT_TESTED; G2/G3/G5 NOT_VERIFIED.
-- **Dependencies / risks:** Chat 1 shared types + workspace; Chat 2 verified FileInstaller, GameRuntime and version metadata inheritance; official Forge/NeoForge installation processors not integrated. Fabric artifact integrity and compatible Java runtime verification required.
-- **Control decisions:** approve loader-plan merge contract with Chat 2 and select Fabric + Minecraft + Java E2E test matrix; confirm authoritative NeoForge version mapping policy.
-- **Next steps:** run Rust compilation/unit/fmt with evidence, harden metadata parsing, integrate installer via Chat 1/2 approved APIs, then on-device Fabric mod-load and Forge/NeoForge smoke tests.
+- **Head commit:** [`5e03765ff62708b737f3f4c04ecf0970bc7f9ce1`](https://github.com/1doiliemkhoet/tlauchcraft/commit/5e03765ff62708b737f3f4c04ecf0970bc7f9ce1) (merged develop into feature branch without modifying develop source)
+- **PR:** [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8), open draft, **NOT MERGED**
+- **Status:** `PR_OPEN_UNREVIEWED` / `BLOCKED` on Cargo.lock generation and Windows CI.
+- **Updated:** 2026-11-13 Chat 3.
+- **IMPLEMENTED code (not yet tested):** Fabric metadata/profile compatibility resolver; Forge/NeoForge catalog/installer-planning and processor profile inspection; Java major compatibility; safe Maven coordinate parsing. Integrated `tl-core`'s actual `LoaderKind`, `LoaderSpec` and `GameInstance` (removed duplicate shared types) and Chat 2 `tl-game::inherit` via `merge_fabric_version`. Registered crate in root Cargo workspace after Control permission. These are metadata/planning operations, not verified download/installation.
+- **Changed paths in PR:** `Cargo.toml`, `crates/tl-loader/Cargo.toml`, `crates/tl-loader/src/lib.rs`, `crates/tl-loader/src/fabric.rs`, `crates/tl-loader/src/maven.rs`, `crates/tl-loader/src/installer.rs`, `crates/tl-loader/tests/metadata.rs`.
+- **CARGO LOCK BLOCKER:** `Cargo.lock` remains the existing Cargo-generated version from develop because Cargo 1.88 is unavailable in this execution environment and external DNS does not resolve. **Not edited by hand**. A Windows checkout must run real `cargo generate-lockfile`, commit/push resulting changes, and then run locked workspace CI. Current GitHub workflow auto-triggered; no PASS reported.
+- **Windows commands needed:** `cargo fmt --all`; `cargo generate-lockfile`; `cargo clippy --locked --workspace --all-targets -- -D warnings`; `cargo test --locked --workspace --all-targets`. Commands **NOT EXECUTED** here.
+- **Test status:** 11 authored fixture tests, **NOT_TESTED** here; `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`: **NOT PASSED / no verified result** on this commit.
+- **Real-device / Minecraft evidence:** **NOT_VERIFIED**; no loader installation hashes, Fabric mod startup, Forge/NeoForge processor execution or client process logs.
+- **Gates:** G0 pending Control acceptance; G1 Windows CI NOT_VERIFIED; G2 install, G3 launch and G5 modpack NOT_VERIFIED.
+- **Known integration gap:** `tl-game::install_file` allowlists Mojang hosts and requires a verified SHA-1; official Fabric/Forge/NeoForge Maven artifact downloads cannot be executed through that function yet. Needs Control review of extensible trusted-host/source + integrity contract. Java compatibility must use actual `tl-game::probe_java` before launch.
+- **Next actions:** Generate lockfile using Cargo, apply rustfmt, resolve actual clippy/test failures on Windows, attach exact workflow run + job evidence. After G1, plan safely verified official loader file acquisition, then modded Singleplayer E2E. No merge by Chat 3.
 
 <!-- CHAT-03:END -->
 
