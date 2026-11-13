@@ -192,3 +192,4 @@
 ## Control log
 
 - 2026-11-13 — Live ledger created; all seven PRs currently open; evidence not independently reviewed. Control owns merges and gate verification.
+- 2026-11-13 — CONTROL CI budget optimization: foundation PR #13 workflow edited at `6035abc9` to PR-only Ubuntu Rust checks, path filter and concurrency; Windows tests deferred to integration/manual. New policy: [CI_BUDGET_POLICY.md](https://github.com/1doiliemkhoet/tlauchcraft/blob/main/docs/control/CI_BUDGET_POLICY.md). First optimized run [43447713759](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43447713759): Ubuntu success, Windows intentionally skipped. Skip does NOT count as Windows PASS.
