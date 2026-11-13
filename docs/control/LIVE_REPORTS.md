@@ -22,7 +22,7 @@
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#12 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/12) | AUTHORED_NOT_TESTED | NOT_VERIFIED |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR_OPEN · unreviewed** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | NOT_REPORTED | NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
-| [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **PR_OPEN · unreviewed** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | NOT_REPORTED | NOT_VERIFIED |
+| [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 9 AUTHORED · NOT_TESTED | NOT_VERIFIED |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN · unreviewed** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_REPORTED | NOT_VERIFIED |
 
@@ -122,19 +122,20 @@
 ## Chat 5 — Trusted LAN Multiplayer
 
 - **Branch:** `feat/tl-05-lan`
-- **Snapshot branch HEAD:** `a2b81a1235c3a93b1c13d3c6248ffe20a93e1601` (Control snapshot on 2026-11-13; refresh this when reporting)
+- **Branch HEAD:** [`a2b81a1235c3a93b1c13d3c6248ffe20a93e1601`](https://github.com/1doiliemkhoet/tlauchcraft/commit/a2b81a1235c3a93b1c13d3c6248ffe20a93e1601)
 - **Issue:** [#5](https://github.com/1doiliemkhoet/tlauchcraft/issues/5)
-- **PR to develop:** [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9)
-- **Status:** `PR_OPEN_UNREVIEWED` — branch and PR exist; no code acceptance implied.
-- **Updated at:** 2026-11-13 (Control setup)
-- **Summary / implemented functionality:** NOT_REPORTED_BY_CHAT
-- **Changed paths / API impact:** NOT_REPORTED_BY_CHAT
-- **Test commands and observed results:** NOT_REPORTED_BY_CHAT
-- **Real device / Minecraft / modpack evidence:** NOT_TESTED_OR_NOT_REPORTED
-- **Acceptance gates G0–G8:** NOT_VERIFIED (all; update relevant gates individually)
-- **Blockers / dependencies / risks:** NOT_REPORTED_BY_CHAT
-- **Pending decisions for Control:** Review PR and require supported test evidence
-- **Next actions:** Chat 5 updates its own section with concrete results, commits and evidence URLs.
+- **PR to develop:** [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) — OPEN, DRAFT, NOT MERGED.
+- **Status:** `PR_OPEN_UNREVIEWED` / `IN_PROGRESS`; functions below are CODE_WRITTEN, **NOT_TESTED**, not accepted.
+- **Updated at:** 2026-11-13 (Chat 5 confirmed PR and branch)
+- **Implementation (code written):** Standalone Rust `tl-lan` compatibility comparison for Minecraft/loader version and provided SHA256 gameplay fingerprints, client/server side filtering; trusted private-IPv4 bind validation; explicit offline-mode risk acknowledgement; non-overwriting `server.properties` with online-mode=false and RCON off; Direct Connect IP:port; username persistence guard; locally supplied server-JAR process spawn/PID/log/graceful-stop API; stopped-world cold backup. Code does NOT install a loader or hash actual pack files; process launch is generic `java -jar` and not compatible with every modded server.
+- **Changed files:** `crates/tl-lan/Cargo.toml`, `crates/tl-lan/src/lib.rs`, `crates/tl-lan/README.md`. Four commits on branch, 377 lines added in original PR review snapshot.
+- **API impact:** Temporary crate-local `LanServerSpec`, `PackFingerprint`, `CompatibilityReport`, `LanError`. Shared API Contract v1 still provisional, requires Chat 1 + Control G0 review. No change outside owned paths.
+- **Test commands (documented, NOT_EXECUTED):** `cargo test --manifest-path crates/tl-lan/Cargo.toml`; `cargo clippy --manifest-path crates/tl-lan/Cargo.toml --all-targets -- -D warnings`. Nine unit tests authored; **0 executed, 0 passed claimed**, no CI artifact reviewed. GitHub code commit/push and PR creation verified by GitHub API.
+- **Real device / Minecraft / modpack evidence:** `NOT_TESTED` — no real server Java log, no client handshake, no two-PC session, no world/inventory rejoin artifacts.
+- **Gates:** G0 `BLOCKED` on concrete shared typed interface approval; G1 `NOT_TESTED`; G6 `NOT_TESTED`; all other gates `NOT_VERIFIED`. Control has granted no acceptance.
+- **Risks / dependencies:** Chat 1 stable identity/shared types; Chat 2 Java process contract; Chat 3 Fabric/Forge/NeoForge server recipes; Chat 4 verified modpack lockfile/side/hash; Chat 7 UI confirmation; LAN-only offline identity spoofing, firewall/subnet policies and username change affecting offline UUID. No router forwarding.
+- **Control decisions requested:** Freeze `LanService` and pack fingerprint interface; determine loader-specific launch contract, server-side mod selection and authenticated trusted-LAN approach; review PR #9 only after Windows Rust tests and G6 evidence. No merge requested now.
+- **Next actions:** Extend hermetic safety/regression tests and improve file integrity validation on feature branch; rerun cargo/fmt/clippy on a supported Rust runner; integrate after upstream typed contracts; perform two-PC Fabric G6 and preserve actual logs/hashes.
 
 <!-- CHAT-05:END -->
 
