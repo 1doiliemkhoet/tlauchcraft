@@ -58,3 +58,11 @@ Chat 1 shared contract+CI → Chat 2 executable Vanilla foundation → Chat 3 mo
 
 ## New chat workflow
 Open a new ChatGPT conversation; paste the ENTIRE corresponding `docs/control/tasks/CHAT-0X.md`. This chat stays the Control Room. Track issues/PRs by ID and post completion reports here.
+
+## Live reporting for all seven chats (mandatory)
+
+**Single source of truth:** [LIVE_REPORTS.md on develop](https://github.com/1doiliemkhoet/tlauchcraft/blob/develop/docs/control/LIVE_REPORTS.md). Each chat MUST directly update **only its assigned Chat 0N block and corresponding status row** after each meaningful milestone, failed test, blocker or PR change. Write the exact executed test commands/results and evidence; use NOT_TESTED/NOT_VERIFIED for anything not run.
+
+**Exception to no-direct-develop rule:** Reporting-only updates to `docs/control/LIVE_REPORTS.md` on `develop` are allowed. Do **not** push source code or any other file to develop. Before each update, read the latest version on `develop`, retain all other chats' content, and use GitHub Contents API optimistic-lock SHA (`fetch_file` then `update_file` with current `sha` and `branch="develop"`). On 409/conflict, re-fetch/reapply/retry; never force-push, overwrite, or reset the document. Chat edits to code remain in their respective feature branches with PR to develop. This file is a live status ledger and NOT proof of E2E success unless evidence is linked.
+
+Control Room can retrieve the latest report with the connected GitHub integration, without asking the user to copy seven reports. This chat does not monitor GitHub in the background; Control reads the file when actively reviewing.

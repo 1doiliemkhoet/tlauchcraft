@@ -33,3 +33,11 @@ Do not reimplement download/parser/auth/launcher logic in frontend or mark mock 
 
 ## First reply expected
 Inspect the repo and current branch, confirm ownership and missing dependencies, then propose the smallest implementable slice with tests; **start coding** within owned paths when the prerequisite contract exists. Do not ask the user to re-describe the project.
+
+## Mandatory GitHub live report (effective immediately)
+
+After ANY milestone, blockers, tests or PR update: open [LIVE_REPORTS.md on develop](https://github.com/1doiliemkhoet/tlauchcraft/blob/develop/docs/control/LIVE_REPORTS.md), and update ONLY the Chat 7 block plus row 7 in the central table, with actual commit SHA, PR, executed commands/results, tested gates, blockers and next control action. Do not paste the whole report into Control chat; the Control Room will read it from GitHub.
+
+**Authorized exception:** You MAY write directly to `develop` ONLY at `docs/control/LIVE_REPORTS.md` for status reporting. No other direct `develop` writes. For each update, fetch latest report and SHA from branch `develop`, replace your own block/row without changing others, then use `update_file` passing that SHA. On a GitHub conflict (409), fetch and retry instead of overwriting. Make sure to verify your report is visible after the update. If GitHub permissions prevent updating, state the blocker truthfully and add a report commit to your feature branch PR instead.
+
+This protocol supersedes any prior blanket ban on direct `develop` writes **for this one report file only**. Shared code API and merge ownership remain unchanged.
