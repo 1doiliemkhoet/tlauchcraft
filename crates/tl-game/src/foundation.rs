@@ -1,5 +1,7 @@
 //! Typed adapter to Foundation contract v1; never invent profile identities.
-use tl_core::{validate_username, CoreError, GameInstance, LaunchRequest, LoaderKind, OfflineProfile};
+use tl_core::{
+    validate_username, CoreError, GameInstance, LaunchRequest, LoaderKind, OfflineProfile,
+};
 
 /// Check persistent identity and instance binding before preparing a local game process.
 /// This does not assert that the local profile has a Minecraft entitlement.
@@ -20,9 +22,7 @@ pub fn validate_launch_context(
         return Err(CoreError::UnsupportedVersion);
     }
     if request.min_ram_mb.is_some_and(|value| value < 256)
-        || request
-            .max_ram_mb
-            .is_some_and(|value| value > 65_536)
+        || request.max_ram_mb.is_some_and(|value| value > 65_536)
         || matches!(
             (request.min_ram_mb, request.max_ram_mb),
             (Some(min), Some(max)) if min > max
