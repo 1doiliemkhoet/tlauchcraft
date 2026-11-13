@@ -199,7 +199,15 @@ impl SqliteStore {
             params![profile.id.to_string(),profile.username,encode(profile)?,expected]
         ).map_err(db_err)?;
         if next == 0 {
-            return Err(if self.conn.query_row("SELECT EXISTS(SELECT 1 FROM profiles WHERE id=?1)", [profile.id.to_string()], |row| row.get::<_, bool>(0)).map_err(db_err)? {
+            return Err(if self
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM profiles WHERE id=?1)",
+                    [profile.id.to_string()],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(db_err)?
+            {
                 CoreError::CompatibilityConflict
             } else {
                 CoreError::NotFound
@@ -223,7 +231,15 @@ impl SqliteStore {
             params![instance.id.to_string(),instance.profile_id.to_string(),encode(instance)?,expected]
         ).map_err(db_err)?;
         if next == 0 {
-            return Err(if self.conn.query_row("SELECT EXISTS(SELECT 1 FROM instances WHERE id=?1)", [instance.id.to_string()], |row| row.get::<_, bool>(0)).map_err(db_err)? {
+            return Err(if self
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM instances WHERE id=?1)",
+                    [instance.id.to_string()],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(db_err)?
+            {
                 CoreError::CompatibilityConflict
             } else {
                 CoreError::NotFound
