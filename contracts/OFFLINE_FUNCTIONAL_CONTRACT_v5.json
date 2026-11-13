@@ -1,0 +1,207 @@
+{
+  "schema": "offline-minecraft-research/v5",
+  "date": "2026-11-13",
+  "stage": "RESEARCH_ONLY",
+  "status": "NOT_IMPLEMENTED_NOT_TESTED",
+  "sourceArchive": "original-TLauncher-2.923.zip",
+  "target": "Minecraft Java offline local profiles; true Singleplayer; modpacks; multiple clients over trusted LAN",
+  "excluded": [
+    "Microsoft login",
+    "Xbox OAuth",
+    "premium authentication",
+    "proprietary TLauncher skin/authlib",
+    "ads",
+    "public WAN hosting"
+  ],
+  "modules": [
+    {
+      "id": "OFFLINE_PROFILE",
+      "priority": "P0",
+      "goal": "Local username, persisted UUID, separate server identity",
+      "sourceEvidence": "FreeAuthentication.pass; ProfileManager.updateFreeAccountField",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "VANILLA_VERSION",
+      "priority": "P0",
+      "goal": "Read manifests, resolve client/libraries/assets/natives/version inheritance",
+      "sourceEvidence": "VersionManager.downloadVersion; AssetsManager",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "JAVA_RUNTIME",
+      "priority": "P0",
+      "goal": "Select compatible verified Java major and architecture",
+      "sourceEvidence": "JavaMinecraftComponent.prepareDefaultJava",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "DOWNLOAD_ENGINE",
+      "priority": "P0",
+      "goal": "Temp HTTP download, hash check, bounded retry, atomic commit",
+      "sourceEvidence": "DownloaderThread.downloadURL",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "PROCESS_RUNNER",
+      "priority": "P0",
+      "goal": "Construct classpath/mainClass/JVM args; supervise PID, logs and crashes",
+      "sourceEvidence": "MinecraftLauncher.start; JavaProcessLauncher.start",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "INSTANCE",
+      "priority": "P0",
+      "goal": "Separate gameDir, mods, config, saves per modpack",
+      "sourceEvidence": "ModpackUtil.getPathByVersion (not complete instance isolation)",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "MODPACK_IMPORT",
+      "priority": "P0",
+      "goal": "Import .mrpack and local packs safely, handle overrides",
+      "sourceEvidence": "ModpackManager.installModPack; parseCurse (mrpack not verified)",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "DEPENDENCY_RESOLVE",
+      "priority": "P0",
+      "goal": "Resolve required/optional/incompatible, side, version conflict, cycles",
+      "sourceEvidence": "ModpackManager.addDependencies",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "MODLOADER_FABRIC",
+      "priority": "P0",
+      "goal": "Install compatible Fabric client/server from verified metadata",
+      "sourceEvidence": "New adapter required; not verified in 2.923",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "MODLOADER_FORGE",
+      "priority": "P1",
+      "goal": "Install Forge version-specific client/server",
+      "sourceEvidence": "resaveVersionWithNewForge (partial evidence)",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "MODLOADER_NEOFORGE",
+      "priority": "P1",
+      "goal": "Install NeoForge version-specific client/server",
+      "sourceEvidence": "New adapter required; not verified in 2.923",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "SINGLEPLAYER",
+      "priority": "P0",
+      "goal": "Open real Minecraft to menu, create, save and reload world",
+      "sourceEvidence": "MinecraftLauncher; BackupWorldAssistant",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "BACKUP_RESTORE",
+      "priority": "P0",
+      "goal": "Backup consistent saves, validate restore, retention policy",
+      "sourceEvidence": "BackupWorldAssistant",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "LAN_DEDICATED",
+      "priority": "P0",
+      "goal": "Trusted LAN server with opt-in EULA, offline-mode profile protections",
+      "sourceEvidence": "InnerMinecraftServersImpl only proves saved servers list",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "LAN_INTEGRATED",
+      "priority": "P1",
+      "goal": "Version-specific Open to LAN compatibility testing",
+      "sourceEvidence": "Not proven in source archive",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "LAN_JOIN_DISCOVERY",
+      "priority": "P0",
+      "goal": "Join LAN by IP:port; multicast discovery optional",
+      "sourceEvidence": "InnerMinecraftServersImpl servers.dat",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "PACK_SYNC",
+      "priority": "P0",
+      "goal": "Lockfile and client/server side-aware required file fingerprint",
+      "sourceEvidence": "New design; no verified lock protocol",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "CRASH_SUPPORT",
+      "priority": "P0",
+      "goal": "Classify exit code, log Java process and game crash reports",
+      "sourceEvidence": "MinecraftLauncher.onJavaProcessEnded",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "SETTINGS_UI",
+      "priority": "P1",
+      "goal": "Functional profile, game dir, memory, Java, pack settings and logs",
+      "sourceEvidence": "Configuration and UI classes",
+      "status": "RESEARCHED_NOT_TESTED"
+    },
+    {
+      "id": "SECURITY_LEGAL",
+      "priority": "P0",
+      "goal": "Protect credentials and archives; no third-party binaries distributed",
+      "sourceEvidence": "Safety review; signature alone is not proof of safety",
+      "status": "RESEARCHED_NOT_TESTED"
+    }
+  ],
+  "workflowStages": [
+    "PROFILE_READY",
+    "INSTANCE_RESOLVED",
+    "DEPENDENCIES_LOCKED",
+    "FILES_VERIFIED",
+    "JAVA_READY",
+    "PROCESS_STARTED",
+    "GAME_READY",
+    "WORLD_LOADED",
+    "LAN_HOST_READY",
+    "LAN_JOIN_VERIFIED",
+    "WORLD_PERSISTED"
+  ],
+  "lockSpec": {
+    "minecraftVersion": "string",
+    "loader": {
+      "type": "vanilla|fabric|forge|neoforge",
+      "version": "string"
+    },
+    "files": [
+      {
+        "path": "relative-in-instance",
+        "sha256": "hex",
+        "side": "client|server|both",
+        "required": true,
+        "source": "trusted URL or user-supplied"
+      }
+    ],
+    "requiredSharedFingerprint": "sha256 of canonical required shared files subset",
+    "excludeFromFingerprint": [
+      "saves",
+      "logs",
+      "screenshots",
+      "options.txt",
+      "usercache",
+      "playerdata",
+      "clientOnlyExtras"
+    ]
+  },
+  "releaseCriteria": [
+    "Real Minecraft at main menu",
+    "Real Singleplayer modded world saved and reloaded",
+    "Two independent Windows PCs with unique offline usernames",
+    "Matching compatible modpack verified",
+    "Trusted offline LAN server reachable",
+    "Second client joins real modded game and interacts",
+    "Exit/rejoin preserves world and inventory",
+    "Download/crash/backup/rollback negative tests verified"
+  ]
+}

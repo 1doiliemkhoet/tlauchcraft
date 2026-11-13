@@ -1,0 +1,60 @@
+{
+  "schema": "research-gaps/v5",
+  "date": "2026-11-13",
+  "items": [
+    {
+      "id": "G01",
+      "topic": "2026 binary vs 2.923",
+      "status": "UNVERIFIED",
+      "requirement": "Compare actual installer/runtime behaviors rather than assume equivalence to historical bytecode"
+    },
+    {
+      "id": "G02",
+      "topic": "Offline session consistency",
+      "status": "UNVERIFIED",
+      "requirement": "E2E verify UUID, playerdata and inventory persistence for host/join/rejoin"
+    },
+    {
+      "id": "G03",
+      "topic": "Minecraft version metadata",
+      "status": "UNVERIFIED",
+      "requirement": "Confirm version inheritance, OS rules and Java versions on representative releases"
+    },
+    {
+      "id": "G04",
+      "topic": "Mod loaders",
+      "status": "UNVERIFIED",
+      "requirement": "Verify Fabric, Forge, NeoForge client/server installation across supported Minecraft versions"
+    },
+    {
+      "id": "G05",
+      "topic": "Modpack support",
+      "status": "DESIGN",
+      "requirement": "Implement mrpack import, overrides, dependency/side rules, lockfile and pack parity"
+    },
+    {
+      "id": "G06",
+      "topic": "LAN behavior",
+      "status": "UNVERIFIED",
+      "requirement": "E2E trusted LAN dedicated server; test Open to LAN separately by version/loader"
+    },
+    {
+      "id": "G07",
+      "topic": "File integrity",
+      "status": "DESIGN",
+      "requirement": "SHA validation, transactional download, safe extraction and rollback"
+    },
+    {
+      "id": "G08",
+      "topic": "Legal and distribution",
+      "status": "REVIEW",
+      "requirement": "Do not bundle commercial Minecraft client or proprietary launcher assets; respect user rights"
+    },
+    {
+      "id": "G09",
+      "topic": "E2E testing",
+      "status": "NOT_RUN",
+      "requirement": "Run and record logs on two actual Windows computers"
+    }
+  ]
+}
