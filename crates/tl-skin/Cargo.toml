@@ -1,16 +1,18 @@
 [package]
 name = "tl-skin"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "Offline cosmetic assets and preview state for tlauchcraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline appearance assets and validated skin editing for tlauchcraft"
 
 [dependencies]
+tl-core = { path = "../tl-core" }
 png = "0.17"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 sha2 = "0.10"
-uuid = { version = "1", features = ["v4", "serde"] }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
