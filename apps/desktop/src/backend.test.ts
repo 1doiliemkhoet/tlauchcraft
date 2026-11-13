@@ -8,7 +8,6 @@ const withFeature = (feature: keyof typeof EMPTY_CAPABILITIES.features) => ({
   ...EMPTY_CAPABILITIES,
   features: { ...EMPTY_CAPABILITIES.features, [feature]: true }
 });
-
 beforeEach(() => mockedInvoke.mockReset());
 
 describe('capability negotiation', () => {
@@ -27,15 +26,14 @@ describe('capability negotiation', () => {
     expect(mockedInvoke).toHaveBeenCalledWith('desktop_capabilities');
   });
 });
-
 describe('typed backend transport', () => {
   it('rejects disabled operations without invoking Rust', async () => {
     expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);
     await expect(operations.listProfiles(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
-  it('invokes approved profile command with exact payload', async () => {
-    const profile = { id: 'id', username: 'ValidPlayer', created_at: '', updated_at: '' };
+  it('invokes profile command with exact payload', async () => {
+    const profile = { id: 'id', username: 'ValidPlayer', skin_id: null, created_at: '', updated_at: '' };
     mockedInvoke.mockResolvedValue(profile);
     await expect(operations.createProfile(withFeature('profiles'), 'ValidPlayer')).resolves.toEqual(profile);
     expect(mockedInvoke).toHaveBeenCalledWith('profile_create', { username: 'ValidPlayer' });
@@ -45,10 +43,9 @@ describe('typed backend transport', () => {
     await expect(call(withFeature('game'), 'game', 'game_launch', { request: {} })).rejects.toThrow('DiskFull');
   });
   it('rejects unsupported schema even with feature bit', () => {
-    expect(() => requireFeature({ ...withFeature('game'), schema_version: 2 as 1 }, 'game')).toThrow(BackendUnavailable);
+    expect(() => requireFeature({ ...withFeature('game'), schema_version: 2 }, 'game')).toThrow(BackendUnavailable);
   });
 });
-
 describe('UX validation', () => {
   it('accepts supported extensions only (backend must inspect bytes)', () => {
     expect(safeArchive('pack.zip')).toBe(true);
@@ -62,5 +59,11 @@ describe('UX validation', () => {
     expect(safePercent(135)).toBe(100);
     expect(safePercent(NaN)).toBeUndefined();
     expect(safePercent(Infinity)).toBeUndefined();
+    expect(safePercent(null)).toBeUndefined();
+  });
+  it('uses actual lowercase serde wire labels', () => {
+    const state: import('./backend').InstanceState = 'ready';
+    const loader: import('./backend').LoaderKind = 'neo_forge';
+    expect([state,loader]).toEqual(['ready','neo_forge']);
   });
 });

@@ -1,22 +1,23 @@
-# Chat 7 — tlauchcraft Windows desktop scaffold
+# Chat 7 — Windows Tauri desktop
 
-**Status: shell only. No Minecraft backend is implemented or connected in this branch. No game E2E or Windows installer smoke test passed.**
+Status: **code integrated with Foundation profile/instance SQLite APIs; Windows build/test NOT VERIFIED**. This is not a Minecraft E2E report.
 
-## Ownership and architecture
+## Integration (2026-11-14)
+- Branch incorporates develop Foundation `tl-core`, `tl-storage`, and Game Core `tl-game`.
+- Tauri host uses actual `tl-core` `OfflineProfile`, `GameInstance` and `CONTRACT_VERSION` types; local SQLite persistence uses `tl-storage` in the platform-specific app data directory, preserving IDs across launches.
+- Registered commands: `desktop_capabilities`, `profile_list`, `profile_create { username }`, `instance_list`.
+- `profiles` and `instances` capabilities are enabled only for those implemented commands. `versions`, `game`, `modpacks`, `lan`, `skins`, `settings`, `downloads` remain **disabled** pending real facade integration. Instance listing does NOT imply instance creation/install/launch.
+- Serde wire enum values are snake_case (`ready`, `vanilla`, `neo_forge`), reflected in TS contract.
+- Event listener handles v1 typed event envelopes; no fake timed progress, no fabricated backend success.
+- Archive picker is native; no ZIP extraction in UI. Drag-drop prompts native selection rather than trusting browser paths.
 
-- `src/App.tsx`: navigation, offline profiles, version/instance lists, pack archive picker, skin status, trusted LAN, progress/errors/logs.
-- `src/backend.ts`: typed TypeScript boundary; denies operations unless negotiated features are enabled. No mock success callbacks.
-- `src-tauri/src/main.rs`: Tauri 2 host returns explicit all-disabled capability matrix. No cross-crate import before Chat 1 contract lands.
-- ZIP picker is OS-native. Browser drag-drop does not disclose a trustworthy native path; the app opens the import screen and asks to browse.
-- UI labels separate skin preview / Singleplayer / LAN peer verification.
-- No game assets, Java, offline accounts or credentials bundled.
-
-## Windows developer workflow (PowerShell)
+## Local Windows validation (PowerShell)
+Prerequisites: Node/npm, Rust 1.88, Visual Studio C++/Windows SDK, WebView2 and Tauri prerequisites.
 
 ```powershell
 cd apps/desktop
-npm install
-npm run test
+npm ci
+npm test
 ```
 ```powershell
 npm run build
@@ -27,27 +28,12 @@ npm run tauri build
 Get-ChildItem .\src-tauri\target\release\bundle\nsis\
 ```
 
-Prerequisites: Node.js/npm, stable Rust + MSVC Build Tools with Windows SDK, WebView2 and Tauri prerequisites. The final command creates an **unsigned** NSIS installer only if build succeeds on Windows; a clean Windows machine smoke test remains mandatory. No auto-update enabled until signing/update/rollback policy is agreed.
+**Known blocker:** `package-lock.json` was not generated (npm registry inaccessible in authoring environment), so `npm ci` requires first generating and committing a real lockfile using `npm install --package-lock-only` on a networked Windows runner. Do not hand-author lockfile. `npm test` is a package alias of `vitest run`; tests were authored but have not run on Windows. Tauri build, NSIS installer and clean-machine smoke not run.
 
-## Backend integration proposal to Control (NOT YET IMPLEMENTED)
+## Outstanding typed commands / Control decisions
 
-The v1 contract specifies traits and model fields, **not concrete Tauri command signatures**, so Chat 7 proposes this command surface (Control/Chat 1 must approve before enabling capabilities):
+Chat 1 needs to approve and maintain the Tauri facade interface. Chat 2 currently provides metadata/download/launch primitives, not a ready-to-use profile-bound launch manager that resolves a fully installed instance and supervises it. Do NOT wire a premature `game_launch` command simply because `tl-game::launch` exists.
 
-| Feature | Proposed Tauri commands | Dependencies |
-|---|---|---|
-| profiles | `profile_list`, `profile_create { username }` | Chat 1 |
-| instances, versions | `instance_list`, `version_list` | Chats 1,2 |
-| modpacks | `pack_import { archivePath }` | Chat 4 |
-| game | `game_launch { request }` | Chat 2 |
-| downloads | `operation_cancel { operationId }` | Chats 1,2,4 |
-| skins | `skin_list` and additional edit/preview operations TBD | Chat 6 |
-| lan | `lan_status`; host/join TBD | Chat 5 |
-| settings | storage/Java/RAM settings TBD | Chats 1,2 |
+Unimplemented command proposals: `version_list`, `pack_import`, `game_launch`, `operation_cancel`, `skin_list`, `lan_status`. Actual implementations from Chats 2–6 and Control contract approval required. Control must decide API errors/event cancellation and signing/update/rollback policy.
 
-Events are listened to under the exact dot-separated names from `docs/control/API_CONTRACT_V1.md`; payload validation is minimal until Chat 1 provides frozen shared schemas. Backend facade must set feature flag true only when the command is actually registered and verified. Command failures are shown as errors, never treated as successful jobs.
-
-**Important: Tauri command invocations are future adapter targets, not existing handlers.** No frontend import/downloading/launch implementation. Extra commands, Rust type exports, event payload schema, cancellation semantics and logs transport require Control approval.
-
-## Verification
-
-Run `npm run test`, `npm run build`, `npm run tauri build` on Windows. Tests are hermetic validation of capability gating, ZIP extension filtering and percent bounds, **not E2E**. When real backend lands, add typed integration tests for command errors, progress/cancel, keyboard accessibility, actual game launch process, modpack install and Windows clean-machine installer. Record logs, artifact hash, toolchain and machine details in PR evidence.
+No Java/game payloads or credentials bundled. No Microsoft auth or entitlement bypass. Offline multiplayer must remain trusted LAN-only. No G1–G8 acceptance claimed.

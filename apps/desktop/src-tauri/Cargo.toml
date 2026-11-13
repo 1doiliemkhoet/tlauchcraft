@@ -3,7 +3,7 @@ name = "tlauchcraft-desktop"
 version = "0.1.0"
 description = "tlauchcraft offline LAN desktop shell"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -12,3 +12,5 @@ tauri-build = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tl-core = { path = "../../../crates/tl-core" }
+tl-storage = { path = "../../../crates/tl-storage" }

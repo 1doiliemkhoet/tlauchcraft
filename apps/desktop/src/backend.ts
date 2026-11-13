@@ -2,13 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type Feature = 'profiles' | 'instances' | 'versions' | 'modpacks' | 'skins' | 'lan' | 'game' | 'settings' | 'downloads';
-export type Capabilities = { schema_version: 1; features: Record<Feature, boolean>; provider: string };
-export type OfflineProfile = { id: string; username: string; skin_id?: string; created_at: string; updated_at: string };
-export type InstanceState = 'Empty' | 'Inspecting' | 'Planned' | 'Downloading' | 'Verifying' | 'Ready' | 'NeedsAction' | 'Failed' | 'Cancelled';
-export type GameInstance = { id: string; display_name: string; minecraft_version: string; profile_id: string; state: InstanceState; loader: { kind: 'Vanilla' | 'Fabric' | 'Forge' | 'NeoForge'; version?: string } };
-export type ProgressEvent = { operation_id: string; instance_id?: string; timestamp: string; phase: string; message_key: string; details?: Record<string, unknown>; percent?: number };
-export type LaunchRequest = { instance_id: string; profile_id: string; java_path?: string; min_ram_mb?: number; max_ram_mb?: number };
-export type LaunchProcess = { pid: number; started_at: string; log_path: string; termination_state: string };
+export type Capabilities = { schema_version: number; features: Record<Feature, boolean>; provider: string };
+// Matched to tl-core serde serialization. UUID and DateTime<Utc> serialize as strings.
+export type OfflineProfile = { id: string; username: string; skin_id: string | null; created_at: string; updated_at: string };
+export type LoaderKind = 'vanilla' | 'fabric' | 'forge' | 'neo_forge';
+export type InstanceState = 'empty' | 'inspecting' | 'planned' | 'downloading' | 'verifying' | 'ready' | 'needs_action' | 'failed' | 'cancelled';
+export type GameInstance = { id: string; display_name: string; root_path: string; minecraft_version: string; profile_id: string; state: InstanceState; loader: { kind: LoaderKind; version: string | null } };
+export type ProgressEvent = { contract_version: number; operation_id: string; instance_id: string | null; timestamp: string; phase: string; message_key: string; details: Record<string, unknown>; percent: number | null };
+export type LaunchRequest = { instance_id: string; profile_id: string; java_path?: string | null; min_ram_mb?: number | null; max_ram_mb?: number | null; extra_jvm_args?: string[] | null };
+export type LaunchProcess = { pid: number; started_at: string; log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
 export const FEATURE_NAMES: Feature[] = ['profiles', 'instances', 'versions', 'modpacks', 'skins', 'lan', 'game', 'settings', 'downloads'];
 export const EMPTY_CAPABILITIES: Capabilities = { schema_version: 1, provider: 'unavailable', features: Object.fromEntries(FEATURE_NAMES.map(f => [f, false])) as Record<Feature, boolean> };
 
@@ -24,13 +26,13 @@ export function requireFeature(caps: Capabilities, feature: Feature): void {
 export async function negotiate(): Promise<Capabilities> {
   try {
     const result = await invoke<Capabilities>('desktop_capabilities');
-    if (result.schema_version !== 1 || !result.features || FEATURE_NAMES.some(f => typeof result.features[f] !== 'boolean')) return EMPTY_CAPABILITIES;
+    if (result.schema_version !== 1 || typeof result.provider !== 'string' || !result.features || FEATURE_NAMES.some(f => typeof result.features[f] !== 'boolean')) return EMPTY_CAPABILITIES;
     return result;
   } catch { return EMPTY_CAPABILITIES; }
 }
 export async function call<T>(caps: Capabilities, feature: Feature, command: string, args?: Record<string, unknown>): Promise<T> {
   requireFeature(caps, feature);
-  // A missing backend command MUST reject, not return a mock success.
+  // Missing backend command MUST reject, not return a mock success.
   return invoke<T>(command, args);
 }
 export const operations = {
@@ -51,7 +53,7 @@ export async function subscribeProgress(handler: (event: ProgressEvent) => void)
     for (const name of EVENT_NAMES) {
       cleanups.push(await listen<ProgressEvent>(name, e => {
         const data = e.payload;
-        if (data && typeof data.operation_id === 'string' && typeof data.phase === 'string') handler(data);
+        if (data && data.contract_version === 1 && typeof data.operation_id === 'string' && typeof data.phase === 'string' && typeof data.message_key === 'string') handler(data);
       }));
     }
   } catch (error) {
@@ -61,4 +63,4 @@ export async function subscribeProgress(handler: (event: ProgressEvent) => void)
   return () => cleanups.forEach(fn => fn());
 }
 export function safeArchive(path: string): boolean { return /\.(zip|mrpack)$/i.test(path.trim()) && path.trim().length > 7; }
-export function safePercent(value?: number): number | undefined { return Number.isFinite(value) ? Math.max(0, Math.min(100, value!)) : undefined; }
+export function safePercent(value?: number | null): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : undefined; }
