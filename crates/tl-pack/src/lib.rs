@@ -338,8 +338,14 @@ pub fn inspect_archive(path: &Path) -> Result<PackMetadata, PackError> {
         (PackSource::PrismZip, from_prism(&mut zip)?)
     };
     let (name, game_version, loader, files, prefix, warnings) = data;
-    let overrides = paths.into_iter().filter(|p| p.starts_with(&prefix) && p.len() > prefix.len())
+    let mut overrides: Vec<String> = paths.iter()
+        .filter(|p| p.starts_with(&prefix) && p.len() > prefix.len())
         .map(|p| p[prefix.len()..].to_owned()).collect();
+    if source == PackSource::ModrinthMrpack {
+        overrides.extend(paths.iter()
+            .filter(|p| p.starts_with("client-overrides/") && p.len() > "client-overrides/".len())
+            .map(|p| p["client-overrides/".len()..].to_owned()));
+    }
     Ok(PackMetadata {
         name, source, game_version, loader, archive_sha256: hex::encode(sha.finalize()),
         archive_entries: zip.len(), uncompressed_bytes: total, files, overrides, warnings,
@@ -356,37 +362,40 @@ pub fn stage_overrides(archive: &Path, metadata: &PackMetadata, staging: &Path) 
         return Err(PackError::UnsafeArchive("archive changed since inspection".into()));
     }
     fs::create_dir(staging)?;
-    let prefix = match metadata.source {
+    let prefixes: Vec<String> = match metadata.source {
         PackSource::CurseforgeZip => {
             let mut zip = ZipArchive::new(File::open(archive)?)?;
             let doc: CfManifest = serde_json::from_slice(&read_metadata(&mut zip, "manifest.json")?)
                 .map_err(|e| PackError::Metadata(e.to_string()))?;
             let override_dir = doc.overrides.unwrap_or_else(|| "overrides".into());
-            format!("{}/", safe_path(&override_dir)?.to_string_lossy().replace('\\', "/"))
+            vec![format!("{}/", safe_path(&override_dir)?.to_string_lossy().replace('\\\\', "/"))]
         }
-        PackSource::ModrinthMrpack => "overrides/".into(),
-        PackSource::PrismZip => "minecraft/".into(),
+        // Later client overrides intentionally take precedence over shared overrides.
+        PackSource::ModrinthMrpack => vec!["overrides/".into(), "client-overrides/".into()],
+        PackSource::PrismZip => vec!["minecraft/".into()],
     };
     let operation = (|| -> Result<(), PackError> {
         let mut zip = ZipArchive::new(File::open(archive)?)?;
-        for i in 0..zip.len() {
-            let mut entry = zip.by_index(i)?;
-            let name = entry.name().to_owned();
-            if !name.starts_with(&prefix) || name == prefix { continue; }
-            let rel = safe_path(&name[prefix.len()..])?;
-            if metadata.source == PackSource::PrismZip &&
-                (name.ends_with(".json") && name.contains("/patches/")) {
-                return Err(PackError::Unsupported("legacy Prism patches require loader adapter".into()));
-            }
-            let dest = staging.join(rel);
-            if entry.is_dir() {
-                fs::create_dir_all(&dest)?;
-            } else {
-                if let Some(parent) = dest.parent() { fs::create_dir_all(parent)?; }
-                let mut out = File::create(&dest)?;
-                let size = std::io::copy(&mut entry, &mut out)?;
-                if size != entry.size() { return Err(PackError::UnsafeArchive("truncated entry".into())); }
-                out.flush()?;
+        for prefix in &prefixes {
+            for i in 0..zip.len() {
+                let mut entry = zip.by_index(i)?;
+                let name = entry.name().to_owned();
+                if !name.starts_with(prefix) || name == *prefix { continue; }
+                let rel = safe_path(&name[prefix.len()..])?;
+                if metadata.source == PackSource::PrismZip &&
+                    (name.ends_with(".json") && name.contains("/patches/")) {
+                    return Err(PackError::Unsupported("legacy Prism patches require loader adapter".into()));
+                }
+                let dest = staging.join(rel);
+                if entry.is_dir() {
+                    fs::create_dir_all(&dest)?;
+                } else {
+                    if let Some(parent) = dest.parent() { fs::create_dir_all(parent)?; }
+                    let mut out = File::create(&dest)?;
+                    let size = std::io::copy(&mut entry, &mut out)?;
+                    if size != entry.size() { return Err(PackError::UnsafeArchive("truncated entry".into())); }
+                    out.flush()?;
+                }
             }
         }
         Ok(())
