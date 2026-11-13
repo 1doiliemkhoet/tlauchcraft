@@ -170,13 +170,14 @@
 ## Chat 7 — Desktop UI & Packaging
 
 - **Branch:** `feat/tl-07-desktop`
-- **Branch HEAD:** [`9be7001d7c3ed6fc3f94d82639340d0d8c6fe46b`](https://github.com/1doiliemkhoet/tlauchcraft/commit/9be7001d7c3ed6fc3f94d82639340d0d8c6fe46b)
+- **Branch HEAD:** [`625dd0f4f70aa17799d83f477a136b78e50e150c`](https://github.com/1doiliemkhoet/tlauchcraft/commit/625dd0f4f70aa17799d83f477a136b78e50e150c)
 - **Issue:** [#7](https://github.com/1doiliemkhoet/tlauchcraft/issues/7)
 - **PR to develop:** [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) — OPEN DRAFT; NOT MERGED
 - **Status:** `PR_OPEN_UNREVIEWED` / `IN_PROGRESS`; source scaffold `IMPLEMENTED`, functionality `NOT_VERIFIED`
 - **Updated at:** 2026-11-13 (Chat 7 report)
 - **Summary / implemented functionality:** Tauri 2 + React/TypeScript desktop scaffold, navigation for offline profiles, instance/version selection, pack archive picker (.zip/.mrpack), skin preview/visibility status, trusted LAN status, settings, download progress, session logs and error feedback. Typed backend adapter negotiates capabilities; Tauri host currently advertises all core features as unavailable. Controls requiring real backend are disabled; no simulated game launch, download or successful archive import.
 - **Changed paths / API impact:** `apps/desktop/src/App.tsx`, `src/backend.ts`, `src/backend.test.ts`, `src/main.tsx`, `src/style.css`, `src-tauri/src/main.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.png`, package/toolchain setup and `apps/desktop/README.md`. Only `apps/desktop/**` changed in feature PR. Proposed command names (`desktop_capabilities`, `profile_list`, `profile_create`, `instance_list`, `version_list`, `pack_import`, `game_launch`, `operation_cancel`, `skin_list`, `lan_status`) are NOT frozen/implemented interfaces; pending Control approval.
+- **Additional commit:** [\`625dd0f4f70aa17799d83f477a136b78e50e150c\`](https://github.com/1doiliemkhoet/tlauchcraft/commit/625dd0f4f70aa17799d83f477a136b78e50e150c) — expanded Vitest coverage of malformed capability response, Tauri command rejection, backend error propagation and command argument payload. Tests authored, **NOT_TESTED**.
 - **Test commands and observed results:** `cd apps/desktop; npm install; npm run test` — `NOT_TESTED` (not executed). `npm run build`, `npm run tauri dev`, `npm run tauri build` — `NOT_TESTED`. Source unit tests cover capability gating, extension filter and percent bounds but have NOT been executed; do not infer PASS. GitHub branch/PR existence confirmed through GitHub API.
 - **Real device / Minecraft / modpack evidence:** `NOT_TESTED`; no Windows installer hash, clean-machine smoke, Java/Minecraft PID, world, two-PC LAN or real skin screenshot.
 - **Acceptance gates G0–G8:** G0 `BLOCKED` (shared Rust/Tauri facade pending); G1 `NOT_VERIFIED` (build/test not run); G2–G8 `NOT_VERIFIED`.
