@@ -6,7 +6,10 @@ use uuid::Uuid;
 
 pub const CONTRACT_VERSION: u32 = 1;
 pub mod identity;
-pub use identity::{OfflineGameIdentity,RenameImpact,vanilla_offline_server_uuid,derive_vanilla_offline_identity,preview_rename_impact};
+pub use identity::{
+    derive_vanilla_offline_identity, preview_rename_impact, vanilla_offline_server_uuid,
+    OfflineGameIdentity, RenameImpact,
+};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OfflineProfile {
     pub id: Uuid,

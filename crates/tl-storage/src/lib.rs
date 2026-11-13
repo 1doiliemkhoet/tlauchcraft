@@ -85,7 +85,11 @@ impl SqliteStore {
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(db_err)?;
         migrate(&mut conn)?;
-        Ok(Self { conn, profile_revisions: RefCell::new(HashMap::new()), instance_revisions: RefCell::new(HashMap::new()) })
+        Ok(Self {
+            conn,
+            profile_revisions: RefCell::new(HashMap::new()),
+            instance_revisions: RefCell::new(HashMap::new()),
+        })
     }
     pub fn schema_version(&self) -> Result<i64> {
         self.conn
@@ -100,82 +104,135 @@ impl SqliteStore {
             return Err(CoreError::InvalidInput);
         }
         for ancestor in parent.ancestors() {
-            if ancestor.exists() && fs::symlink_metadata(ancestor)
-                .map_err(|_| CoreError::StorageFailure)?.file_type().is_symlink() {
+            if ancestor.exists()
+                && fs::symlink_metadata(ancestor)
+                    .map_err(|_| CoreError::StorageFailure)?
+                    .file_type()
+                    .is_symlink()
+            {
                 return Err(CoreError::InvalidInput);
             }
         }
         if fs::symlink_metadata(target).is_ok() {
             return Err(CoreError::AlreadyExists);
         }
-        let temporary = tempfile::NamedTempFile::new_in(parent)
-            .map_err(|_| CoreError::StorageFailure)?;
+        let temporary =
+            tempfile::NamedTempFile::new_in(parent).map_err(|_| CoreError::StorageFailure)?;
         {
             let mut dest = Connection::open(temporary.path()).map_err(db_err)?;
             let backup = rusqlite::backup::Backup::new(&self.conn, &mut dest).map_err(db_err)?;
-            backup.run_to_completion(64, Duration::from_millis(10), None).map_err(db_err)?;
+            backup
+                .run_to_completion(64, Duration::from_millis(10), None)
+                .map_err(db_err)?;
         }
-        temporary.persist_noclobber(target)
-            .map_err(|e| if e.error.kind() == std::io::ErrorKind::AlreadyExists {
+        temporary.persist_noclobber(target).map_err(|e| {
+            if e.error.kind() == std::io::ErrorKind::AlreadyExists {
                 CoreError::AlreadyExists
             } else {
                 CoreError::StorageFailure
-            })?;
+            }
+        })?;
         Ok(())
     }
 
     pub fn get_profile_versioned(&self, id: Uuid) -> Result<Option<Versioned<OfflineProfile>>> {
-        let item: Option<(String, i64)> = self.conn.query_row(
-            "SELECT payload,revision FROM profiles WHERE id=?1", [id.to_string()],
-            |row| Ok((row.get(0)?,row.get(1)?))
-        ).optional().map_err(db_err)?;
-        let decoded = item.map(|(json,revision)| Ok(Versioned { value: decode(json)?,revision }))
+        let item: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT payload,revision FROM profiles WHERE id=?1",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_err)?;
+        let decoded = item
+            .map(|(json, revision)| {
+                Ok(Versioned {
+                    value: decode(json)?,
+                    revision,
+                })
+            })
             .transpose()?;
         if let Some(ref found) = decoded {
-            self.profile_revisions.borrow_mut().insert(id, found.revision);
+            self.profile_revisions
+                .borrow_mut()
+                .insert(id, found.revision);
         }
         Ok(decoded)
     }
 
     pub fn get_instance_versioned(&self, id: Uuid) -> Result<Option<Versioned<GameInstance>>> {
-        let item: Option<(String, i64)> = self.conn.query_row(
-            "SELECT payload,revision FROM instances WHERE id=?1", [id.to_string()],
-            |row| Ok((row.get(0)?,row.get(1)?))
-        ).optional().map_err(db_err)?;
-        let decoded = item.map(|(json,revision)| Ok(Versioned { value: decode(json)?,revision }))
+        let item: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT payload,revision FROM instances WHERE id=?1",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_err)?;
+        let decoded = item
+            .map(|(json, revision)| {
+                Ok(Versioned {
+                    value: decode(json)?,
+                    revision,
+                })
+            })
             .transpose()?;
         if let Some(ref found) = decoded {
-            self.instance_revisions.borrow_mut().insert(id, found.revision);
+            self.instance_revisions
+                .borrow_mut()
+                .insert(id, found.revision);
         }
         Ok(decoded)
     }
 
     /// Atomic compare-and-swap: stale writer cannot overwrite a newer revision.
-    pub fn update_profile_if_revision(&mut self, profile: &OfflineProfile, expected: i64) -> Result<i64> {
+    pub fn update_profile_if_revision(
+        &mut self,
+        profile: &OfflineProfile,
+        expected: i64,
+    ) -> Result<i64> {
         tl_core::validate_username(&profile.username)?;
         let next = self.conn.execute(
             "UPDATE profiles SET username=?2,payload=?3,revision=revision+1 WHERE id=?1 AND revision=?4",
             params![profile.id.to_string(),profile.username,encode(profile)?,expected]
         ).map_err(db_err)?;
-        if next == 0 { return Err(if self.get_profile_versioned(profile.id)?.is_some() {
-            CoreError::CompatibilityConflict
-        } else { CoreError::NotFound }); }
+        if next == 0 {
+            return Err(if self.get_profile_versioned(profile.id)?.is_some() {
+                CoreError::CompatibilityConflict
+            } else {
+                CoreError::NotFound
+            });
+        }
         let revision = expected + 1;
-        self.profile_revisions.borrow_mut().insert(profile.id, revision);
+        self.profile_revisions
+            .borrow_mut()
+            .insert(profile.id, revision);
         Ok(revision)
     }
 
-    pub fn update_instance_if_revision(&mut self, instance: &GameInstance, expected: i64) -> Result<i64> {
+    pub fn update_instance_if_revision(
+        &mut self,
+        instance: &GameInstance,
+        expected: i64,
+    ) -> Result<i64> {
         instance.validate()?;
         let next = self.conn.execute(
             "UPDATE instances SET profile_id=?2,payload=?3,revision=revision+1 WHERE id=?1 AND revision=?4",
             params![instance.id.to_string(),instance.profile_id.to_string(),encode(instance)?,expected]
         ).map_err(db_err)?;
-        if next == 0 { return Err(if self.get_instance_versioned(instance.id)?.is_some() {
-            CoreError::CompatibilityConflict
-        } else { CoreError::NotFound }); }
+        if next == 0 {
+            return Err(if self.get_instance_versioned(instance.id)?.is_some() {
+                CoreError::CompatibilityConflict
+            } else {
+                CoreError::NotFound
+            });
+        }
         let revision = expected + 1;
-        self.instance_revisions.borrow_mut().insert(instance.id, revision);
+        self.instance_revisions
+            .borrow_mut()
+            .insert(instance.id, revision);
         Ok(revision)
     }
 }
@@ -190,7 +247,9 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         return Ok(());
     }
     if version == 1 {
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_err)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_err)?;
         tx.execute_batch("ALTER TABLE profiles ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;\nALTER TABLE instances ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;\nPRAGMA user_version = 2;").map_err(db_err)?;
         return tx.commit().map_err(db_err);
     }
@@ -240,12 +299,21 @@ impl ProfileStore for SqliteStore {
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(db_err)?;
-        let profiles: Vec<OfflineProfile> = rows.map(|v| decode(v.map_err(db_err)?)).collect::<Result<_>>()?;
-        for p in &profiles { self.get_profile_versioned(p.id)?; }
+        let profiles: Vec<OfflineProfile> = rows
+            .map(|v| decode(v.map_err(db_err)?))
+            .collect::<Result<_>>()?;
+        for p in &profiles {
+            self.get_profile_versioned(p.id)?;
+        }
         Ok(profiles)
     }
     fn update_profile(&mut self, p: &OfflineProfile) -> Result<()> {
-        let expected = self.profile_revisions.borrow().get(&p.id).copied().ok_or(CoreError::CompatibilityConflict)?;
+        let expected = self
+            .profile_revisions
+            .borrow()
+            .get(&p.id)
+            .copied()
+            .ok_or(CoreError::CompatibilityConflict)?;
         self.update_profile_if_revision(p, expected)?;
         Ok(())
     }
@@ -294,12 +362,21 @@ impl InstanceStore for SqliteStore {
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(db_err)?;
-        let instances: Vec<GameInstance> = rows.map(|v| decode(v.map_err(db_err)?)).collect::<Result<_>>()?;
-        for i in &instances { self.get_instance_versioned(i.id)?; }
+        let instances: Vec<GameInstance> = rows
+            .map(|v| decode(v.map_err(db_err)?))
+            .collect::<Result<_>>()?;
+        for i in &instances {
+            self.get_instance_versioned(i.id)?;
+        }
         Ok(instances)
     }
     fn update_instance(&mut self, i: &GameInstance) -> Result<()> {
-        let expected = self.instance_revisions.borrow().get(&i.id).copied().ok_or(CoreError::CompatibilityConflict)?;
+        let expected = self
+            .instance_revisions
+            .borrow()
+            .get(&i.id)
+            .copied()
+            .ok_or(CoreError::CompatibilityConflict)?;
         self.update_instance_if_revision(i, expected)?;
         Ok(())
     }
