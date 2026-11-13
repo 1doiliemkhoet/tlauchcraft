@@ -202,7 +202,7 @@ fn read_metadata<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
     name: &str,
 ) -> Result<Vec<u8>, PackError> {
-    let mut f = zip.by_name(name)?;
+    let f = zip.by_name(name)?;
     if f.size() > MAX_MANIFEST {
         return Err(PackError::UnsafeArchive("metadata too large".into()));
     }
@@ -227,19 +227,11 @@ fn parse_loader(id: &str) -> Result<Loader, PackError> {
     })
 }
 
+type ParsedPack = (String, String, Loader, Vec<PlannedFile>, String, Vec<String>);
+
 fn from_cf<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
-) -> Result<
-    (
-        String,
-        String,
-        Loader,
-        Vec<PlannedFile>,
-        String,
-        Vec<String>,
-    ),
-    PackError,
-> {
+) -> Result<ParsedPack, PackError> {
     let doc: CfManifest = serde_json::from_slice(&read_metadata(zip, "manifest.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     if doc.name.trim().is_empty() || doc.minecraft.version.trim().is_empty() {
@@ -288,17 +280,7 @@ fn from_cf<R: Read + std::io::Seek>(
 }
 fn from_mr<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
-) -> Result<
-    (
-        String,
-        String,
-        Loader,
-        Vec<PlannedFile>,
-        String,
-        Vec<String>,
-    ),
-    PackError,
-> {
+) -> Result<ParsedPack, PackError> {
     let doc: MrIndex = serde_json::from_slice(&read_metadata(zip, "modrinth.index.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     let game = doc
@@ -315,7 +297,7 @@ fn from_mr<R: Read + std::io::Seek>(
         return Err(PackError::Metadata("multiple loaders conflict".into()));
     }
     let loader = match loaders.first() {
-        Some((kind, version)) if *kind == "quilt-loader" => {
+        Some((kind, _version)) if *kind == "quilt-loader" => {
             return Err(PackError::Unsupported("Quilt loader".into()))
         }
         Some((kind, version)) if !version.is_empty() => Loader {
@@ -414,17 +396,7 @@ fn from_mr<R: Read + std::io::Seek>(
 }
 fn from_prism<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
-) -> Result<
-    (
-        String,
-        String,
-        Loader,
-        Vec<PlannedFile>,
-        String,
-        Vec<String>,
-    ),
-    PackError,
-> {
+) -> Result<ParsedPack, PackError> {
     let doc: PrismPack = serde_json::from_slice(&read_metadata(zip, "mmc-pack.json")?)
         .map_err(|e| PackError::Metadata(e.to_string()))?;
     let game = doc
