@@ -32,6 +32,18 @@ jobs:
             Write-Output ("LOCK_PART:" + $b64.Substring($i, $length))
           }
           Write-Output "LOCKFILE_BASE64_END"
+      - name: Format and export canonical rustfmt output
+        shell: pwsh
+        run: |
+          cargo fmt --all
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($entry in @(@("FMT_LIB_PART", "crates/tl-skin/src/lib.rs"), @("FMT_TEST_PART", "crates/tl-skin/tests/skin_tests.rs"))) {
+            $key = $entry[0]
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($entry[1]))
+            for ($i = 0; $i -lt $b64.Length; $i += 3000) {
+              Write-Output ($key + ":" + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i)))
+            }
+          }
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check clippy warnings
