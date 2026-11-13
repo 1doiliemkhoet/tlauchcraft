@@ -1,34 +1,21 @@
-# TLAUCHCRAFT — CI Budget Policy (Control)
+# TLAUCHCRAFT — Windows-only CI Budget Policy
 
-**Effective:** 2026-11-13. **Goal:** minimize GitHub Actions minutes without weakening actual Windows/game E2E acceptance.
+**Effective:** 2026-11-13. **Scope:** Windows desktop launcher for Minecraft Java. Windows is the sole supported product build/test target. Do **not** add Ubuntu/macOS CI matrices for tlauchcraft.
 
-## Trigger policy
+## CI budget rules
 
-- Do not trigger builds on every feature-branch `push` **and** on its `pull_request`. Prefer PR-only checks to `develop`; an optional `push` to `develop` runs integration checks after merge.
-- Use `paths` filters targeting the affected module/lockfiles/workflow; changes restricted to documentation and `docs/control/LIVE_REPORTS.md` must not run Rust/Node builds.
-- Use a concurrency group scoped to PR number/ref with `cancel-in-progress: true` to stop superseded runs.
-- Default PR build: one `ubuntu-latest` job, focused `fmt`, `clippy`, `cargo test` or Node unit/build for UI. No Windows/Linux matrix on every commit.
-- Perform expensive Windows verification after merging code into `develop`, on explicit manual request, or before release. **Passing Linux-only tests is never a substitute for real Windows launch/E2E evidence.**
-- Cache Rust/Node dependency caches safely. Keep step/job timeouts. Avoid automatically downloading entire Minecraft versions, modpacks or large asset sets into CI; real downloads and two-PC LAN E2E are controlled acceptance tests with evidence.
-- Never spend CI minutes on live-report-only updates. Do not add individual overlapping workflows in seven feature branches without Control review.
-- Require tracked tests on PR where applicable; skip only when the PR strictly changes docs. CI skips are not interpreted as tests passing.
+1. **PR only**: Run code checks on `pull_request` targeting `develop`; no duplicate feature push and PR events. Use `workflow_dispatch` for explicitly requested checks. Integration runs after merge may be triggered manually when needed.
+2. **Only `windows-latest`** for GitHub-hosted CI. No Linux/Ubuntu/macOS GitHub Actions for this project. Do not add Ubuntu jobs as a fallback for cheaper builds.
+3. **Path filters**: Rust only on `crates/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` or workflow changes; Desktop only on `apps/desktop/**`, UI lockfiles or its workflow. Documentation and `docs/control/LIVE_REPORTS.md` do not trigger builds.
+4. **Cancel superseded runs**: `concurrency` by PR/ref and `cancel-in-progress: true`.
+5. **Single Windows job, no matrix**: run fmt/clippy/unit tests for Rust; desktop uses its focused Windows TypeScript/test/build commands in a separate path-scoped workflow only if Control approves it. Never run full installer packaging on each PR commit.
+6. **Bound costs**: Cache dependencies safely, enforce reasonable timeouts, do not download massive Minecraft/modpack binaries into CI, and never run continuous loops or automatic E2E on each commit.
+7. **Correct evidence**: A skipped workflow is `CI_SKIPPED`, not PASS. Source unit tests are distinct from real Minecraft on-device E2E. Windows clean-machine checks, game/world/modpack/two-PC LAN and skin rendering remain manual/controlled acceptance gates.
+8. **Local-first**: Developers run `cargo test`, `cargo fmt`, `cargo clippy`, npm tests and TypeScript build on Windows locally first, then push verified commits. Instructions should use 2–3 PowerShell commands per step.
+9. **No silent cross-platform expansion**: Any Linux/macOS implementation or CI workflow requires a new explicit Control decision and scope change.
 
-## Initial applied optimization
+## Applied workflow
 
-Foundation workflow at `feat/tl-01-foundation:.github/workflows/rust.yml` adjusted to:
-- PR trigger to `develop` with Rust paths filter (no duplicate feature push).
-- Quick Ubuntu Rust checks on PR.
-- Windows checks on integration push to develop or optional manual workflow trigger once available on the default branch.
-- Concurrency cancellation, `permissions: contents: read`, cache and timeouts.
+`feat/tl-01-foundation:.github/workflows/rust.yml` uses one `windows-latest` job on `pull_request` to `develop` (path-filtered), plus optional `workflow_dispatch`, without `push` or Ubuntu jobs. Change commit: https://github.com/1doiliemkhoet/tlauchcraft/commit/29cd56d884f452752674038600f70fd95aa92e7a.
 
-**Change commit:** https://github.com/1doiliemkhoet/tlauchcraft/commit/6035abc9fbe723da8e2ea527b68197d225f54ca9
-
-## Required Control checks before merge/release
-
-- When source changes: PR has passing relevant checks.
-- Windows build/smoke evidence after integration for affected functionality.
-- Actual Minecraft install/launch/world/modpack/LAN/skin evidence is separately tracked in `docs/control/LIVE_REPORTS.md`.
-- If a workflow was skipped due to `paths`, label it `CI_SKIPPED_NOT_RUN` not PASS.
-- For workflows using manual dispatch: GitHub typically requires the workflow file on the default branch before the manual UI appears; until then use integration push or a documented controlled local verification.
-
-This policy optimizes *run triggers*, not test rigor, and does not modify repository-wide GitHub billing or spending limits.
+This supersedes the earlier temporary Ubuntu-first CI policy. This only controls project CI, **not** whether a locally hosted Minecraft server may technically be run on other operating systems; official tlauchcraft target and E2E remain Windows.
