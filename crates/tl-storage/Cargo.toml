@@ -1,0 +1,14 @@
+[package]
+name = "tl-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+[dependencies]
+tl-core = { path = "../tl-core" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+[dev-dependencies]
+tempfile.workspace = true
