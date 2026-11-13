@@ -1,6 +1,6 @@
 name: Rust Foundation
 
-# Keep CI focused on Rust changes. Never run Rust builds for LIVE_REPORTS.md.
+# Windows-only launcher. Run focused PR checks; no Linux runners or docs-only CI.
 on:
   pull_request:
     branches: [develop]
@@ -10,34 +10,20 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - '.github/workflows/rust.yml'
-  push:
-    branches: [develop]
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - '.github/workflows/rust.yml'
   workflow_dispatch:
-    inputs:
-      run_windows:
-        description: 'Run the Windows verification job'
-        type: boolean
-        default: true
 
 permissions:
   contents: read
 
-# A newer commit to the same PR supersedes older runs.
 concurrency:
-  group: rust-foundation-${{ github.event.pull_request.number || github.ref }}
+  group: tlauchcraft-rust-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  rust:
-    name: Rust checks (Ubuntu)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  windows:
+    name: Rust checks (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -48,19 +34,3 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
-
-  windows:
-    name: Rust verification (Windows)
-    # Windows builds are deferred until integration, or an explicit manual run.
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.run_windows) }}
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: '1.85.1'
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked --workspace --all-targets
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
