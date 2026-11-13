@@ -14,4 +14,4 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 ## Status
-Local cargo unavailable at authoring; rely on CI for actual build/test evidence. Cargo.lock is not yet generated and must be committed before claiming reproducible locked builds. Do not claim G1 until real CI succeeds.
+Local cargo unavailable at authoring; rely on CI for actual build/test evidence. Cargo.lock is committed and CI uses --locked for dependency consistency. Do not claim G1 until real CI succeeds.
