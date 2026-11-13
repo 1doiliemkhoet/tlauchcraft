@@ -59,12 +59,48 @@ try {
   Write-Host "INSTALL_EXIT=$($process.ExitCode) TARGET=$target"
   if ($process.ExitCode -ne 0) { throw "Installer returned exit code $($process.ExitCode)" }
   $binary = Join-Path $target 'tlauchcraft.exe'
-  if (!(Test-Path -LiteralPath $binary)) {
-    # Some installers use the app-specific target layout: inspect actual files, never invent success.
-    $candidates = @(Get-ChildItem -LiteralPath $target -Filter '*.exe' -File -Recurse -ErrorAction SilentlyContinue)
-    if ($candidates.Count -eq 1) { $binary = $candidates[0].FullName }
+  $programFiles32 = [Environment]::GetFolderPath('ProgramFilesX86')
+  $candidateRoots = @(
+    $target,
+    (Join-Path $env:LOCALAPPDATA 'tlauchcraft'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\tlauchcraft'),
+    (Join-Path $env:ProgramFiles 'tlauchcraft'),
+    (Join-Path $programFiles32 'tlauchcraft')
+  ) | Select-Object -Unique
+  $candidates = @()
+  foreach ($root in $candidateRoots) {
+    if (Test-Path -LiteralPath $root) {
+      $report.notes += "Installed-path candidate exists: $root"
+      $candidates += @(Get-ChildItem -LiteralPath $root -Filter 'tlauchcraft.exe' -File -Recurse -ErrorAction SilentlyContinue)
+      $report.notes += "Path entries: " + ((Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | Select-Object -First 10 -ExpandProperty Name) -join ', ')
+    }
   }
-  if (!(Test-Path -LiteralPath $binary)) { throw "No installed app executable found at $target" }
+  $uninstallRoots = @(
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+  )
+  foreach ($key in $uninstallRoots) {
+    if (Test-Path $key) {
+      Get-ChildItem $key -ErrorAction SilentlyContinue | ForEach-Object {
+        $entry = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+        if ($entry.DisplayName -match 'tlauchcraft') {
+          $report.notes += "Uninstall entry: $($entry.DisplayName), InstallLocation=$($entry.InstallLocation), UninstallString=$($entry.UninstallString)"
+          if ($entry.InstallLocation -and (Test-Path $entry.InstallLocation)) {
+            $candidates += @(Get-ChildItem -LiteralPath $entry.InstallLocation -Filter 'tlauchcraft.exe' -File -Recurse -ErrorAction SilentlyContinue)
+          }
+        }
+      }
+    }
+  }
+  $candidates = @($candidates | Sort-Object FullName -Unique)
+  if (Test-Path -LiteralPath $binary) { $report.app_binary = 'VERIFIED' }
+  elseif ($candidates.Count -eq 1) {
+    $binary = $candidates[0].FullName
+    $report.app_binary = 'VERIFIED'
+  } else {
+    throw "Installer exit 0 but expected app executable not found. Candidates count=$($candidates.Count); inspect structured results notes."
+  }
   $report.app_binary = 'VERIFIED'
   $report.notes += "Installed executable: $binary"
 
