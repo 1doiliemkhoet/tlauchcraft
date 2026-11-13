@@ -25,6 +25,13 @@
 - [ ] Forge/NeoForge adapter E2E theo version được chốt
 - [ ] World backup, diagnostics, rollback
 
+## 2b. Offline Skin Manager (P0/P1)
+- [ ] **P0**: PNG 64x64/64x32 import, local library, Classic/Slim, 3D preview and per-profile persistence
+- [ ] **P0**: Real in-game offline skin rendering via compatible provider/mod, with fallback state and version/loader check
+- [ ] **P1**: Pixel editor, layers, undo/redo, skin pack, optional custom cape on supported providers
+- [ ] **P1**: LAN-visible skin with compatible client/server mods or opt-in appearance sync, tested on both PCs
+- [ ] [Full spec](docs/specs/OFFLINE_SKIN_MANAGER_v1.md)
+
 ## 3. LAN
 - [ ] Dedicated modded LAN server instance (trusted network only)
 - [ ] Client/server pack compatibility checks
