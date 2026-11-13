@@ -31,14 +31,6 @@ jobs:
           toolchain: '1.88.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      # TEMPORARY Chat 3 diagnostic step; removed in the next commit.
-      - name: Generate real Cargo.lock for Chat 3 diagnostic
-        shell: pwsh
-        run: |
-          cargo generate-lockfile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $blob = [Convert]::ToBase64String([IO.File]::ReadAllBytes("Cargo.lock"))
-          Write-Output "TL03_LOCK_BEGIN$blob"+"TL03_LOCK_END"
       - name: Ensure every Rust crate is tested by the workspace
         shell: pwsh
         run: |
