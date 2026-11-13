@@ -1,14 +1,66 @@
-import { describe, expect, it } from 'vitest';
-import { BackendUnavailable, EMPTY_CAPABILITIES, requireFeature, safeArchive, safePercent } from './backend';
-describe('capability guard', () => {
-  it('denies commands without implemented backend', () => expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable));
-  it('accepts only negotiated feature', () => {
-    const caps = { ...EMPTY_CAPABILITIES, features: { ...EMPTY_CAPABILITIES.features, profiles: true } };
-    expect(() => requireFeature(caps, 'profiles')).not.toThrow();
-    expect(() => requireFeature(caps, 'lan')).toThrow();
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
+import { BackendUnavailable, EMPTY_CAPABILITIES, call, negotiate, operations, requireFeature, safeArchive, safePercent } from './backend';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+const mockedInvoke = vi.mocked(invoke);
+const withFeature = (feature: keyof typeof EMPTY_CAPABILITIES.features) => ({
+  ...EMPTY_CAPABILITIES,
+  features: { ...EMPTY_CAPABILITIES.features, [feature]: true }
+});
+
+beforeEach(() => mockedInvoke.mockReset());
+
+describe('capability negotiation', () => {
+  it('fails closed if Tauri command is not registered', async () => {
+    mockedInvoke.mockRejectedValue(new Error('command not found'));
+    expect(await negotiate()).toEqual(EMPTY_CAPABILITIES);
+  });
+  it('fails closed on malformed response', async () => {
+    mockedInvoke.mockResolvedValue({ schema_version: 1, provider: 'incomplete', features: { profiles: true } });
+    expect(await negotiate()).toEqual(EMPTY_CAPABILITIES);
+  });
+  it('accepts complete v1 feature map only', async () => {
+    const available = withFeature('profiles');
+    mockedInvoke.mockResolvedValue(available);
+    expect(await negotiate()).toEqual(available);
+    expect(mockedInvoke).toHaveBeenCalledWith('desktop_capabilities');
   });
 });
-describe('UX input validation', () => {
-  it('rejects files without supported extension', () => { expect(safeArchive('pack.zip')).toBe(true); expect(safeArchive('pack.mrpack')).toBe(true); expect(safeArchive('pack.exe')).toBe(false); expect(safeArchive('')).toBe(false); });
-  it('clamps out of range percentages', () => { expect(safePercent(-50)).toBe(0); expect(safePercent(135)).toBe(100); expect(safePercent(NaN)).toBeUndefined(); });
+
+describe('typed backend transport', () => {
+  it('rejects disabled operations without invoking Rust', async () => {
+    expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);
+    await expect(operations.listProfiles(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+  it('invokes approved profile command with exact payload', async () => {
+    const profile = { id: 'id', username: 'ValidPlayer', created_at: '', updated_at: '' };
+    mockedInvoke.mockResolvedValue(profile);
+    await expect(operations.createProfile(withFeature('profiles'), 'ValidPlayer')).resolves.toEqual(profile);
+    expect(mockedInvoke).toHaveBeenCalledWith('profile_create', { username: 'ValidPlayer' });
+  });
+  it('does not silently turn backend error into success', async () => {
+    mockedInvoke.mockRejectedValue(new Error('DiskFull'));
+    await expect(call(withFeature('game'), 'game', 'game_launch', { request: {} })).rejects.toThrow('DiskFull');
+  });
+  it('rejects unsupported schema even with feature bit', () => {
+    expect(() => requireFeature({ ...withFeature('game'), schema_version: 2 as 1 }, 'game')).toThrow(BackendUnavailable);
+  });
+});
+
+describe('UX validation', () => {
+  it('accepts supported extensions only (backend must inspect bytes)', () => {
+    expect(safeArchive('pack.zip')).toBe(true);
+    expect(safeArchive('pack.mrpack')).toBe(true);
+    expect(safeArchive('PACK.ZIP')).toBe(true);
+    expect(safeArchive('pack.exe')).toBe(false);
+    expect(safeArchive('')).toBe(false);
+  });
+  it('clamps percentages and rejects non-finite numbers', () => {
+    expect(safePercent(-50)).toBe(0);
+    expect(safePercent(135)).toBe(100);
+    expect(safePercent(NaN)).toBeUndefined();
+    expect(safePercent(Infinity)).toBeUndefined();
+  });
 });
