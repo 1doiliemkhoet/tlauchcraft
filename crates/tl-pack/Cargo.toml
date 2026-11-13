@@ -1,0 +1,17 @@
+[package]
+name = "tl-pack"
+version = "0.1.0"
+edition = "2021"
+description = "Safe modpack archive inspection and staging for tlauchcraft"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

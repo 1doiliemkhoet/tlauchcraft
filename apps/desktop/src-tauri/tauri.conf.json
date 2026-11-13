@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "tlauchcraft",
+  "version": "0.1.0",
+  "identifier": "com.tlauchcraft.desktop",
+  "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://127.0.0.1:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
+  "app": { "windows": [{ "title": "tlauchcraft", "width": 1240, "height": 830, "minWidth": 760, "minHeight": 560, "backgroundColor": "#0b101c" }], "security": { "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" } },
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/icon.png"], "shortDescription": "Offline Minecraft and trusted LAN launcher", "category": "Game", "windows": { "nsis": { "displayLanguageSelector": false } } },
+  "plugins": {}
+}
