@@ -3,7 +3,7 @@ name = "tlauchcraft-desktop"
 version = "0.1.0"
 description = "tlauchcraft offline LAN desktop shell"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.90"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
