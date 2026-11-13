@@ -402,11 +402,15 @@ pub fn build_vanilla_launch(
             .find(|file| file.role == FileRole::LoggingConfig)
             .ok_or_else(|| GameError::InvalidInput("logging config missing".into()))?;
         if !log_config.target.is_file() {
-            return Err(GameError::InvalidInput("logging config not installed".into()));
+            return Err(GameError::InvalidInput(
+                "logging config not installed".into(),
+            ));
         }
         let expanded = argument.replace("${path}", &log_config.target.to_string_lossy());
         if expanded.contains("${") {
-            return Err(GameError::InvalidInput("unresolved logging argument".into()));
+            return Err(GameError::InvalidInput(
+                "unresolved logging argument".into(),
+            ));
         }
         jvm_args.push(expanded);
     }
