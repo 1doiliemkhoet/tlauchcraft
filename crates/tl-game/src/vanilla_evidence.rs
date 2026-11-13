@@ -95,10 +95,7 @@ pub fn write_install_checksums(
 
 /// Capture world save metadata after a game process has exited. A snapshot alone does not
 /// establish that the user opened or played the world; screenshots/manual checks remain required.
-pub fn write_world_snapshot(
-    game_dir: &Path,
-    evidence_path: &Path,
-) -> Result<usize, GameError> {
+pub fn write_world_snapshot(game_dir: &Path, evidence_path: &Path) -> Result<usize, GameError> {
     let saves = game_dir.join("saves");
     let mut worlds = Vec::new();
     if saves.is_dir() {
