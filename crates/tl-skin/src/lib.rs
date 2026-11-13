@@ -299,3 +299,76 @@ pub fn lan_share_payload(consent: bool, image: &SkinImage) -> Result<Option<Vec<
     if encoded.len() > MAX_PNG_BYTES { return Err(SkinError::InvalidInput("skin exceeds LAN limit".into())); }
     Ok(Some(encoded))
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UvRegion { pub name: &'static str, pub x: u32, pub y: u32, pub width: u32, pub height: u32 }
+/// Atlas rectangles for the main 64x64 Minecraft skin regions. UI can use these
+/// for layer toggles and texture inspection; a 3D mesh renderer is still required.
+pub fn atlas_regions() -> Vec<UvRegion> {
+    vec![
+        UvRegion { name:"head", x:0, y:0, width:32, height:16 },
+        UvRegion { name:"hat", x:32, y:0, width:32, height:16 },
+        UvRegion { name:"right_leg", x:0, y:16, width:16, height:16 },
+        UvRegion { name:"body", x:16, y:16, width:24, height:16 },
+        UvRegion { name:"right_arm", x:40, y:16, width:16, height:16 },
+        UvRegion { name:"left_leg", x:16, y:48, width:16, height:16 },
+        UvRegion { name:"left_arm", x:32, y:48, width:16, height:16 },
+        UvRegion { name:"body_jacket", x:16, y:32, width:24, height:16 },
+        UvRegion { name:"right_sleeve", x:40, y:32, width:16, height:16 },
+        UvRegion { name:"left_sleeve", x:48, y:48, width:16, height:16 },
+        UvRegion { name:"right_pants", x:0, y:32, width:16, height:16 },
+        UvRegion { name:"left_pants", x:0, y:48, width:16, height:16 },
+    ]
+}
+impl SkinEditor {
+    /// Fill a four-connected contiguous region, bounded by the fixed 64x64 atlas.
+    pub fn flood_fill(&mut self, x: u32, y: u32, color: [u8;4]) -> Result<usize> {
+        let original = self.sample(x,y)?;
+        if original == color { return Ok(0); }
+        self.checkpoint();
+        let w = 64usize;
+        let h = self.image.height as usize;
+        let mut stack = vec![(x as usize,y as usize)];
+        let mut visited = vec![false; w*h];
+        let mut changed = 0usize;
+        while let Some((px,py)) = stack.pop() {
+            let idx = py*w+px;
+            if visited[idx] { continue; }
+            visited[idx] = true;
+            if self.image.rgba[idx*4..idx*4+4] != original { continue; }
+            self.image.rgba[idx*4..idx*4+4].copy_from_slice(&color);
+            changed += 1;
+            if px > 0 { stack.push((px-1,py)); }
+            if px+1 < w { stack.push((px+1,py)); }
+            if py > 0 { stack.push((px,py-1)); }
+            if py+1 < h { stack.push((px,py+1)); }
+        }
+        Ok(changed)
+    }
+    /// Reflect horizontally within a selected atlas rectangle (does not swap limbs).
+    pub fn mirror_region(&mut self, x:u32, y:u32, width:u32, height:u32) -> Result<()> {
+        if width == 0 || height == 0 || x.checked_add(width).map_or(true, |n| n>64)
+            || y.checked_add(height).map_or(true, |n| n>self.image.height) {
+            return Err(SkinError::InvalidInput("invalid mirror rectangle".into()));
+        }
+        self.checkpoint();
+        for row in y..y+height {
+            for col in 0..width/2 {
+                let a = ((row*64 + x+col)*4) as usize;
+                let b = ((row*64 + x+width-1-col)*4) as usize;
+                for k in 0..4 { self.image.rgba.swap(a+k,b+k); }
+            }
+        }
+        Ok(())
+    }
+    /// Select unique colors in deterministic scan order, suitable for UI palette controls.
+    pub fn palette(&self, max_colors: usize) -> Vec<[u8;4]> {
+        let mut out = Vec::new();
+        for rgba in self.image.rgba.chunks_exact(4) {
+            let c = [rgba[0],rgba[1],rgba[2],rgba[3]];
+            if !out.contains(&c) { out.push(c); }
+            if out.len() >= max_colors { break; }
+        }
+        out
+    }
+}
