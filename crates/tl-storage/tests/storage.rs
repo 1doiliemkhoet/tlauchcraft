@@ -108,3 +108,65 @@ fn invalid_instance_path_is_rejected() {
     i.root_path = "../../Users/saves".into();
     assert!(i.validate().is_err());
 }
+
+#[test]
+fn backup_refuses_to_overwrite_existing_backup() {
+    let root = tempfile::tempdir().unwrap();
+    let backups = tempfile::tempdir().unwrap();
+    let db = SqliteStore::open(root.path()).unwrap();
+    let target = backups.path().join("existing.sqlite3");
+    std::fs::write(&target, b"retain original backup").unwrap();
+    assert_eq!(db.backup_to(&target), Err(CoreError::AlreadyExists));
+    assert_eq!(std::fs::read(target).unwrap(), b"retain original backup");
+}
+
+#[test]
+fn newer_database_schema_is_rejected_without_modification() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let db = rusqlite::Connection::open(dir.path().join("launcher.sqlite3")).unwrap();
+        db.execute_batch("PRAGMA user_version = 999;").unwrap();
+    }
+    assert!(matches!(
+        SqliteStore::open(dir.path()),
+        Err(CoreError::UnsupportedVersion)
+    ));
+    let db = rusqlite::Connection::open(dir.path().join("launcher.sqlite3")).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 999);
+}
+
+#[test]
+fn deleting_instance_metadata_preserves_world_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let mut db = SqliteStore::open(root.path()).unwrap();
+    let p = OfflineProfile::new("SafePlayer").unwrap();
+    db.create_profile(&p).unwrap();
+    let instance = GameInstance::new(
+        "Protected World",
+        "1.20.1",
+        LoaderSpec {
+            kind: LoaderKind::Vanilla,
+            version: None,
+        },
+        p.id,
+    )
+    .unwrap();
+    db.create_instance(&instance).unwrap();
+    let save = root
+        .path()
+        .join(&instance.root_path)
+        .join(".minecraft")
+        .join("saves")
+        .join("WorldOne");
+    std::fs::create_dir_all(&save).unwrap();
+    std::fs::write(save.join("level.dat"), b"world-fixture-preserve").unwrap();
+    db.delete_instance_record(instance.id).unwrap();
+    assert!(db.get_instance(instance.id).unwrap().is_none());
+    assert_eq!(
+        std::fs::read(save.join("level.dat")).unwrap(),
+        b"world-fixture-preserve"
+    );
+}
