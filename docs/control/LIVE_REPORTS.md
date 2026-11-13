@@ -23,7 +23,7 @@
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **READY_FOR_CONTROL_REVIEW · G1 CI PASS** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | Windows CI 35 PASS / 0 failed | G1 review pending; G2/G3/G5 NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | NOT_TESTED | NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **IN_PROGRESS · PR_OPEN_UNREVIEWED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | 20 AUTHORED · CI IN_PROGRESS | NOT_VERIFIED |
-| [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | NOT_TESTED | NOT_VERIFIED |
+| [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) (Draft) | Windows fmt working-tree PASS; G1 pending | NOT_VERIFIED |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging | **PR_OPEN_UNREVIEWED · IN_PROGRESS** | [#14](https://github.com/1doiliemkhoet/tlauchcraft/pull/14) | NOT_TESTED (npm lock/toolchain blocker) | NOT_VERIFIED |
 
 ---
@@ -143,21 +143,19 @@
 <!-- CHAT-06:START -->
 ## Chat 6 — Offline Skin Manager
 
-- **Branch:** `feat/tl-06-skins`
-- **HEAD:** `9f4fc91b2532668bb3543d4c07327c7eb2670929` (2026-11-13)
-- **Issue:** [#6](https://github.com/1doiliemkhoet/tlauchcraft/issues/6)
-- **PR:** [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) → `develop`, OPEN / DRAFT / not merged.
-- **Status:** `PR_OPEN_UNREVIEWED` + `IN_PROGRESS`. Source files committed and pushed; compilation and acceptance NOT_TESTED.
-- **Updated:** 2026-11-13 (Chat 6 report).
-- **Implemented in source (not yet runtime-validated):** PNG 64×64 and legacy 64×32 decoding/encoding with bounds validation; app-managed skin catalog, SHA-256 integrity, import/export/rename/duplicate/confirmed delete; stable profile UUID selections, Classic/Slim model, per-instance override; pixel paint/sample/erase/flood fill/mirror/palette/undo/redo; UV atlas descriptors; explicit preview/local/peer visibility states and consent-gated bounded PNG payload (does not transfer data itself).
-- **Changed paths:** `crates/tl-skin/Cargo.toml`, `crates/tl-skin/src/lib.rs`, `crates/tl-skin/tests/skin_tests.rs`, `crates/tl-skin/README.md`, `docs/control/tasks/CHAT-06-IMPLEMENTATION-NOTES.md`. Public crate interfaces are provisional; root workspace/shared contract untouched.
-- **Test command (proposed, NOT RUN):** `cargo test --manifest-path crates/tl-skin/Cargo.toml`; `cargo fmt --manifest-path crates/tl-skin/Cargo.toml -- --check`. **Observed result: NOT_TESTED** (no executable Rust toolchain/test logs in this session; GitHub returned 0 workflow runs and 0 statuses for feature HEAD on 2026-11-13). Hermetic Rust test source covers PNG, invalid inputs, persistence, per-instance override, pixel editor, consent and visibility state transitions; existence is not PASS.
-- **E2E evidence:** NONE. Singleplayer skin visibility NOT_TESTED; 2-PC LAN peer skin visibility NOT_TESTED. G1 code, G7 skin and all other gates NOT_VERIFIED.
-- **Incomplete/risks:** 3D renderer, complete legacy UV conversion, custom cape storage/application, cosmetics packs, actual Minecraft skin provider installation and supported-version matrix, LAN transport and peer cache handling, real-game evidence. Offline LAN identity is spoofable; consent required. Provider metadata cannot prove actual skin display.
-- **Dependencies:** Chat 1 profile/instance shared Rust types and workspace; Chat 2/3 version/loader-aware provider; Chat 5 trusted LAN appearance transport; Chat 7 UI, 3D preview and editor integration.
-- **Control decisions requested:** Approve SkinService adapter and ownership of profile/instance cosmetic selections; establish provider/version compatibility matrix and LAN consent handshake contract before cross-crate integration. Keep PR Draft until G1 tests pass; Control owns merge/gate signoff.
-- **Additional commit:** [`9f4fc91`](https://github.com/1doiliemkhoet/tlauchcraft/commit/9f4fc91b2532668bb3543d4c07327c7eb2670929) fixes the library duplicate borrow-order issue; **NOT_TESTED** until Rust compilation is available.
-- **Next:** audit/fix crate; run real Windows cargo tests once toolchain accessible; implement additional P1 skin editing/storage without modifying other chats' files; collect actual Singleplayer and 2-PC evidence after integration.
+- **Branch:** `feat/tl-06-skins`; **HEAD:** `d87e2bb243e74e630539132e28b0171ab54eb6b5` (2026-11-14 local).
+- **Issue:** [#6](https://github.com/1doiliemkhoet/tlauchcraft/issues/6); **PR:** [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) → `develop`, OPEN/DRAFT, NOT MERGED.
+- **Status:** `PR_OPEN_UNREVIEWED`, `IN_PROGRESS`. Workspace and source changes IMPLEMENTED; Windows full G1 and actual Minecraft rendering NOT_VERIFIED.
+- **Synchronization:** merge commit `01eb78e7b6ccd76d23d9ead9820cf07dccb15aea` brought Foundation `develop` into feature branch without overwriting other chat modules.
+- **Implemented:** `tl-skin` registered in root workspace; real Cargo-generated `Cargo.lock` committed `802a5d17dcdc7aa42e5febb8fc874f8fe29dbbdd`; dependencies aligned with workspace. Uses Foundation `tl-core::SkinSelection`/`SkinModel`, stable `OfflineProfile.id` and `skin_id` binding; isolated catalog, 64×64/64×32 PNG validation/import/export, SHA-256, Classic/Slim, per-profile/per-instance persistence, pixel paint/erase/fill/mirror/undo/redo and UI UV metadata. Consent-off LAN helper returns no payload; no transport/provider integration yet.
+- **Files changed (PR):** `Cargo.toml`, `Cargo.lock`, `crates/tl-skin/Cargo.toml`, `crates/tl-skin/src/lib.rs`, `crates/tl-skin/tests/skin_tests.rs`, `crates/tl-skin/README.md`, `docs/control/tasks/CHAT-06-IMPLEMENTATION-NOTES.md`, `.github/workflows/chat6-g1.yml`. No direct source changes to `develop`.
+- **Windows test evidence:** [Actions run #43473617569](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473617569): Windows Cargo 1.88 `cargo generate-lockfile` PASS; `cargo fmt --all -- --check` FAILED because unformatted Rust source; Clippy/test SKIPPED. [Actions run #43473918610](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43473918610): Windows Cargo lock generation PASS; `cargo fmt --all` and post-format `cargo fmt --all -- --check` PASS on runner working tree, **not committed yet**; Clippy and `cargo test --workspace --all-targets` pending at report time. Do not interpret working-tree formatter result as committed branch fmt PASS.
+- **Additional test source:** PNG 64×64/64×32 round-trip, corruption, oversized input, Classic/Slim, profile UUID persistence, instance override, sample/paint, fill/mirror, undo/redo, consent off and preview/local/LAN independent states. Tests exist; PASS only after actual Windows run.
+- **E2E:** preview rendering NOT_TESTED; real Singleplayer skin NOT_TESTED; two-PC friend skin NOT_TESTED. G1 NOT_VERIFIED; G7 NOT_VERIFIED.
+- **Coordination:** posted explicit provider/loader Singleplayer requirements to Chat 2/3, opt-in LAN contract to Chat 5, 3D preview and UI separation to Chat 7 via GitHub issue comments. Foundation shared UUID adaptation completed in source; external profile DB save still belongs to caller.
+- **Blockers/risks:** need commit canonical rustfmt, resolve Clippy/unit errors; actual skin provider version/mod compatibility, 3D renderer, complete 64×32 conversion, cape support, peer transport/evidence. Offline UUID/name not authenticated; no internet exposure or automatic uploads.
+- **Control decisions:** approve cross-crate SkinService/prelaunch provider contract, profile persistence transaction boundary, consented LAN transport; keep PR Draft until Windows G1 evidence passes. Control exclusively reviews/merges and assigns gates.
+- **Next:** consume completed Windows G1 logs, commit formatted Rust source, rerun locked workspace CI; then provider and LAN E2E with Chat 2/3/5.
 
 <!-- CHAT-06:END -->
 
