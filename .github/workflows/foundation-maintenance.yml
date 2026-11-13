@@ -1,0 +1,30 @@
+name: Foundation one-shot maintenance
+on:
+  push:
+    branches: [feat/tl-01-concurrency-identity]
+permissions:
+  contents: write
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt
+      - name: Format and regenerate lockfile
+        run: |
+          cargo fmt --all
+          cargo generate-lockfile
+      - name: Commit generated code and lockfile
+        run: |
+          if ! git diff --quiet -- crates/tl-core crates/tl-storage Cargo.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add crates/tl-core crates/tl-storage Cargo.lock
+            git commit -m "build: format identity and CAS; update Cargo lock"
+            git push origin HEAD:feat/tl-01-concurrency-identity
+          fi
