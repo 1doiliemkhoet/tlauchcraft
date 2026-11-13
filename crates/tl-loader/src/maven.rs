@@ -79,7 +79,7 @@ pub fn installer_plan(
     java_major: u32,
 ) -> Result<crate::LoaderPlan, LoaderError> {
     use crate::{LoaderKind, LoaderPlan};
-    if !matches!(spec.kind, LoaderKind::Forge | LoaderKind::NeoForge) {
+    if !matches!(&spec.kind, LoaderKind::Forge | LoaderKind::NeoForge) {
         return Err(LoaderError::InvalidInput);
     }
     validate_component(minecraft_version)?;
@@ -101,7 +101,7 @@ pub fn installer_plan(
     }
     Ok(LoaderPlan {
         loader: spec.clone(),
-        version_id: format!("{}-{}-{}", match spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, minecraft_version, loader_version),
+        version_id: format!("{}-{}-{}", match &spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, minecraft_version, loader_version),
         inherits_from: minecraft_version.to_owned(),
         main_class: None,
         libraries: vec![],

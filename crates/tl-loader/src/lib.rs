@@ -76,7 +76,7 @@ pub fn plan_for_instance(
     game_java_major: u32,
 ) -> Result<LoaderPlan, LoaderError> {
     instance.validate().map_err(|_| LoaderError::InvalidInput)?;
-    match instance.loader.kind {
+    match &instance.loader.kind {
         LoaderKind::Fabric => fabric::Fabric.plan(
             &instance.minecraft_version,
             &instance.loader,
