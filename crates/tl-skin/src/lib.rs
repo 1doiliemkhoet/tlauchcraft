@@ -363,6 +363,7 @@ impl SkinEditor {
     }
     /// Select unique colors in deterministic scan order, suitable for UI palette controls.
     pub fn palette(&self, max_colors: usize) -> Vec<[u8;4]> {
+        if max_colors == 0 { return Vec::new(); }
         let mut out = Vec::new();
         for rgba in self.image.rgba.chunks_exact(4) {
             let c = [rgba[0],rgba[1],rgba[2],rgba[3]];
