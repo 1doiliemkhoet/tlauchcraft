@@ -8,7 +8,7 @@ This branch starts a real CurseForge Core API dependency resolver and downloader
 
 - `crates/tl-pack/src/curseforge.rs`: resolves every manifest projectID/fileID using `https://api.curseforge.com/v1/mods/{project}/files/{file}` and the official download-url endpoint. The API key is sourced from the **local environment** `CURSEFORGE_API_KEY`; neither key nor requested metadata is persisted with credentials. Reports individual file availability, permission denied, malformed metadata, or manual action. Does not invent CDN paths or mirror restricted files.
 - `crates/tl-pack/src/install.rs`: creates a fresh override staging directory, downloads only approved official HTTPS CDN origins, disables redirects, bounds file size, supports cancellation through `AtomicBool`, verifies expected file length and SHA-1 when supplied, computes a SHA-256 evidence digest, and refuses collisions with existing overrides. Returns `NEEDS_ACTION`, `FAILED` or `CANCELLED` — never READY.
-- Desktop Tauri command `pack_resolve` runs a blocking resolver off the UI thread. A read-only dependency breakdown is displayed after successful ZIP inspection. Full `modpacks` installation capability remains disabled.
+- Desktop Tauri commands `pack_resolve`, `pack_stage_curseforge`, and `pack_cancel` run the resolver and verified staging off the UI thread. A read-only dependency breakdown, an explicitly **non-playable** staging action, coarse phase progress, cancellation and full blocked/failed outcomes are displayed after ZIP inspection. Full `modpacks` installation capability remains disabled.
 
 ### How to configure approved API access on Windows
 
@@ -26,7 +26,7 @@ A production secret storage integration is pending. Local environment variables 
 1. Install Minecraft 1.16.5 from approved sources, verify game libraries and assets.
 2. Implement an explicitly reviewed Forge 1.16.5 installer processor executor (not present in `tl-loader`). Verify every Forge library and output; use the Java version required by the actual Forge installer and game.
 3. Persist per-instance Java path, `Xms` and `Xmx` and wire to the real `tl-game` runtime. The existing `tl-game` `LaunchConfig` supports `-Xms/-Xmx` but desktop doesn't expose launch yet.
-4. Add persistent install jobs, progress events, cancel in Tauri, reconnect/restart and atomic publish on full verification; do not advertise the current read-only resolver as installation.
+4. Extend the current transient Tauri staging operation to durable install jobs, byte/file-level progress, prompt cancellation during API resolution, reconnect/restart, lockfile and atomic publish on full verification. Do not advertise staged files as installed/launchable.
 5. Add authorized manual import UI for restricted files with checksum verification and complete dependency reconciliation; never skip a required blocked mod.
 6. Run Windows Cargo lock generation after adding `reqwest` and `sha1` dependencies to `tl-pack`, then fmt/Clippy/tests. Validate actual Rustic Waters II archive and Minecraft main menu, world and logs.
 
