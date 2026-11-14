@@ -1302,6 +1302,9 @@ dependencies = [
 [[package]]
 name = "tl-lan"
 version = "0.1.0"
+dependencies = [
+ "tl-core",
+]
 
 [[package]]
 name = "tl-loader"
