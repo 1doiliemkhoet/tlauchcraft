@@ -511,6 +511,70 @@ mod tests {
         assert!(!out.exists());
     }
 
+    #[cfg(windows)]
+    fn create_native_zip(path: &Path, entry_name: &str) {
+        let script = r#"
+            $ErrorActionPreference = 'Stop'
+            Add-Type -AssemblyName System.IO.Compression
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $z = [System.IO.Compression.ZipFile]::Open(
+                $env:TLC_TEST_ZIP,
+                [System.IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $entry = $z.CreateEntry($env:TLC_TEST_ENTRY)
+                $writer = [System.IO.StreamWriter]::new($entry.Open())
+                try { $writer.Write('test-dll') } finally { $writer.Dispose() }
+            } finally { $z.Dispose() }
+        "#;
+        let result = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("TLC_TEST_ZIP", path)
+            .env("TLC_TEST_ENTRY", entry_name)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "test ZIP setup failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_native_zip_dll_is_extracted() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("safe.jar");
+        create_native_zip(&archive, "org/lwjgl/native-test.dll");
+        let dest = dir.path().join("natives");
+        extract_natives(&[archive], &dest).unwrap();
+        assert_eq!(fs::read(dest.join("native-test.dll")).unwrap(), b"test-dll");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn malicious_native_zip_traversal_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("traversal.jar");
+        create_native_zip(&archive, "../../outside.dll");
+        let dest = dir.path().join("natives");
+        assert!(extract_natives(&[archive], &dest).is_err());
+        assert!(!dest.exists());
+        assert!(!dir.path().join("outside.dll").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn duplicate_dll_across_archives_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("a.jar");
+        let second = dir.path().join("b.jar");
+        create_native_zip(&first, "windows/native-test.dll");
+        create_native_zip(&second, "another/native-test.dll");
+        let dest = dir.path().join("natives");
+        assert!(extract_natives(&[first, second], &dest).is_err());
+        assert!(!dest.exists());
+    }
+
     #[test]
     fn wrong_platform_cannot_claim_install() {
         let flag = AtomicBool::new(false);
