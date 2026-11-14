@@ -260,7 +260,7 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let jar = root.join("tool.jar");
         fs::write(&jar, b"fixture").unwrap();
-        let sha = "ec2e613cefcbb6cb343f37b2be023736b6080a39";
+        let sha = "51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa";
         let proc = ApprovedProcessor {
             executable: VerifiedProcessorJar {
                 coordinate: "net.minecraftforge:installertools:1.2.0".into(),
