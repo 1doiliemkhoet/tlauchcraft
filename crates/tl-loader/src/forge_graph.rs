@@ -247,6 +247,7 @@ fn resolve_artifact(
         if artifact.coordinate != coordinate {
             return Err(LoaderError::InvalidMetadata("artifact coordinate mismatch".into()).into());
         }
+        crate::runtime::validate_verified_artifact(artifact)?;
         Ok(Some(artifact.clone()))
     } else {
         missing.insert(format!("artifact:{coordinate}"));
@@ -359,7 +360,10 @@ fn bound_value(
 ) -> Result<String, PrepareFailure> {
     match value {
         BoundValue::Literal(x) => {
-            if x.is_empty() || x.len() > 8192 || x.chars().any(char::is_control)
+            // Literals are scalar metadata, never an unverified jar/zip path.
+            if key.starts_with('[') || x.contains('/') || x.contains('\\')
+                || x.ends_with(".jar") || x.ends_with(".zip")
+                || x.is_empty() || x.len() > 8192 || x.chars().any(char::is_control)
                 || x.chars().any(|ch| matches!(ch, '{' | '}' | '[' | ']')) {
                 return Err(LoaderError::InvalidMetadata(format!("invalid literal {key}")).into());
             }
