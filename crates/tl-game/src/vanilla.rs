@@ -197,15 +197,13 @@ where
         .map_err(|e| GameError::NetworkFailure(format!("metadata worker startup: {e}")))?;
     match receiver.recv_timeout(limit) {
         Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            Err(GameError::NetworkFailure(format!(
-                "metadata stage=resolver endpoint=official phase=overall_deadline timeout_ms={}",
-                limit.as_millis()
-            )))
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
-            GameError::NetworkFailure("metadata worker disconnected unexpectedly".into()),
-        ),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(GameError::NetworkFailure(format!(
+            "metadata stage=resolver endpoint=official phase=overall_deadline timeout_ms={}",
+            limit.as_millis()
+        ))),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(GameError::NetworkFailure(
+            "metadata worker disconnected unexpectedly".into(),
+        )),
     }
 }
 
@@ -220,7 +218,9 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
         return Err(GameError::InvalidInput("invalid version id".into()));
     }
     let id = version_id.to_owned();
-    with_metadata_deadline(RESOLVER_DEADLINE, move || resolve_official_version_inner(&id))
+    with_metadata_deadline(RESOLVER_DEADLINE, move || {
+        resolve_official_version_inner(&id)
+    })
 }
 
 fn resolve_official_version_inner(version_id: &str) -> Result<Value, GameError> {
