@@ -21,6 +21,11 @@ export type CurseForgeResolvedFile = {
 export type CurseForgeResolveReport = {
   files: CurseForgeResolvedFile[]; resolved_count: number; needs_action_count: number; ready: false;
 };
+export type CurseForgeStageReport = {
+  status: 'needs_action' | 'failed' | 'cancelled';
+  installed: { project_id: number; file_id: number; relative_path: string; actual_sha256: string; bytes: number }[];
+  blocked: string[]; failures: string[]; staging_path: string; ready: false;
+};
 export const FEATURE_NAMES: Feature[] = ['profiles', 'instances', 'versions', 'modpacks', 'pack_inspection', 'skins', 'lan', 'game', 'settings', 'downloads'];
 export const EMPTY_CAPABILITIES: Capabilities = { schema_version: 1, provider: 'unavailable', features: Object.fromEntries(FEATURE_NAMES.map(f => [f, false])) as Record<Feature, boolean> };
 
@@ -53,6 +58,8 @@ export const operations = {
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
+  stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
+  cancelPackStage: (c: Capabilities, operationId: string) => call<void>(c, 'pack_inspection', 'pack_cancel', { operationId }),
   launch: (c: Capabilities, request: LaunchRequest) => call<LaunchProcess>(c, 'game', 'game_launch', { request }),
   cancel: (c: Capabilities, operationId: string) => call<void>(c, 'downloads', 'operation_cancel', { operationId }),
   listSkins: (c: Capabilities) => call<unknown[]>(c, 'skins', 'skin_list'),
