@@ -25,6 +25,7 @@ pub struct GameStatus {
     pub installing:bool,
     pub pid:Option<u32>,
     pub process_state:String,
+    pub last_error:Option<String>,
 }
 #[derive(Serialize)]
 pub struct StartedProcess {
@@ -73,6 +74,26 @@ fn update_state(uuid:Uuid,next:InstanceState)->Result<(),String>{
         .map_err(|e|format!("Instance revision conflict or storage failure: {e}"))?;
     Ok(())
 }
+fn error_file(uuid:Uuid)->Result<PathBuf,String>{
+    let instance=find_instance(uuid)?;
+    Ok(root(&instance)?.join("vanilla-install-error.txt"))
+}
+fn save_error(uuid:Uuid,error:&str){
+    if let Ok(path)=error_file(uuid){
+        if let Some(parent)=path.parent(){let _=fs::create_dir_all(parent);}
+        // Keep diagnostics local, bounded, and useful across launcher restarts.
+        let concise:String=error.chars().take(8192).collect();
+        let _=fs::write(path,concise);
+    }
+}
+fn clear_error(uuid:Uuid){
+    if let Ok(path)=error_file(uuid){let _=fs::remove_file(path);}
+}
+fn read_error(uuid:Uuid)->Option<String>{
+    let path=error_file(uuid).ok()?;
+    if fs::metadata(&path).ok()?.len()>8192 {return None}
+    fs::read_to_string(path).ok()
+}
 fn event(app:&AppHandle,instance:Uuid,phase:&str,key:&str){
     // Progress percentage is null until tl-game supports trustworthy byte counters.
     let _=app.emit("download.progress",json!({
@@ -118,6 +139,7 @@ fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),Strin
         .map_err(|e|e.to_string())?;
     fs::rename(&tmp,dir.join("vanilla-install.json")).map_err(|e|e.to_string())?;
     update_state(uuid,InstanceState::Ready)?;
+    clear_error(uuid);
     event(&app,uuid,"ready","Vanilla files verified; launch prerequisites still checked on Play");
     Ok(())
 }
@@ -132,6 +154,7 @@ pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:Str
     let mut installs=state.installs.lock().map_err(|_|"Install lock poisoned")?;
     if installs.contains_key(&uuid){return Err("Install already in progress".into())}
     update_state(uuid,InstanceState::Planned)?;
+    clear_error(uuid);
     let cancelled=Arc::new(AtomicBool::new(false));
     installs.insert(uuid,cancelled.clone());
     drop(installs);
@@ -143,6 +166,7 @@ pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:Str
                 InstanceState::Cancelled
             }else{InstanceState::Failed};
             let is_cancelled=matches!(&status,InstanceState::Cancelled);
+            save_error(uuid,e);
             let _=update_state(uuid,status);
             event(&app,uuid,if is_cancelled{"cancelled"}else{"failed"},e);
         }
@@ -161,8 +185,14 @@ pub fn game_cancel(state:State<'_,Arc<GameState>>,instance_id:String)->Result<()
 #[tauri::command]
 pub fn game_status(state:State<'_,Arc<GameState>>,instance_id:String)->Result<GameStatus,String>{
     let uuid=id(&instance_id)?;
-    let i=find_instance(uuid)?;
+    let mut i=find_instance(uuid)?;
     let installing=state.installs.lock().map_err(|_|"Install lock poisoned")?.contains_key(&uuid);
+    if !installing && matches!(&i.state,InstanceState::Planned|InstanceState::Downloading|InstanceState::Verifying) {
+        let reason="Install worker was interrupted by a launcher restart; retry install to resume verification";
+        save_error(uuid,reason);
+        update_state(uuid,InstanceState::Failed)?;
+        i=find_instance(uuid)?;
+    }
     let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
     let mut pid=None;
     let mut process_state="not_running".to_owned();
@@ -176,7 +206,7 @@ pub fn game_status(state:State<'_,Arc<GameState>>,instance_id:String)->Result<Ga
             Err(e)=>return Err(format!("Process status failed: {e}"))
         }
     }
-    Ok(GameStatus{instance_id,install_state:i.state,installing,pid,process_state})
+    Ok(GameStatus{instance_id,install_state:i.state,installing,pid,process_state,last_error:read_error(uuid)})
 }
 fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
     let meta=dir.join("vanilla-install.json");
