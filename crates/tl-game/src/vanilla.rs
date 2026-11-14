@@ -315,7 +315,22 @@ pub fn install_vanilla(
             "Vanilla client or asset index missing".into(),
         ));
     }
-    let mut natives = Vec::new();
+    let native_count = files
+        .iter()
+        .filter(|f| f.role == FileRole::NativeArchive)
+        .count();
+    if native_count == 0 {
+        return Err(GameError::InvalidInput(format!(
+            "no matching Windows native archives in version {} download plan for {}",
+            version.get("id").and_then(Value::as_str).unwrap_or("unknown"),
+            env.arch
+        )));
+    }
+    eprintln!(
+        "[vanilla-native] selected_arch={} native_archives_planned={}",
+        env.arch, native_count
+    );
+    let mut natives = Vec::with_capacity(native_count);
     for file in &files {
         if cancelled.load(Ordering::Relaxed) {
             return Err(GameError::Cancelled);
@@ -412,10 +427,16 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
         if !result.status.success() {
             let error = String::from_utf8_lossy(&result.stderr);
             return Err(GameError::InvalidInput(format!(
-                "native ZIP extraction rejected: {}",
+                "native ZIP extraction rejected (archives={}): {}",
+                archives.len(),
                 error.trim()
             )));
         }
+        eprintln!(
+            "[vanilla-native] archives_extracted={} {}",
+            archives.len(),
+            String::from_utf8_lossy(&result.stdout).trim()
+        );
         Ok(())
     })();
     let _ = fs::remove_file(&list);
