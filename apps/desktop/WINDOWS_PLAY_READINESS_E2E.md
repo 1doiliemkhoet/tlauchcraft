@@ -1,6 +1,6 @@
 # Control — Desktop Play readiness verification after Chat 2 G2
 
-**Gate:** G3 / G5 / G8 stay NOT_VERIFIED without real Windows GUI/Java evidence. Existing Chat 2 PR #26 is DRAFT and must **not** be imported until merged to `develop`. The branch is based on official `develop` 3846759 and preserves all seven Rust workspace crates.
+**Gate:** Chat 2's standalone Vanilla G2/G3 passed and G4 is user-confirmed, but **Desktop-specific GUI E2E is NOT_VERIFIED** until Control drives the new Desktop installer. Chat 2 PR #26 merged at `634213cd8f50355fe1dc3fcd9c0a25b42d110e46` and its API is now used directly by this branch. All seven Rust workspace crates, SQLite CAS and offline UUID are preserved.
 
 ## Before testing
 
@@ -20,10 +20,10 @@ java -version
 | --- | --- | --- |
 | Metadata timeout | Disconnect network **only in disposable VM** while installing an official version | Actual metadata timeout/network error displayed, state FAILED; no fake READY, Play disabled |
 | SHA/checksum error | Use a dedicated corrupted *test copy* of an official game file, never modify user worlds | Real downloader rejects mismatch, error visible, failed state remains queryable after restart |
-| Native extraction | Use Chat 2 G2 native DLL extractor once merged; induce a reproducible safe failure in test instance | Extractor's actual message visible, state FAILED, no Play until full verified install |
+| Native extraction | Use merged Chat 2 G2 native DLL extractor; induce a reproducible safe failure in test instance | Extractor's actual message visible, state FAILED, no Play until full verified install |
 | Cancellation | Click Install, then Cancel while worker is downloading | Actual cooperative cancel -> CANCELLED, no fabricated 100%, retry permitted |
 | App restart | Close launcher during active install, relaunch | Unowned install is reconciled as FAILED with actual interruption explanation, not stuck DOWNLOADING |
-| Vanilla install | Install official Minecraft 1.21.1 | State READY **only after** verified files, native DLLs and metadata. Save logs and progress stage screenshots |
+| Vanilla install | Install official Minecraft 1.21.1 | State READY **only after** verified files, native DLLs and metadata. Check `instances/<id>/evidence/install-checksums-*.json` independently rehashes every official file and native DLL count >0. Save logs and progress stage screenshots |
 | Preflight | Select matching offline profile + READY instance; change Java to wrong major | Play stays disabled with actual compatibility error from `tl-game` |
 | Play | Fix Java and click Play | Record actual java.exe command line containing chosen `-Xms` and `-Xmx`; PID is not G3 proof |
 | Main Menu | Wait for Minecraft window on real desktop | Screenshot actual menu with exact MC version, capture logs and process status |
@@ -57,4 +57,4 @@ Screenshot Java & Memory settings and compare actual `-Xms`/`-Xmx` flags. Redact
 
 Save Windows edition/build, Tauri/NSIS installer hash, screenshots for each required stage, Rust install errors, Java stdout/stderr per-launch files, SQLite read-only query, real Minecraft version and world screenshots. Use `docs/control/scripts/g8-interactive-capture.ps1` for interactive screenshots. Report observed failures explicitly and leave G3/G5/G8 unverified when screenshots are absent.
 
-**Contract coupling:** Desktop relies on stable `tl_game::vanilla::resolve_official_version`, `install_vanilla`, `extract_natives`, `build_vanilla_launch`, and `tl_game::launch`. When Chat 2 merges its extraction fix into `develop`, synchronize and rerun Windows Desktop tests and NSIS **without importing draft PR #26**.
+**Contract coupling:** Desktop now consumes the *merged* `tl_game::vanilla::{resolve_official_version,install_vanilla,extract_natives,build_vanilla_launch}` and `tl_game::vanilla_evidence::write_install_checksums`. New installation sets READY only after independent SHA-1 rehash and nonzero extracted Windows DLLs. Desktop root: `%LOCALAPPDATA%\\tlauchcraft\\instances\\<instance UUID>`; Java `game_dir` is its persistent `game` subfolder, with saves under `game\\saves`. A successful standalone `vanilla_e2e.exe` run at another root does **not** automatically register or adopt that installation into Desktop. Do not delete or move any existing saved worlds. Desktop G3 still requires Control's real GUI test.
