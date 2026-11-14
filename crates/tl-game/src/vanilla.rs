@@ -859,6 +859,29 @@ mod tests {
         assert!(VanillaIdentity::from_offline_username("bad name").is_err());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn install_rejects_zero_native_archives_before_network_download() {
+        let metadata = json!({
+            "id": "1.21.1",
+            "downloads": {"client": {
+                "url": "https://piston-data.mojang.com/client.jar",
+                "sha1": "0123456789abcdef0123456789abcdef01234567"
+            }},
+            "assetIndex": {
+                "id": "17",
+                "url": "https://piston-meta.mojang.com/17.json",
+                "sha1": "0123456789abcdef0123456789abcdef01234567"
+            },
+            "libraries": []
+        });
+        let root = tempfile::tempdir().unwrap();
+        let error = install_vanilla(&metadata, root.path(), &AtomicBool::new(false))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no matching Windows native archives"), "{error}");
+    }
+
     #[test]
     fn native_extractor_has_strict_zip_gate() {
         let code = include_str!("native_extract.ps1");
