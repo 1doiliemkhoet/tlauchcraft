@@ -5,6 +5,8 @@ on:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/desktop-windows.yml'
+      - 'docs/control/scripts/g8-*.ps1'
+      - 'docs/control/G8_INTERACTIVE_TEST_PLAN.md'
   workflow_dispatch:
 
 # CI verifies committed inputs only; it never commits or pushes to pull-request branches.
@@ -21,26 +23,56 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check script syntax and G8 evidence contract
+        shell: pwsh
+        run: ./docs/control/scripts/g8-script-contract-tests.ps1
+      - name: Detect desktop build scope (avoid npm/Cargo on evidence-only PR)
+        id: scope
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            "desktop_source=true" >> $env:GITHUB_OUTPUT
+          } else {
+            $changed = @(git diff --name-only $env:BASE_SHA $env:HEAD_SHA)
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $needsBuild = @($changed | Where-Object {
+              $_ -match '^apps/desktop/(src/|src-tauri/|package(-lock)?\.json$|tsconfig\.json$|vite\.config\.ts$|index\.html$)'
+            }).Count -gt 0
+            "desktop_source=$("$needsBuild".ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+            Write-Host "DESKTOP_BUILD_REQUIRED=$needsBuild"
+          }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Require committed dependency locks
+        if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
         run: |
           if (!(Test-Path apps/desktop/package-lock.json)) { throw "Missing committed npm package-lock.json" }
           if (!(Test-Path apps/desktop/src-tauri/Cargo.lock)) { throw "Missing committed Tauri Cargo.lock" }
       - name: npm ci
+        if: steps.scope.outputs.desktop_source == 'true'
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
       - name: npm test
+        if: steps.scope.outputs.desktop_source == 'true'
         working-directory: apps/desktop
         run: npm test
       - name: npm run build
+        if: steps.scope.outputs.desktop_source == 'true'
         working-directory: apps/desktop
         run: npm run build
       - name: Install desktop Rust stable (Tauri requires rustc >= 1.90)
+        if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
       - name: Tauri cargo check (Windows MSVC, locked)
+        if: steps.scope.outputs.desktop_source == 'true'
         working-directory: apps/desktop/src-tauri
         run: cargo +stable check --locked
