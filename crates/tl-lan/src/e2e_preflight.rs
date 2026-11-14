@@ -1,9 +1,15 @@
 //! Read-only LAN acceptance preflight. This module does not launch clients,
 //! alter profile IDs, edit worlds or claim proof of Minecraft network play.
-use crate::{compare_packs, validate_offline_username, CompatibilityReport, LanError, PackFingerprint, Result};
+use crate::{
+    compare_packs, validate_offline_username, CompatibilityReport, LanError, PackFingerprint,
+    Result,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tl_core::{derive_vanilla_offline_identity, vanilla_offline_server_uuid, OfflineGameIdentity, OfflineProfile};
+use tl_core::{
+    derive_vanilla_offline_identity, vanilla_offline_server_uuid, OfflineGameIdentity,
+    OfflineProfile,
+};
 
 /// A vanilla/offline server identity belongs to the exact case-sensitive username.
 /// An application profile ID is never used as a playerdata filename.
@@ -67,8 +73,10 @@ pub fn vanilla_1211_preflight(
             "Vanilla LAN harness currently targets Minecraft 1.21.1".into(),
         ]));
     }
-    if server.loader_kind != "vanilla" || client.loader_kind != "vanilla"
-        || !server.loader_version.is_empty() || !client.loader_version.is_empty()
+    if server.loader_kind != "vanilla"
+        || client.loader_kind != "vanilla"
+        || !server.loader_version.is_empty()
+        || !client.loader_version.is_empty()
     {
         return Err(LanError::CompatibilityConflict(vec![
             "Vanilla preflight does not cover modded server loaders".into(),
@@ -124,12 +132,14 @@ pub fn snapshot_stopped_playerdata(
     if !server_stopped {
         return Err(LanError::NotVerified("server still running".into()));
     }
-    let uuid = vanilla_offline_server_uuid(username)
-        .map_err(|e| LanError::InvalidInput(e.to_string()))?;
+    let uuid =
+        vanilla_offline_server_uuid(username).map_err(|e| LanError::InvalidInput(e.to_string()))?;
     let root = fs::canonicalize(world)?;
     let data_dir = root.join("playerdata");
     if fs::symlink_metadata(&data_dir)?.file_type().is_symlink() {
-        return Err(LanError::InvalidInput("playerdata directory is a symlink".into()));
+        return Err(LanError::InvalidInput(
+            "playerdata directory is a symlink".into(),
+        ));
     }
     let path = data_dir.join(format!("{uuid}.dat"));
     let bytes = read_checked_playerdata(&path)?;
@@ -288,7 +298,11 @@ mod tests {
                 .unwrap();
         }
         assert!(trace
-            .transition(SessionPhase::Joined, "OtherUser", &identity.offline_server_uuid)
+            .transition(
+                SessionPhase::Joined,
+                "OtherUser",
+                &identity.offline_server_uuid
+            )
             .is_err());
     }
 
