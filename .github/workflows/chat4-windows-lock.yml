@@ -53,7 +53,7 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Desktop Rust check (locked)
-        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+        run: cargo +1.90.0 check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
       - name: Commit verified lockfiles to this feature branch only
         shell: pwsh
         run: |
