@@ -2,7 +2,7 @@
 //! A file without a permitted URL or verifiable metadata is NEVER silently skipped.
 //! This module only resolves download plans; it cannot mark a game instance READY.
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, env};
+use std::{collections::HashSet, env, io::Read};
 use thiserror::Error;
 
 const API_BASE: &str = "https://api.curseforge.com/v1";
@@ -111,12 +111,20 @@ impl CurseForgeApi for OfficialApiClient {
             .send()
             .map_err(|_| ResolveError::NetworkFailure)?;
         let status = response.status().as_u16();
-        let body = response.text().map_err(|_| ResolveError::NetworkFailure)?;
-        if body.len() > 1024 * 1024 {
+        // Bound the response as it is streamed; never allocate an unbounded
+        // upstream error body or include it in errors/logging.
+        let mut bytes = Vec::new();
+        response
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| ResolveError::NetworkFailure)?;
+        if bytes.len() > 1024 * 1024 {
             return Err(ResolveError::InvalidResponse(
                 "API response too large".into(),
             ));
         }
+        let body = String::from_utf8(bytes)
+            .map_err(|_| ResolveError::InvalidResponse("API response is not UTF-8".into()))?;
         Ok((status, body))
     }
 }

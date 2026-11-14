@@ -136,7 +136,10 @@ fn download_file(
     let expected_size = entry.expected_size.ok_or("missing expected size")?;
     // Upstream must provide an independently known checksum; a freshly computed
     // SHA-256 alone cannot establish that the downloaded bytes are authentic.
-    let expected_sha1 = entry.sha1.as_deref().ok_or("missing trusted SHA-1; manual verification required")?;
+    let expected_sha1 = entry
+        .sha1
+        .as_deref()
+        .ok_or("missing trusted SHA-1; manual verification required")?;
     let relative_path = format!("mods/{filename}");
     crate::safe_path(&relative_path).map_err(|_| "unsafe mod relative path")?;
     let destination = stage.join(&relative_path);
@@ -229,7 +232,9 @@ pub fn stage_curseforge_downloads(
             || declared.file_id != Some(file.file_id)
             || declared.required != file.required
         {
-            return Err(PackError::Metadata("resolver plan does not match archive".into()));
+            return Err(PackError::Metadata(
+                "resolver plan does not match archive".into(),
+            ));
         }
     }
     // ZIP integrity and override extraction happen before any remote requests.
@@ -315,8 +320,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.method(), reqwest::Method::GET);
-        assert!(request.headers().is_empty(), "CDN request must have zero custom headers");
-        for name in ["x-api-key", "authorization", "proxy-authorization", "cookie"] {
+        assert!(
+            request.headers().is_empty(),
+            "CDN request must have zero custom headers"
+        );
+        for name in [
+            "x-api-key",
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+        ] {
             assert!(!request.headers().contains_key(name), "leaked {name}");
         }
         assert_eq!(request.url().host_str(), Some("edge.forgecdn.net"));
