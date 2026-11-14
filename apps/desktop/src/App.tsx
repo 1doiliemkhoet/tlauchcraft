@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
+import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm } from './desktopState';
 import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
@@ -43,7 +44,7 @@ export default function App() {
   const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true); setError(undefined);
     try { await fn(); log(`${label}: request accepted (not E2E verified)`); }
-    catch (e) { const message = e instanceof Error ? e.message : String(e); setError(message); log(`${label} failed: ${message}`); }
+    catch (e) { const message = backendError(e); setError(message); log(`${label} failed: ${message}`); }
     finally { setBusy(false); }
   }, [log]);
   const refresh = useCallback(async (c: Capabilities) => {
@@ -52,12 +53,18 @@ export default function App() {
       c.features.instances ? operations.listInstances(c).then(setInstances) : Promise.resolve()
     ];
     const results = await Promise.allSettled(tasks);
-    results.forEach(r => { if (r.status === 'rejected') log('Backend list failed: ' + String(r.reason)); });
+    results.forEach(r => { if (r.status === 'rejected') {
+      const message = 'Backend list failed: ' + backendError(r.reason);
+      setError(message); log(message);
+    } });
   }, [log]);
   useEffect(() => {
     let active = true; let unsubscribe: (() => void) | undefined;
     negotiate().then(c => { if (!active) return; setCaps(c); void refresh(c); log(`Backend provider: ${c.provider}`); });
-    subscribeProgress(event => { if (active) { setEvents(old => [event, ...old].slice(0, 100)); log(`${event.phase}: ${event.message_key}`); } })
+    subscribeProgress(event => { if (active) { setEvents(old => [event, ...old].slice(0, 100));
+        const failure = installFailure(event);
+        if (failure) setError(failure);
+        log(`${event.phase}: ${event.message_key}`); } })
       .then(fn => { if (active) unsubscribe = fn; else fn(); })
       .catch(() => log('Event channel unavailable outside Tauri or before backend installation.'));
     return () => { active = false; unsubscribe?.(); };
@@ -85,10 +92,31 @@ export default function App() {
   useEffect(() => {
     if (!events.length || !caps.features.instances) return;
     const latest=events[0];
-    if (latest.instance_id && ['ready','failed','cancelled'].includes(latest.phase)) {
+    if (terminalInstallEvent(latest) && latest.instance_id) {
       void refresh(caps);
+      void operations.gameStatus(caps,latest.instance_id).then(status => {
+        setGameStatusById(old => ({...old,[latest.instance_id!]:status}));
+        if (status.last_error) setError(status.last_error);
+      }).catch(e => setError(backendError(e)));
     }
   }, [events, caps, refresh]);
+  useEffect(() => {
+    let active = true;
+    if (!caps.features.game || !instances.length) return;
+    Promise.allSettled(instances.filter(i=>i.loader.kind==='vanilla').map(i =>
+      operations.gameStatus(caps,i.id).then(status => ({id:i.id,status}))
+    )).then(results => {
+      if (!active) return;
+      const updated: Record<string,GameStatus> = {};
+      for (const item of results) if (item.status==='fulfilled') updated[item.value.id]=item.value.status;
+      setGameStatusById(old=>({...old,...updated}));
+      const errors=Object.entries(updated).filter(([,status])=>status.last_error);
+      if (errors.length) setError(errors.map(([id,status])=>`${id}: ${status.last_error}`).join('; '));
+      // Actual status might reconcile a crashed/interrupted install on restart.
+      if (Object.values(updated).some(status=>status.install_state==='failed')) void refresh(caps);
+    });
+    return () => { active=false; };
+  }, [caps,refresh,instances.length]);
   useEffect(() => {
     let active=true;
     setPlayReady(null); setPlayReadinessError(null);
@@ -118,7 +146,7 @@ export default function App() {
         <div className="heading"><div><div className="eyebrow">TLAUCHCRAFT CONTROL CENTER</div><h1>{current.label}</h1><p>{page === 'home' ? 'Your Minecraft worlds, modpacks and LAN sessions in one place.' : 'Status and actions are backed by the real Rust facade when available.'}</p></div><span className="version-tag">PREVIEW · NOT E2E VERIFIED</span></div>
         {error && <div role="alert" className="error"><XCircle size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError(undefined)}>×</button></div>}
         {page === 'home' && <>
-          <div className="hero"><div className="hero-text"><div className="eyebrow">YOUR NEXT ADVENTURE</div><h2>Make room for<br/><em>better adventures.</em></h2><p>Build an isolated modded instance, choose an offline profile and launch only when the core is ready.</p><button className="primary" disabled={!playReady || !caps.features.game || !selected || selected.state !== 'ready' || selected.profile_id !== selectedProfile || busy} onClick={() => void run('Launch', () => operations.launch(caps, { instance_id: selectedInstance, profile_id: selectedProfile }))}><Play size={16} fill="currentColor"/> Launch Minecraft</button></div><div className="hero-art"><div className="sun"/><div className="mountain m1"/><div className="mountain m2"/><div className="mountain m3"/><div className="grid-art"/></div></div>
+          <div className="hero"><div className="hero-text"><div className="eyebrow">YOUR NEXT ADVENTURE</div><h2>Make room for<br/><em>better adventures.</em></h2><p>Build an isolated modded instance, choose an offline profile and launch only when the core is ready.</p><button className="primary" disabled={!caps.features.game || busy || !canPlayInstance(selected, selectedProfile, playReady, gameStatusById[selectedInstance])} onClick={() => void run('Launch', () => operations.launch(caps, { instance_id: selectedInstance, profile_id: selectedProfile }))}><Play size={16} fill="currentColor"/> Launch Minecraft</button></div><div className="hero-art"><div className="sun"/><div className="mountain m1"/><div className="mountain m2"/><div className="mountain m3"/><div className="grid-art"/></div></div>
           <div className="metric-grid"><div className="panel metric"><Box/><strong>{instances.length}</strong><span>Known instances</span></div><div className="panel metric"><Users/><strong>{profiles.length}</strong><span>Offline profiles</span></div><div className="panel metric"><Download/><strong>{events.length}</strong><span>Received events</span></div></div>
           <div className="panel"><h3>Launch readiness</h3><p className="muted">Choose a real profile and ready instance. Actions remain unavailable while their service is missing.</p><div className="form-row"><select aria-label="Selected profile" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}><option value="">Select profile</option>{profiles.map(p => <option value={p.id} key={p.id}>{p.username}</option>)}</select><select aria-label="Selected instance" value={selectedInstance} onChange={e => setSelectedInstance(e.target.value)}><option value="">Select instance</option>{instances.filter(i => i.state === 'ready').map(i => <option value={i.id} key={i.id}>{i.display_name} · {i.minecraft_version}</option>)}</select></div>{playReady && <div className="item">Java {playReady.required_java} · Xms {playReady.xms_mb} MB · Xmx {playReady.xmx_mb} MB <span>Verified for launch</span></div>}{playReadinessError && <Notice>Play unavailable: {playReadinessError}</Notice>}{!caps.features.game && <Unavailable feature="game"/>}</div>
         </>}
@@ -148,12 +176,15 @@ export default function App() {
                 await operations.installVanilla(caps, i.id); await refresh(caps);
                 const status = await operations.gameStatus(caps,i.id);
                 setGameStatusById(old => ({...old,[i.id]:status}));
+                if (status.last_error) setError(status.last_error);
               })}>Install Vanilla</button>
               <button disabled={!caps.features.game || busy} onClick={() => void run('Check real status', async () => {
                 const status = await operations.gameStatus(caps,i.id);
-                setGameStatusById(old => ({...old,[i.id]:status})); await refresh(caps);
+                setGameStatusById(old => ({...old,[i.id]:status}));
+                if (status.last_error) setError(status.last_error);
+                await refresh(caps);
               })}>Status</button>
-              <button disabled={!caps.features.game || busy || !gameStatusById[i.id]?.installing} onClick={() => void run('Cancel install', async () => {
+              <button disabled={!caps.features.game || busy || !canCancelInstall(gameStatusById[i.id])} onClick={() => void run('Cancel install', async () => {
                 await operations.cancelInstall(caps,i.id); await refresh(caps);
               })}>Cancel install</button>
               <button disabled={!caps.features.game || busy || gameStatusById[i.id]?.process_state !== 'running'} onClick={() => void run('Stop Minecraft', async () => {
@@ -165,6 +196,9 @@ export default function App() {
           </div>)}
           {!instances.length && <Empty title="No instances" description="Create a real Vanilla instance linked to your offline profile."/>}
           <Notice>No fake install progress: use Status to query SQLite state. Download events come only from actual Rust install workers.</Notice>
+          {instances.filter(i=>gameStatusById[i.id]?.last_error).map(i=><Notice key={i.id}>
+            {i.display_name}: {gameStatusById[i.id]?.last_error}
+          </Notice>)}
           {!caps.features.game && <Unavailable feature="game"/>}
         </div>}
         {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation is unavailable until a real verified backend is integrated.</Notice>}</div>}
@@ -201,12 +235,11 @@ export default function App() {
               })}>Browse Java</button>
             </div>
             <p className="muted">Java major version is checked against official Mojang version metadata on Play. Select a real installed Java .exe or use system java.exe.</p>
-            <button className="primary" disabled={!caps.features.settings || busy || !Number.isInteger(javaSettings.xms_mb) || !Number.isInteger(javaSettings.xmx_mb) ||
-              javaSettings.xms_mb<256 || javaSettings.xms_mb>javaSettings.xmx_mb ||
-              Boolean(memoryInfo && (javaSettings.xmx_mb > memoryInfo.total_mb-memoryInfo.reserved_mb || javaSettings.xmx_mb > memoryInfo.available_mb-512))}
+            <button className="primary" disabled={!caps.features.settings || busy || Boolean(validateJavaForm(javaSettings,memoryInfo))}
               onClick={()=>void run('Save Java settings',async()=>{
                 const saved=await operations.javaSettingsSave(caps,javaSettings);setJavaSettings(saved);
               })}>Save Java & Memory</button>
+            {validateJavaForm(javaSettings,memoryInfo) && <Notice>{validateJavaForm(javaSettings,memoryInfo)}</Notice>}
             <div className="item">Current settings revision <span>{javaSettings.revision}</span></div>
           </div>}
           {!selectedInstance && <Notice>Create/select a Vanilla instance first. Existing profiles are not modified.</Notice>}
