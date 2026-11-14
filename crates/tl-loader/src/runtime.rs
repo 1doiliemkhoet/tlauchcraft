@@ -86,14 +86,19 @@ pub fn run_verified_processors(request: &ProcessorRunRequest) -> ProcessorRunRep
     report
 }
 
-fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Result<(), LoaderError> {
+fn execute(
+    request: &ProcessorRunRequest,
+    report: &mut ProcessorRunReport,
+) -> Result<(), LoaderError> {
     if request.minecraft_version != "1.16.5" {
         return Err(LoaderError::UnsupportedVersion(
-            "runtime processor allowlist currently scoped to Forge 1.16.5".into()
+            "runtime processor allowlist currently scoped to Forge 1.16.5".into(),
         ));
     }
-    if request.timeout_seconds == 0 || request.timeout_seconds > 900
-        || request.processors.is_empty() || request.processors.len() > 32
+    if request.timeout_seconds == 0
+        || request.timeout_seconds > 900
+        || request.processors.is_empty()
+        || request.processors.len() > 32
         || request.stage_root.exists()
         || request.java.as_os_str().is_empty()
     {
@@ -113,11 +118,16 @@ fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Re
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage create: {e}")))?;
     let mut marker = File::create(request.stage_root.join(".tl-loader-stage"))
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage marker: {e}")))?;
-    marker.write_all(b"tl-loader-forge-v1")
+    marker
+        .write_all(b"tl-loader-forge-v1")
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage marker: {e}")))?;
     for (index, processor) in request.processors.iter().enumerate() {
-        let stdout = request.stage_root.join(format!("processor-{index}.stdout.log"));
-        let stderr = request.stage_root.join(format!("processor-{index}.stderr.log"));
+        let stdout = request
+            .stage_root
+            .join(format!("processor-{index}.stdout.log"));
+        let stderr = request
+            .stage_root
+            .join(format!("processor-{index}.stderr.log"));
         let output = File::create(&stdout)
             .map_err(|e| LoaderError::InvalidMetadata(format!("stdout log: {e}")))?;
         let errors = File::create(&stderr)
@@ -140,12 +150,16 @@ fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Re
             .map_err(|e| LoaderError::InvalidMetadata(format!("processor spawn: {e}")))?;
         let started = Instant::now();
         let exit = loop {
-            if let Some(status) = child.try_wait()
-                .map_err(|e| LoaderError::InvalidMetadata(format!("processor wait: {e}")))? {
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|e| LoaderError::InvalidMetadata(format!("processor wait: {e}")))?
+            {
                 break status;
             }
             if started.elapsed() >= Duration::from_secs(request.timeout_seconds) {
-                child.kill().map_err(|e| LoaderError::InvalidMetadata(format!("kill: {e}")))?;
+                child
+                    .kill()
+                    .map_err(|e| LoaderError::InvalidMetadata(format!("kill: {e}")))?;
                 let _ = child.wait();
                 report.exit_codes.push(None);
                 return Err(LoaderError::InvalidMetadata("processor timed out".into()));
@@ -155,7 +169,8 @@ fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Re
         report.exit_codes.push(exit.code());
         if !exit.success() {
             return Err(LoaderError::InvalidMetadata(format!(
-                "processor {index} failed with exit code {:?}", exit.code()
+                "processor {index} failed with exit code {:?}",
+                exit.code()
             )));
         }
         for expected in &processor.outputs {
@@ -170,22 +185,38 @@ fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Re
 }
 
 fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> {
-    if processor.outputs.is_empty() || processor.outputs.len() > 64
-        || processor.arguments.len() > 256 || processor.classpath.len() > 256
+    if processor.outputs.is_empty()
+        || processor.outputs.len() > 64
+        || processor.arguments.len() > 256
+        || processor.classpath.len() > 256
     {
         return Err(LoaderError::InvalidInput);
     }
     // Pinned entrypoints for legacy 1.16.5 toolchain; no arbitrary main class execution.
     let trusted = [
-        ("net.minecraftforge:installertools:", "net.minecraftforge.installertools.ConsoleTool"),
-        ("net.minecraftforge:jarsplitter:", "net.minecraftforge.jarsplitter.ConsoleTool"),
-        ("net.minecraftforge:ForgeAutoRenamingTool:", "net.minecraftforge.fart.Main"),
-        ("net.minecraftforge:binarypatcher:", "net.minecraftforge.binarypatcher.ConsoleTool"),
+        (
+            "net.minecraftforge:installertools:",
+            "net.minecraftforge.installertools.ConsoleTool",
+        ),
+        (
+            "net.minecraftforge:jarsplitter:",
+            "net.minecraftforge.jarsplitter.ConsoleTool",
+        ),
+        (
+            "net.minecraftforge:ForgeAutoRenamingTool:",
+            "net.minecraftforge.fart.Main",
+        ),
+        (
+            "net.minecraftforge:binarypatcher:",
+            "net.minecraftforge.binarypatcher.ConsoleTool",
+        ),
     ];
     if !trusted.iter().any(|(prefix, main)| {
         processor.executable.coordinate.starts_with(prefix) && processor.main_class == *main
     }) {
-        return Err(LoaderError::InvalidMetadata("unapproved processor entrypoint".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "unapproved processor entrypoint".into(),
+        ));
     }
     for file in std::iter::once(&processor.executable).chain(processor.classpath.iter()) {
         maven::artifact_path(&file.coordinate)?;
@@ -198,15 +229,24 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
         .iter()
         .any(|base| file.source == format!("{base}/{relative}"));
         if !origin_ok {
-            return Err(LoaderError::InvalidMetadata("unapproved processor artifact source".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "unapproved processor artifact source".into(),
+            ));
         }
         verify_sha1(&file.path, &file.sha1)?;
     }
     for arg in &processor.arguments {
-        if arg.is_empty() || arg.len() > 8192 || arg.chars().any(char::is_control)
-            || arg.contains('{') || arg.contains('}') || arg.contains('[') || arg.contains(']')
+        if arg.is_empty()
+            || arg.len() > 8192
+            || arg.chars().any(char::is_control)
+            || arg.contains('{')
+            || arg.contains('}')
+            || arg.contains('[')
+            || arg.contains(']')
         {
-            return Err(LoaderError::InvalidMetadata("unresolved or invalid processor argument".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "unresolved or invalid processor argument".into(),
+            ));
         }
     }
     for item in &processor.outputs {
@@ -219,7 +259,9 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
 
 fn valid_sha1(sha1: &str) -> Result<(), LoaderError> {
     if sha1.len() != 40 || !sha1.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(LoaderError::InvalidMetadata("expected official SHA1".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "expected official SHA1".into(),
+        ));
     }
     Ok(())
 }
@@ -247,7 +289,9 @@ mod tests {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     fn scratch() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "tl-loader-test-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)
+            "tl-loader-test-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
         ))
     }
     fn fixture() -> (PathBuf, ApprovedProcessor) {
@@ -278,8 +322,17 @@ mod tests {
         let (root, mut p) = fixture();
         p.main_class = "java.lang.Runtime".into();
         let stage = root.join("stage");
-        let r = ProcessorRunRequest { minecraft_version: "1.16.5".into(), java: "missing-java.exe".into(), stage_root: stage.clone(), processors: vec![p], timeout_seconds: 3 };
-        assert_eq!(run_verified_processors(&r).outcome, ProcessorOutcome::Failed);
+        let r = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: "missing-java.exe".into(),
+            stage_root: stage.clone(),
+            processors: vec![p],
+            timeout_seconds: 3,
+        };
+        assert_eq!(
+            run_verified_processors(&r).outcome,
+            ProcessorOutcome::Failed
+        );
         assert!(!stage.exists());
         fs::remove_dir_all(root).unwrap();
     }
@@ -288,8 +341,17 @@ mod tests {
         let (root, mut p) = fixture();
         p.executable.sha1 = "0000000000000000000000000000000000000000".into();
         let stage = root.join("stage");
-        let r = ProcessorRunRequest { minecraft_version: "1.16.5".into(), java: "missing-java.exe".into(), stage_root: stage.clone(), processors: vec![p], timeout_seconds: 3 };
-        assert_eq!(run_verified_processors(&r).outcome, ProcessorOutcome::Failed);
+        let r = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: "missing-java.exe".into(),
+            stage_root: stage.clone(),
+            processors: vec![p],
+            timeout_seconds: 3,
+        };
+        assert_eq!(
+            run_verified_processors(&r).outcome,
+            ProcessorOutcome::Failed
+        );
         assert!(!stage.exists());
         fs::remove_dir_all(root).unwrap();
     }
@@ -299,8 +361,17 @@ mod tests {
         let stage = root.join("stage");
         fs::create_dir(&stage).unwrap();
         fs::write(stage.join("world.dat"), b"save").unwrap();
-        let r = ProcessorRunRequest { minecraft_version: "1.16.5".into(), java: "missing-java.exe".into(), stage_root: stage.clone(), processors: vec![p], timeout_seconds: 3 };
-        assert_eq!(run_verified_processors(&r).outcome, ProcessorOutcome::Failed);
+        let r = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: "missing-java.exe".into(),
+            stage_root: stage.clone(),
+            processors: vec![p],
+            timeout_seconds: 3,
+        };
+        assert_eq!(
+            run_verified_processors(&r).outcome,
+            ProcessorOutcome::Failed
+        );
         assert_eq!(fs::read(stage.join("world.dat")).unwrap(), b"save");
         fs::remove_dir_all(root).unwrap();
     }
@@ -308,8 +379,17 @@ mod tests {
     fn failed_java_probe_does_not_create_stage() {
         let (root, p) = fixture();
         let stage = root.join("stage");
-        let r = ProcessorRunRequest { minecraft_version: "1.16.5".into(), java: root.join("does-not-exist.exe"), stage_root: stage.clone(), processors: vec![p], timeout_seconds: 3 };
-        assert_eq!(run_verified_processors(&r).outcome, ProcessorOutcome::Failed);
+        let r = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("does-not-exist.exe"),
+            stage_root: stage.clone(),
+            processors: vec![p],
+            timeout_seconds: 3,
+        };
+        assert_eq!(
+            run_verified_processors(&r).outcome,
+            ProcessorOutcome::Failed
+        );
         assert!(!stage.exists());
         fs::remove_dir_all(root).unwrap();
     }

@@ -75,15 +75,20 @@ pub fn forge_1165_client_blueprint(
         for dep in &raw.classpath {
             crate::maven::artifact_path(dep)?;
         }
-        if raw.args.len() > 256 || raw.outputs.len() > 64
-            || raw.args.iter().any(|x| x.is_empty() || x.len() > 8192
-                || x.chars().any(char::is_control))
+        if raw.args.len() > 256
+            || raw.outputs.len() > 64
+            || raw
+                .args
+                .iter()
+                .any(|x| x.is_empty() || x.len() > 8192 || x.chars().any(char::is_control))
         {
             return Err(LoaderError::InvalidInput);
         }
         for (output, hash_ref) in &raw.outputs {
-            if output.is_empty() || hash_ref.is_empty()
-                || output.len() > 8192 || hash_ref.len() > 8192
+            if output.is_empty()
+                || hash_ref.is_empty()
+                || output.len() > 8192
+                || hash_ref.len() > 8192
                 || output.chars().any(char::is_control)
                 || hash_ref.chars().any(char::is_control)
             {
@@ -119,13 +124,11 @@ pub fn merge_forge_1165_version(
     if parent.get("id").and_then(Value::as_str) != Some("1.16.5")
         || derived.get("id").and_then(Value::as_str) != Some(expected.as_str())
         || derived.get("inheritsFrom").and_then(Value::as_str) != Some("1.16.5")
-        || derived.get("mainClass").and_then(Value::as_str)
-            != Some("cpw.mods.modlauncher.Launcher")
+        || derived.get("mainClass").and_then(Value::as_str) != Some("cpw.mods.modlauncher.Launcher")
     {
         return Err(LoaderError::CompatibilityConflict);
     }
-    tl_game::inherit(parent, derived)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))
+    tl_game::inherit(parent, derived).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))
 }
 
 #[cfg(test)]
