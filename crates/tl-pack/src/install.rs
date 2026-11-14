@@ -412,6 +412,7 @@ mod tests {
             expected_size: Some(12),
             availability: FileAvailability::Available,
             reason: String::new(),
+            dependencies: Vec::new(),
         };
         let temp = tempfile::tempdir().unwrap();
         let outcome = download_file(&item, temp.path(), &AtomicBool::new(false));

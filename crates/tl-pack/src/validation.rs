@@ -2,7 +2,7 @@
 //! The actual Forge processor runner belongs to tl-loader (Chat 3). This
 //! module accepts independent verification evidence; it NEVER runs processors.
 use crate::{
-    curseforge::{CurseForgeFile, CurseForgeResolveReport, FileAvailability},
+    curseforge::{CurseForgeResolveReport, FileAvailability},
     install::InstalledMod,
     PackMetadata, PackSource,
 };
