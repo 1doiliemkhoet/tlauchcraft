@@ -20,7 +20,7 @@ $destRoot = [System.IO.Path]::GetFullPath($Destination)
 $launcherRoot = [System.IO.Path]::GetDirectoryName($destRoot)
 $libraryRoot = [System.IO.Path]::GetFullPath(
     [System.IO.Path]::Combine($launcherRoot, 'libraries'))
-$libraryPrefix = $libraryRoot.TrimEnd([char]'\\', [char]'/') +
+$libraryPrefix = $libraryRoot.TrimEnd([char]92, [char]47) +
     [System.IO.Path]::DirectorySeparatorChar
 foreach ($item in $parsed) {
     if (-not ($item -is [string]) -or [string]::IsNullOrWhiteSpace($item)) {
