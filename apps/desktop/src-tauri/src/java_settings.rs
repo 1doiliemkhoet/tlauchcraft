@@ -44,6 +44,10 @@ fn connect()->Result<Connection,String> {
     let _store=SqliteStore::open(&base).map_err(|e|e.to_string())?;
     let db=Connection::open(base.join("launcher.sqlite3")).map_err(|e|e.to_string())?;
     db.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e|e.to_string())?;
+    init_schema(&db)?;
+    Ok(db)
+}
+fn init_schema(db:&Connection)->Result<(),String>{
     db.execute_batch("PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS instance_java_settings (
         instance_id TEXT PRIMARY KEY REFERENCES instances(id) ON DELETE CASCADE,
@@ -52,7 +56,7 @@ fn connect()->Result<Connection,String> {
         java_path TEXT NOT NULL DEFAULT '',
         revision INTEGER NOT NULL DEFAULT 0
       );").map_err(|e|e.to_string())?;
-    Ok(db)
+    Ok(())
 }
 fn checked_id(s:&str)->Result<Uuid,String> {
     Uuid::parse_str(s).map_err(|_|"Invalid instance UUID".into())
@@ -116,24 +120,31 @@ pub fn save(id:&str,xms:u32,xmx:u32,java_path:String,expected_revision:i64)->Res
     if expected_revision<0 {return Err("Invalid expected revision".into())}
     validate(xms,xmx,&java_path,&memory_info()?)?;
     let mut db=connect()?;
+    persist_settings(&mut db,id,xms,xmx,&java_path,expected_revision)?;
+    read(id)
+}
+fn persist_settings(db:&mut Connection,id:&str,xms:u32,xmx:u32,java_path:&str,expected_revision:i64)->Result<i64,String>{
     let tx=db.transaction().map_err(|e|e.to_string())?;
     let current:Option<i64>=tx.query_row("SELECT revision FROM instance_java_settings WHERE instance_id=?1",
         [id],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
-    match current {
-      Some(old) if old==expected_revision=>{
-        let changed=tx.execute("UPDATE instance_java_settings SET xms_mb=?2,xmx_mb=?3,java_path=?4,revision=revision+1 WHERE instance_id=?1 AND revision=?5",
-           params![id,xms,xmx,java_path,old]).map_err(|e|e.to_string())?;
-        if changed!=1{return Err("Settings revision conflict".into())}
-      },
-      None if expected_revision==0=>{
-        tx.execute("INSERT INTO instance_java_settings (instance_id,xms_mb,xmx_mb,java_path,revision) VALUES (?1,?2,?3,?4,1)",
-          params![id,xms,xmx,java_path]).map_err(|e|e.to_string())?;
-      },
-      _=>return Err("Settings revision conflict: reload before saving".into())
-    }
+    let new_revision=match current {
+        Some(old) if old==expected_revision=>{
+            let changed=tx.execute("UPDATE instance_java_settings SET xms_mb=?2,xmx_mb=?3,java_path=?4,revision=revision+1 WHERE instance_id=?1 AND revision=?5",
+                params![id,xms,xmx,java_path,old]).map_err(|e|e.to_string())?;
+            if changed!=1 {return Err("Settings revision conflict".into())}
+            old+1
+        },
+        None if expected_revision==0=>{
+            tx.execute("INSERT INTO instance_java_settings (instance_id,xms_mb,xmx_mb,java_path,revision) VALUES (?1,?2,?3,?4,1)",
+                params![id,xms,xmx,java_path]).map_err(|e|format!("Settings insert failed (possibly revision conflict): {e}"))?;
+            1
+        },
+        _=>return Err("Settings revision conflict: reload before saving".into())
+    };
     tx.commit().map_err(|e|e.to_string())?;
-    read(id)
+    Ok(new_revision)
 }
+
 pub fn java_executable(s:&JavaSettings)->PathBuf{
     if s.java_path.is_empty(){PathBuf::from("java.exe")}else{PathBuf::from(&s.java_path)}
 }
@@ -145,6 +156,35 @@ mod tests {
    assert!(validate(4096,2048,"",&m).is_err());
    assert!(validate(512,4096,"",&m).is_err());
    assert!(validate(512,2048,"",&m).is_ok());
+ }
+ #[test]fn sqlite_settings_survive_connection_restart_and_enforce_cas(){
+   let file=std::env::temp_dir().join(format!("tl-g8-jvm-settings-{}.sqlite3",Uuid::new_v4()));
+   let instance=Uuid::new_v4().to_string();
+   {
+     let mut db=Connection::open(&file).unwrap();
+     db.execute_batch("CREATE TABLE instances (id TEXT PRIMARY KEY);").unwrap();
+     db.execute("INSERT INTO instances(id) VALUES (?1)",[&instance]).unwrap();
+     init_schema(&db).unwrap();
+     assert_eq!(persist_settings(&mut db,&instance,768,3072,"",0).unwrap(),1);
+     assert!(persist_settings(&mut db,&instance,512,1024,"",0).is_err());
+   }
+   {
+     let mut reopened=Connection::open(&file).unwrap();
+     init_schema(&reopened).unwrap();
+     let values:(u32,u32,i64)=reopened.query_row(
+       "SELECT xms_mb,xmx_mb,revision FROM instance_java_settings WHERE instance_id=?1",
+       [&instance], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+     ).unwrap();
+     assert_eq!(values,(768,3072,1));
+     assert!(persist_settings(&mut reopened,&instance,512,2048,"",0).is_err());
+     assert_eq!(persist_settings(&mut reopened,&instance,1024,4096,"",1).unwrap(),2);
+     let values:(u32,u32,i64)=reopened.query_row(
+       "SELECT xms_mb,xmx_mb,revision FROM instance_java_settings WHERE instance_id=?1",
+       [&instance], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+     ).unwrap();
+     assert_eq!(values,(1024,4096,2));
+   }
+   let _=std::fs::remove_file(file);
  }
  #[test]fn defaults_are_safe_for_small_available_ram(){
    let m=MemoryInfo{total_mb:8192,available_mb:2500,reserved_mb:1024};
