@@ -1,7 +1,17 @@
 name: G8 Windows NSIS installer validation
 
-# Temporary while desktop lockfile is refreshed on Windows. Restore PR trigger after locking.
 on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/desktop/src/**'
+      - 'apps/desktop/src-tauri/**'
+      - 'apps/desktop/index.html'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/package-lock.json'
+      - 'apps/desktop/tsconfig.json'
+      - 'apps/desktop/vite.config.ts'
+      - '.github/workflows/g8-windows-installer.yml'
   workflow_dispatch:
 
 permissions:

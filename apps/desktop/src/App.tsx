@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
-import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus } from './backend';
+import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
 const navigation = [
@@ -32,6 +32,8 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [playReady, setPlayReady] = useState<LaunchPreflight | null>(null);
+  const [playReadinessError, setPlayReadinessError] = useState<string | null>(null);
   const [newInstanceName, setNewInstanceName] = useState('Vanilla');
   const [newVersion, setNewVersion] = useState('1.21.1');
   const [javaSettings, setJavaSettings] = useState<JavaSettings | null>(null);
@@ -87,6 +89,17 @@ export default function App() {
       void refresh(caps);
     }
   }, [events, caps, refresh]);
+  useEffect(() => {
+    let active=true;
+    setPlayReady(null); setPlayReadinessError(null);
+    const instance=instances.find(i=>i.id===selectedInstance);
+    if (caps.features.game && instance?.state==='ready' && instance.profile_id===selectedProfile) {
+      operations.gamePreflight(caps,selectedInstance,selectedProfile)
+        .then(info=>{if(active)setPlayReady(info);})
+        .catch(e=>{if(active)setPlayReadinessError(String(e));});
+    }
+    return ()=>{active=false;};
+  }, [caps,instances,selectedInstance,selectedProfile,javaSettings?.revision]);
   const current = navigation.find(n => n.id === page)!;
   const selected = instances.find(i => i.id === selectedInstance);
   return <div className="shell" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => {
@@ -105,9 +118,9 @@ export default function App() {
         <div className="heading"><div><div className="eyebrow">TLAUCHCRAFT CONTROL CENTER</div><h1>{current.label}</h1><p>{page === 'home' ? 'Your Minecraft worlds, modpacks and LAN sessions in one place.' : 'Status and actions are backed by the real Rust facade when available.'}</p></div><span className="version-tag">PREVIEW · NOT E2E VERIFIED</span></div>
         {error && <div role="alert" className="error"><XCircle size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError(undefined)}>×</button></div>}
         {page === 'home' && <>
-          <div className="hero"><div className="hero-text"><div className="eyebrow">YOUR NEXT ADVENTURE</div><h2>Make room for<br/><em>better adventures.</em></h2><p>Build an isolated modded instance, choose an offline profile and launch only when the core is ready.</p><button className="primary" disabled={!caps.features.game || !selected || selected.state !== 'ready' || selected.profile_id !== selectedProfile || busy} onClick={() => void run('Launch', () => operations.launch(caps, { instance_id: selectedInstance, profile_id: selectedProfile }))}><Play size={16} fill="currentColor"/> Launch Minecraft</button></div><div className="hero-art"><div className="sun"/><div className="mountain m1"/><div className="mountain m2"/><div className="mountain m3"/><div className="grid-art"/></div></div>
+          <div className="hero"><div className="hero-text"><div className="eyebrow">YOUR NEXT ADVENTURE</div><h2>Make room for<br/><em>better adventures.</em></h2><p>Build an isolated modded instance, choose an offline profile and launch only when the core is ready.</p><button className="primary" disabled={!playReady || !caps.features.game || !selected || selected.state !== 'ready' || selected.profile_id !== selectedProfile || busy} onClick={() => void run('Launch', () => operations.launch(caps, { instance_id: selectedInstance, profile_id: selectedProfile }))}><Play size={16} fill="currentColor"/> Launch Minecraft</button></div><div className="hero-art"><div className="sun"/><div className="mountain m1"/><div className="mountain m2"/><div className="mountain m3"/><div className="grid-art"/></div></div>
           <div className="metric-grid"><div className="panel metric"><Box/><strong>{instances.length}</strong><span>Known instances</span></div><div className="panel metric"><Users/><strong>{profiles.length}</strong><span>Offline profiles</span></div><div className="panel metric"><Download/><strong>{events.length}</strong><span>Received events</span></div></div>
-          <div className="panel"><h3>Launch readiness</h3><p className="muted">Choose a real profile and ready instance. Actions remain unavailable while their service is missing.</p><div className="form-row"><select aria-label="Selected profile" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}><option value="">Select profile</option>{profiles.map(p => <option value={p.id} key={p.id}>{p.username}</option>)}</select><select aria-label="Selected instance" value={selectedInstance} onChange={e => setSelectedInstance(e.target.value)}><option value="">Select instance</option>{instances.filter(i => i.state === 'ready').map(i => <option value={i.id} key={i.id}>{i.display_name} · {i.minecraft_version}</option>)}</select></div>{!caps.features.game && <Unavailable feature="game"/>}</div>
+          <div className="panel"><h3>Launch readiness</h3><p className="muted">Choose a real profile and ready instance. Actions remain unavailable while their service is missing.</p><div className="form-row"><select aria-label="Selected profile" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}><option value="">Select profile</option>{profiles.map(p => <option value={p.id} key={p.id}>{p.username}</option>)}</select><select aria-label="Selected instance" value={selectedInstance} onChange={e => setSelectedInstance(e.target.value)}><option value="">Select instance</option>{instances.filter(i => i.state === 'ready').map(i => <option value={i.id} key={i.id}>{i.display_name} · {i.minecraft_version}</option>)}</select></div>{playReady && <div className="item">Java {playReady.required_java} · Xms {playReady.xms_mb} MB · Xmx {playReady.xmx_mb} MB <span>Verified for launch</span></div>}{playReadinessError && <Notice>Play unavailable: {playReadinessError}</Notice>}{!caps.features.game && <Unavailable feature="game"/>}</div>
         </>}
         {page === 'profiles' && <div className="panel"><h3>Offline identities</h3><p className="muted">A persistent UUID is provided by the core, not derived from the editable nickname.</p><div className="form-row"><input aria-label="Minecraft username" placeholder="Minecraft username" maxLength={16} value={username} onChange={e => setUsername(e.target.value)}/><button className="primary" disabled={!caps.features.profiles || !/^[A-Za-z0-9_]{3,16}$/.test(username) || busy} onClick={() => void run('Create profile', async () => { await operations.createProfile(caps, username); setUsername(''); await refresh(caps); })}>Create profile</button></div>{profiles.map(p => <div className="item" key={p.id}><Users size={18}/><strong>{p.username}</strong><span className="mono">{p.id}</span></div>)}{!profiles.length && <Empty title="No local profiles loaded" description="Create one when the profile service is connected."/>}{!caps.features.profiles && <Unavailable feature="profiles"/>}</div>}
         {page === 'instances' && <div className="panel">

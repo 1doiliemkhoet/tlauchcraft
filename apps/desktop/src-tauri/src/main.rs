@@ -87,6 +87,7 @@ fn main() {
             java_memory_info,
             game_ops::instance_create_vanilla,
             game_ops::game_install,
+            game_ops::game_preflight,
             game_ops::game_cancel,
             game_ops::game_status,
             game_ops::game_launch,

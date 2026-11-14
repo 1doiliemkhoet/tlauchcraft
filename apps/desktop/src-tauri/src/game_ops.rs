@@ -191,6 +191,54 @@ fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
     }
     Ok((version,natives))
 }
+
+#[derive(Serialize)]
+pub struct LaunchPreflight {
+    pub instance_id:String,
+    pub java_path:String,
+    pub required_java:u32,
+    pub xms_mb:u32,
+    pub xmx_mb:u32
+}
+/// No process is created here. Checking readiness never claims G3.
+#[tauri::command]
+pub fn game_preflight(instance_id:String,profile_id:String)->Result<LaunchPreflight,String>{
+    let uuid=id(&instance_id)?;
+    let profile_uuid=id(&profile_id)?;
+    let i=find_instance(uuid)?;
+    if !matches!(&i.state,InstanceState::Ready){
+        return Err("Vanilla files must be installed and READY".into())
+    }
+    let profile=db()?.get_profile(profile_uuid).map_err(|e|e.to_string())?
+        .ok_or("Offline profile not in SQLite")?;
+    let req=tl_core::LaunchRequest{
+        instance_id:uuid,profile_id:profile_uuid,java_path:None,
+        min_ram_mb:None,max_ram_mb:None,extra_jvm_args:None
+    };
+    tl_game::foundation::validate_launch_context(&i,&profile,&req).map_err(|e|e.to_string())?;
+    let dir=root(&i)?;
+    let (version,natives)=installed_metadata(&dir)?;
+    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
+        return Err("Installed version metadata mismatch".into())
+    }
+    let prefs=java_settings::read(&instance_id)?;
+    java_settings::validate(prefs.xms_mb,prefs.xmx_mb,&prefs.java_path,
+        &java_settings::system_memory()?)?;
+    let required=tl_game::required_java(&version).map_err(|e|e.to_string())?;
+    let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
+        .map_err(|e|e.to_string())?;
+    let paths=tl_game::vanilla::VanillaPaths{
+        root:dir.clone(),game_dir:dir.join("game"),natives_dir:natives,
+        java:java_settings::java_executable(&prefs)
+    };
+    let _command=tl_game::vanilla::build_vanilla_launch(&version,&paths,&identity,prefs.xms_mb,prefs.xmx_mb)
+        .map_err(|e|e.to_string())?;
+    Ok(LaunchPreflight{
+        instance_id,java_path:paths.java.to_string_lossy().into_owned(),
+        required_java:required,xms_mb:prefs.xms_mb,xmx_mb:prefs.xmx_mb
+    })
+}
+
 #[tauri::command]
 pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
     let i=find_instance(request.instance_id)?;

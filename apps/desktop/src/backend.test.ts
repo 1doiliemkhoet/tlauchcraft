@@ -93,9 +93,11 @@ describe('real Vanilla and Java settings command contracts', () => {
     const c = withFeature('game');
     await operations.cancelInstall(c,'uuid');
     await operations.gameStatus(c,'uuid');
+    await operations.gamePreflight(c,'uuid','profile');
     await operations.launch(c,{instance_id:'uuid',profile_id:'profile'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(1,'game_cancel',{instanceId:'uuid'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(2,'game_status',{instanceId:'uuid'});
-    expect(mockedInvoke).toHaveBeenNthCalledWith(3,'game_launch',{request:{instance_id:'uuid',profile_id:'profile'}});
+    expect(mockedInvoke).toHaveBeenNthCalledWith(3,'game_preflight',{instanceId:'uuid',profileId:'profile'});
+    expect(mockedInvoke).toHaveBeenNthCalledWith(4,'game_launch',{request:{instance_id:'uuid',profile_id:'profile'}});
   });
 });
