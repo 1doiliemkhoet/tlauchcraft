@@ -188,58 +188,81 @@ pub fn install_vanilla(
     })
 }
 
-/// Validate archive file names before invoking the Windows system archive extractor.
-/// Archives MUST already be hash-verified from official version metadata.
-fn verify_native_listing(output: &[u8]) -> Result<(), GameError> {
-    for line in String::from_utf8_lossy(output).lines() {
-        let entry = line.trim_end_matches('\r');
-        if entry.is_empty() {
-            continue;
-        }
-        let s = entry.replace('\\', "/");
-        if s.starts_with('/')
-            || s.contains(':')
-            || s.split('/').any(|part| part == ".." || part == ".")
-        {
-            return Err(GameError::InvalidInput("unsafe native archive path".into()));
-        }
-    }
-    Ok(())
-}
-
-/// Extract verified Mojang native ZIP/JAR archives into a launcher-owned empty directory.
-/// No user-provided archives. Does not follow archive symlinks and rejects unexpected files.
+/// Extract only Windows DLL natives from previously verified official Mojang archives.
+/// The bundled PowerShell/.NET ZipArchive implementation checks every entry before writing,
+/// rejects links/path traversal/duplicate DLL names and bounds uncompressed sizes.
+/// Creates a new destination and never reuses or overwrites a previous extraction.
 pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), GameError> {
     if !cfg!(windows) {
         return Err(GameError::UnsupportedVersion("Windows only".into()));
+    }
+    if archives.is_empty() {
+        return Err(GameError::InvalidInput("native archives missing".into()));
     }
     if destination.exists() {
         return Err(GameError::InvalidInput(
             "natives destination already exists".into(),
         ));
     }
-    fs::create_dir_all(destination)?;
+    for path in std::iter::once(destination).chain(archives.iter().map(PathBuf::as_path)) {
+        if path.ancestors().any(Path::is_symlink) {
+            return Err(GameError::InvalidInput(
+                "symlinked native path rejected".into(),
+            ));
+        }
+    }
+    for archive in archives {
+        if !archive.is_file() {
+            return Err(GameError::InvalidInput(
+                "native archive is missing".into(),
+            ));
+        }
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| GameError::InvalidInput("native destination parent missing".into()))?;
+    fs::create_dir_all(parent)?;
+    // Keep this bundled script outside the empty destination, and never execute
+    // scripts supplied by downloaded metadata.
+    let script = parent.join(format!(
+        ".tl-native-extract-{}.ps1",
+        std::process::id()
+    ));
+    let mut temp = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&script)?;
+    let write_result = temp.write_all(include_str!("native_extract.ps1").as_bytes());
+    drop(temp);
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&script);
+        return Err(GameError::Io(err));
+    }
     let work = (|| -> Result<(), GameError> {
-        for archive in archives {
-            let listing = Command::new("tar.exe").arg("-tf").arg(archive).output()?;
-            if !listing.status.success() {
-                return Err(GameError::InvalidInput(
-                    "could not inspect native archive".into(),
-                ));
-            }
-            verify_native_listing(&listing.stdout)?;
-            let status = Command::new("tar.exe")
-                .arg("-xf")
-                .arg(archive)
-                .arg("-C")
-                .arg(destination)
-                .status()?;
-            if !status.success() {
-                return Err(GameError::InvalidInput("native extraction failed".into()));
-            }
+        fs::create_dir(destination)?;
+        let mut command = Command::new("powershell.exe");
+        command
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-ExecutionPolicy")
+            .arg("RemoteSigned")
+            .arg("-File")
+            .arg(&script)
+            .arg("-Destination")
+            .arg(destination)
+            .arg("-Archives")
+            .args(archives);
+        let result = command.output()?;
+        if !result.status.success() {
+            let error = String::from_utf8_lossy(&result.stderr);
+            return Err(GameError::InvalidInput(format!(
+                "native ZIP extraction rejected: {}",
+                error.trim()
+            )));
         }
         Ok(())
     })();
+    let _ = fs::remove_file(&script);
     if work.is_err() {
         let _ = fs::remove_dir_all(destination);
     }
@@ -462,10 +485,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn native_archive_traversal_rejected() {
-        assert!(verify_native_listing(b"safe.dll\nMETA-INF/\n").is_ok());
-        assert!(verify_native_listing(b"../../outside.dll\n").is_err());
-        assert!(verify_native_listing(b"C:\\Windows\\escape.dll\n").is_err());
+    fn native_extractor_has_strict_zip_gate() {
+        let code = include_str!("native_extract.ps1");
+        assert!(code.contains("ZipFile]::OpenRead"));
+        assert!(code.contains("FileMode]::CreateNew"));
+        assert!(code.contains("Duplicate DLL name"));
+        assert!(code.contains("Native extraction limit exceeded"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_extractor_rejects_missing_archive() {
+        let d = tempfile::tempdir().unwrap();
+        let out = d.path().join("natives");
+        assert!(extract_natives(&[d.path().join("missing.jar")], &out).is_err());
+        assert!(!out.exists());
     }
 
     #[test]
