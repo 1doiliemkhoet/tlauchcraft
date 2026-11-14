@@ -99,7 +99,7 @@ pub fn validate(xms:u32,xmx:u32,java:&str,mem:&MemoryInfo)->Result<(),String>{
         if !path.is_absolute() || !path.is_file() {
             return Err("Java path must be an existing absolute executable path".into());
         }
-        if !path.extension().is_some_and(|x|x.eq_ignore_ascii_case("exe")) {
+        if !path.extension().and_then(|x|x.to_str()).is_some_and(|x|x.eq_ignore_ascii_case("exe")) {
             return Err("Java executable must be a Windows .exe file".into());
         }
         let output=Command::new(path).arg("-version").output()
