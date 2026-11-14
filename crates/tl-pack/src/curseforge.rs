@@ -292,7 +292,10 @@ fn resolve_one(
     // compatibility from the filename or modpack's own requested version.
     if !data.game_versions.iter().any(|v| v == minecraft_version) {
         return make_blocked(
-            project_id, file_id, required, FileAvailability::InvalidMetadata,
+            project_id,
+            file_id,
+            required,
+            FileAvailability::InvalidMetadata,
             "official file metadata does not confirm target Minecraft version",
         );
     }
@@ -373,7 +376,12 @@ pub fn resolve_curseforge_files(
             return Err(ResolveError::InvalidResponse("duplicate file IDs".into()));
         }
         files.push(resolve_one(
-            api, api_key, project, file, item.required, &metadata.game_version,
+            api,
+            api_key,
+            project,
+            file,
+            item.required,
+            &metadata.game_version,
         ));
     }
     let resolved_count = files
@@ -594,7 +602,10 @@ mod tests {
         let result = resolve_curseforge_files(&metadata(), &api, "fake").unwrap();
         assert_eq!(result.resolved_count, 0);
         assert_eq!(result.needs_action_count, 1);
-        assert_eq!(result.files[0].availability, FileAvailability::InvalidMetadata);
+        assert_eq!(
+            result.files[0].availability,
+            FileAvailability::InvalidMetadata
+        );
         assert!(!result.ready);
     }
 

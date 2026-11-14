@@ -262,8 +262,7 @@ pub fn validate_staged_instance(
     let mut findings = audit.findings.clone();
     if !root.is_absolute()
         || root.ancestors().any(|ancestor| {
-            std::fs::symlink_metadata(ancestor)
-                .is_ok_and(|m| m.file_type().is_symlink())
+            std::fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink())
         })
     {
         findings.push(issue(
@@ -316,9 +315,11 @@ pub fn validate_staged_instance(
         }
     }
     for saved in installed {
-        if !resolved.files.iter().any(|f| {
-            f.project_id == saved.project_id && f.file_id == saved.file_id
-        }) {
+        if !resolved
+            .files
+            .iter()
+            .any(|f| f.project_id == saved.project_id && f.file_id == saved.file_id)
+        {
             findings.push(issue(
                 DependencyIssue::UnverifiedFile,
                 Some((saved.project_id, saved.file_id)),
@@ -448,9 +449,7 @@ pub fn validate_staged_instance(
         }
     }
     let expected_required = resolved.files.iter().filter(|f| f.required).count();
-    if audit.nodes != resolved.files.len()
-        || audit.required_nodes != expected_required
-    {
+    if audit.nodes != resolved.files.len() || audit.required_nodes != expected_required {
         findings.push(issue(
             DependencyIssue::MissingManifest,
             None,
@@ -652,9 +651,7 @@ mod tests {
                 file_id: 202,
                 required: true,
                 file_name: Some("fixture.jar".into()),
-                download_url: Some(
-                    "https://edge.forgecdn.net/files/101/202/fixture.jar".into(),
-                ),
+                download_url: Some("https://edge.forgecdn.net/files/101/202/fixture.jar".into()),
                 sha1: Some(sha1.clone()),
                 expected_size: Some(bytes.len() as u64),
                 availability: FileAvailability::Available,
@@ -690,7 +687,12 @@ mod tests {
             instance_manifest_verified: true,
         };
         let valid = validate_staged_instance(
-            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
+            &stage,
+            &manifest,
+            &resolved,
+            &installed,
+            &audit,
+            Some(&receipt),
         );
         assert!(valid.ready);
         assert_eq!(valid.expected_required, 1);
@@ -700,7 +702,12 @@ mod tests {
 
         std::fs::write(stage.join("mods/fixture.jar"), b"offline fixture jar bytex").unwrap();
         let altered = validate_staged_instance(
-            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
+            &stage,
+            &manifest,
+            &resolved,
+            &installed,
+            &audit,
+            Some(&receipt),
         );
         assert!(!altered.ready);
         assert_eq!(altered.failed, 1);
@@ -708,14 +715,30 @@ mod tests {
 
         let mut unverified = receipt.clone();
         unverified.outputs_verified = false;
-        assert!(!validate_staged_instance(
-            &stage, &manifest, &resolved, &installed, &audit, Some(&unverified),
-        ).ready);
+        assert!(
+            !validate_staged_instance(
+                &stage,
+                &manifest,
+                &resolved,
+                &installed,
+                &audit,
+                Some(&unverified),
+            )
+            .ready
+        );
 
         audit.nodes = 0;
-        assert!(!validate_staged_instance(
-            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
-        ).ready);
+        assert!(
+            !validate_staged_instance(
+                &stage,
+                &manifest,
+                &resolved,
+                &installed,
+                &audit,
+                Some(&receipt),
+            )
+            .ready
+        );
     }
 
     #[test]
