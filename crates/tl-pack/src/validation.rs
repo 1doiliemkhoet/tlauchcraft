@@ -613,6 +613,114 @@ mod tests {
         assert!(!report.complete);
     }
     #[test]
+    fn real_staged_file_fixture_requires_matching_sha1_sha256_and_verified_forge() {
+        let temp = tempfile::tempdir().unwrap();
+        let stage = temp.path().join("stage");
+        std::fs::create_dir_all(stage.join("mods")).unwrap();
+        let bytes = b"offline fixture jar bytes";
+        std::fs::write(stage.join("mods/fixture.jar"), bytes).unwrap();
+        let sha1 = format!("{:x}", Sha1::digest(bytes));
+        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let manifest = PackMetadata {
+            name: "fixture".into(),
+            source: PackSource::CurseforgeZip,
+            game_version: "1.16.5".into(),
+            loader: crate::Loader {
+                kind: "forge".into(),
+                version: Some("36.2.34".into()),
+            },
+            archive_sha256: "a".repeat(64),
+            archive_entries: 2,
+            uncompressed_bytes: bytes.len() as u64,
+            files: vec![crate::PlannedFile {
+                path: "mods/fixture.jar".into(),
+                provider: "curseforge".into(),
+                project_id: Some(101),
+                file_id: Some(202),
+                urls: vec![],
+                sha1: Some(sha1.clone()),
+                sha512: None,
+                required: true,
+                side: "both".into(),
+            }],
+            overrides: vec![],
+            warnings: vec![],
+        };
+        let resolved = CurseForgeResolveReport {
+            files: vec![crate::curseforge::CurseForgeFile {
+                project_id: 101,
+                file_id: 202,
+                required: true,
+                file_name: Some("fixture.jar".into()),
+                download_url: Some(
+                    "https://edge.forgecdn.net/files/101/202/fixture.jar".into(),
+                ),
+                sha1: Some(sha1.clone()),
+                expected_size: Some(bytes.len() as u64),
+                availability: FileAvailability::Available,
+                reason: "fixture".into(),
+                dependencies: vec![],
+            }],
+            resolved_count: 1,
+            needs_action_count: 0,
+            dependency_actions: vec![],
+            ready: false,
+        };
+        let installed = vec![InstalledMod {
+            project_id: 101,
+            file_id: 202,
+            relative_path: "mods/fixture.jar".into(),
+            actual_sha256: sha256,
+            bytes: bytes.len() as u64,
+        }];
+        let audit = audit_dependencies(&[
+            node(101, "mods/fixture.jar", vec![], true),
+        ], "1.16.5");
+        // The fixture's node uses fileID 201, so align with resolver 202.
+        let mut audit = audit;
+        assert!(audit.complete);
+        let receipt = ForgeRuntimeReceipt {
+            minecraft_version: "1.16.5".into(),
+            loader_kind: "forge".into(),
+            loader_version: "36.2.34".into(),
+            required_java_major: 8,
+            processor_execution_verified: true,
+            libraries_verified: true,
+            outputs_verified: true,
+            java_major_verified: true,
+            minecraft_files_verified: true,
+            instance_manifest_verified: true,
+        };
+        let valid = validate_staged_instance(
+            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
+        );
+        assert!(valid.ready);
+        assert_eq!(valid.expected_required, 1);
+        assert_eq!(valid.verified_required, 1);
+        assert_eq!(valid.blocked, 0);
+        assert_eq!(valid.failed, 0);
+
+        std::fs::write(stage.join("mods/fixture.jar"), b"tampered fixture jar bytes").unwrap();
+        let altered = validate_staged_instance(
+            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
+        );
+        assert!(!altered.ready);
+        assert_eq!(altered.failed, 1);
+        std::fs::write(stage.join("mods/fixture.jar"), bytes).unwrap();
+
+        let mut unverified = receipt.clone();
+        unverified.outputs_verified = false;
+        assert!(!validate_staged_instance(
+            &stage, &manifest, &resolved, &installed, &audit, Some(&unverified),
+        ).ready);
+
+        audit.nodes = 0;
+        assert!(!validate_staged_instance(
+            &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
+        ).ready);
+    }
+
+    #[test]
     fn forge_proof_is_mandatory_even_with_all_mods() {
         let pack = PackMetadata {
             name: "fixture".into(),
