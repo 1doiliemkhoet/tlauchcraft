@@ -379,14 +379,8 @@ mod tests {
             needs_action_count: 0,
             ready: false,
         };
-        let outcome = stage_curseforge_downloads(
-            &archive,
-            &metadata,
-            &resolved,
-            &stage,
-            &cancelled,
-        )
-        .unwrap();
+        let outcome =
+            stage_curseforge_downloads(&archive, &metadata, &resolved, &stage, &cancelled).unwrap();
         assert_eq!(outcome.status, InstallStatus::Cancelled);
         assert!(!outcome.ready);
         assert!(!stage.exists());
@@ -407,7 +401,10 @@ mod tests {
         };
         let temp = tempfile::tempdir().unwrap();
         let outcome = download_file(&item, temp.path(), &AtomicBool::new(false));
-        assert_eq!(outcome.unwrap_err(), "missing trusted SHA-1; manual verification required");
+        assert_eq!(
+            outcome.unwrap_err(),
+            "missing trusted SHA-1; manual verification required"
+        );
     }
 
     #[test]
