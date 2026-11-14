@@ -51,7 +51,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         &evidence.join(format!("install-checksums-{native_nonce}.json")),
     )?;
     eprintln!("Rehashed {count} installed files for G2 evidence");
+    eprintln!(
+        "[vanilla-native] verified_native_archives={} extraction_target={}",
+        installed.native_archives.len(),
+        natives_dir.display()
+    );
     extract_natives(&installed.native_archives, &natives_dir)?;
+    let dll_count = fs::read_dir(&natives_dir)?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
+        })
+        .count();
+    eprintln!("[vanilla-native] extracted_dll_count={dll_count}");
+    if dll_count == 0 {
+        return Err("native archive extraction completed without Windows DLLs".into());
+    }
     let paths = VanillaPaths {
         root: root.clone(),
         game_dir,
