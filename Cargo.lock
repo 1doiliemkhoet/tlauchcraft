@@ -1310,6 +1310,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "sha1",
  "thiserror",
  "tl-core",
  "tl-game",

@@ -275,7 +275,8 @@ fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
     let mut hash = Sha1::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let n = file.read(&mut buffer)
+        let n = file
+            .read(&mut buffer)
             .map_err(|e| LoaderError::InvalidMetadata(format!("artifact read failed: {e}")))?;
         if n == 0 {
             break;
@@ -283,7 +284,9 @@ fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
         hash.update(&buffer[..n]);
     }
     if format!("{:x}", hash.finalize()) != sha1.to_ascii_lowercase() {
-        return Err(LoaderError::InvalidMetadata("artifact checksum mismatch".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "artifact checksum mismatch".into(),
+        ));
     }
     Ok(())
 }
