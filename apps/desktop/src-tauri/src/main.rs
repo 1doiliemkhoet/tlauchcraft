@@ -159,7 +159,7 @@ async fn pack_stage_curseforge(
         ).map_err(|e| e.to_string())?;
         let stage = root.join(format!("{id}.staging"));
         let report = stage_curseforge_downloads(
-            archive, &metadata, &resolved, &stage, &key, &cancel,
+            archive, &metadata, &resolved, &stage, &cancel,
         ).map_err(|e| e.to_string())?;
         emit_pack_progress(&app, &id, "NEEDS_ACTION", "pack.not_ready", Some(100.0));
         Ok(report)
