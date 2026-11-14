@@ -260,6 +260,19 @@ pub fn validate_staged_instance(
     forge: Option<&ForgeRuntimeReceipt>,
 ) -> FinalValidation {
     let mut findings = audit.findings.clone();
+    if !root.is_absolute()
+        || root.ancestors().any(|ancestor| {
+            std::fs::symlink_metadata(ancestor)
+                .is_ok_and(|m| m.file_type().is_symlink())
+        })
+    {
+        findings.push(issue(
+            DependencyIssue::UnsafePath,
+            None,
+            true,
+            "instance staging root must be absolute and not symlinked",
+        ));
+    }
     let mut verified_required = 0;
     let mut verified_optional = 0;
     let mut blocked = resolved
@@ -302,6 +315,18 @@ pub fn validate_staged_instance(
             ));
         }
     }
+    for saved in installed {
+        if !resolved.files.iter().any(|f| {
+            f.project_id == saved.project_id && f.file_id == saved.file_id
+        }) {
+            findings.push(issue(
+                DependencyIssue::UnverifiedFile,
+                Some((saved.project_id, saved.file_id)),
+                true,
+                "extra mod not declared by the approved resolution plan",
+            ));
+        }
+    }
     let mut path_names = HashSet::new();
     for file in &resolved.files {
         let id = (file.project_id, file.file_id);
@@ -324,7 +349,11 @@ pub fn validate_staged_instance(
                 failed += 1;
             }
             findings.push(issue(
-                DependencyIssue::MissingRequired,
+                if file.required {
+                    DependencyIssue::MissingRequired
+                } else {
+                    DependencyIssue::MissingOptional
+                },
                 Some(id),
                 file.required,
                 "resolved mod not present on disk",
@@ -419,6 +448,16 @@ pub fn validate_staged_instance(
         }
     }
     let expected_required = resolved.files.iter().filter(|f| f.required).count();
+    if audit.nodes != resolved.files.len()
+        || audit.required_nodes != expected_required
+    {
+        findings.push(issue(
+            DependencyIssue::MissingManifest,
+            None,
+            true,
+            "dependency audit must cover every resolved mod",
+        ));
+    }
     if resolved.files.len() < manifest.files.len()
         || manifest.files.iter().any(|f| {
             !resolved.files.iter().any(|r| {
