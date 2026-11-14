@@ -91,6 +91,27 @@ fn maven_path(name: &str) -> Result<PathBuf, GameError> {
     p.push(format!("{artifact}-{version}{classifier}.jar"));
     Ok(p)
 }
+/// Mojang modern native archives are separate Maven artifacts whose fourth
+/// coordinate is an exact platform classifier. Do not treat every artifact with
+/// 'native' somewhere in the name as a native or include native-only jars on the
+/// Java classpath. Legacy 'natives' + 'classifiers' uses a separate path below.
+fn maven_native_classifier(name: &str) -> Option<&str> {
+    name.split(':').nth(3).filter(|v| v.starts_with("natives-"))
+}
+
+fn native_classifier_matches(classifier: &str, env: &Environment) -> bool {
+    matches!(
+        (env.os.as_str(), env.arch.as_str(), classifier),
+        ("windows", "x86_64", "natives-windows")
+            | ("windows", "x86", "natives-windows-x86")
+            | ("windows", "arm64", "natives-windows-arm64")
+            | ("linux", "x86_64", "natives-linux")
+            | ("linux", "arm64", "natives-linux-arm64")
+            | ("osx", "x86_64", "natives-macos")
+            | ("osx", "arm64", "natives-macos-arm64")
+    )
+}
+
 /// Vanilla client downloads, libraries and asset index; asset objects are planned separately.
 pub fn plan_version(
     version: &Value,
@@ -131,17 +152,26 @@ pub fn plan_version(
         let fallback = maven_path(name)?;
         let downloads = lib.get("downloads");
         if let Some(artifact) = downloads.and_then(|v| v.get("artifact")) {
-            let path = artifact
-                .get("path")
-                .and_then(Value::as_str)
-                .map(safe_relative)
-                .transpose()?
-                .unwrap_or(fallback);
-            plan.push(entry(
-                artifact,
-                FileRole::Library,
-                root.join("libraries").join(path),
-            )?);
+            let native = maven_native_classifier(name);
+            // Mojang's OS rules can allow all Windows native architecture
+            // variants. Select exactly the variant matching this host.
+            if native.is_none_or(|classifier| native_classifier_matches(classifier, env)) {
+                let path = artifact
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(safe_relative)
+                    .transpose()?
+                    .unwrap_or(fallback);
+                plan.push(entry(
+                    artifact,
+                    if native.is_some() {
+                        FileRole::NativeArchive
+                    } else {
+                        FileRole::Library
+                    },
+                    root.join("libraries").join(path),
+                )?);
+            }
         }
         if let Some(natives) = lib.get("natives").and_then(Value::as_object) {
             if let Some(template) = natives.get(&env.os).and_then(Value::as_str) {
@@ -208,6 +238,103 @@ mod tests {
             features: HashMap::new(),
         }
     }
+    fn lwjgl_native(name: &str, suffix: &str) -> Value {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        json!({
+            "name": name,
+            "downloads": {"artifact": {
+                "path": format!("org/lwjgl/lwjgl-freetype/3.3.3/lwjgl-freetype-3.3.3-{suffix}.jar"),
+                "url": format!("https://libraries.minecraft.net/org/lwjgl/lwjgl-freetype/3.3.3/lwjgl-freetype-3.3.3-{suffix}.jar"),
+                "sha1": sha,
+                "size": 1035586
+            }},
+            "rules": [{"action":"allow","os":{"name":"windows"}}]
+        })
+    }
+
+    #[test]
+    fn modern_lwjgl_natives_1211_exact_architecture_and_classpath() {
+        // Mojang 1.21.1 structure: standalone 4-coordinate Maven artifacts
+        // with downloads.artifact, plus Windows-only rules (not arch rules).
+        let mut libraries = vec![
+            json!({"name":"org.lwjgl:lwjgl-freetype:3.3.3","downloads":{"artifact":{
+                "path":"org/lwjgl/lwjgl-freetype/3.3.3/lwjgl-freetype-3.3.3.jar",
+                "url":"https://libraries.minecraft.net/org/lwjgl/lwjgl-freetype/3.3.3/lwjgl-freetype-3.3.3.jar",
+                "sha1":"0123456789abcdef0123456789abcdef01234567"
+            }}}),
+        ];
+        for suffix in ["natives-windows", "natives-windows-x86", "natives-windows-arm64"] {
+            libraries.push(lwjgl_native(
+                &format!("org.lwjgl:lwjgl-freetype:3.3.3:{suffix}"),
+                suffix,
+            ));
+        }
+        let version = json!({"id":"1.21.1","libraries":libraries});
+        for (arch, classifier) in [
+            ("x86_64","natives-windows"),
+            ("x86","natives-windows-x86"),
+            ("arm64","natives-windows-arm64"),
+        ] {
+            let mut host = env();
+            host.arch = arch.into();
+            let plan = plan_version(&version, Path::new("C:/Game"), &host).unwrap();
+            let libs: Vec<_> = plan.iter().filter(|v| v.role == FileRole::Library).collect();
+            let natives: Vec<_> = plan.iter().filter(|v| v.role == FileRole::NativeArchive).collect();
+            assert_eq!(libs.len(), 1, "{arch} normal classpath library");
+            assert_eq!(natives.len(), 1, "{arch} only matching native jar");
+            assert!(natives[0].target.to_string_lossy().ends_with(
+                &format!("lwjgl-freetype-3.3.3-{classifier}.jar")
+            ));
+        }
+    }
+
+    #[test]
+    fn modern_native_must_obey_metadata_os_and_arch_rules() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let version = json!({"id":"1.21.1","libraries":[
+            lwjgl_native("org.lwjgl:lwjgl-freetype:3.3.3:natives-windows", "natives-windows"),
+            {"name":"org.lwjgl:lwjgl-glfw:3.3.3:natives-windows",
+             "rules":[{"action":"allow","os":{"name":"windows","arch":"x86"}}],
+             "downloads":{"artifact":{
+                "sha1":sha,"url":"https://libraries.minecraft.net/other",
+                "path":"org/lwjgl/lwjgl-glfw/3.3.3/lwjgl-glfw-3.3.3-natives-windows.jar"
+             }}}
+        ]});
+        let plan = plan_version(&version,Path::new("C:/Game"),&env()).unwrap();
+        assert_eq!(plan.len(),1);
+        assert_eq!(plan[0].role,FileRole::NativeArchive);
+    }
+
+    #[test]
+    fn legacy_classifier_remains_native_and_off_classpath() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let version = json!({"id":"1.12.2","libraries":[{
+            "name":"org.lwjgl.lwjgl:lwjgl-platform:2.9.4",
+            "natives":{"windows":"natives-windows-${arch}"},
+            "downloads":{
+                "artifact":{"sha1":sha,"url":"https://libraries.minecraft.net/main"},
+                "classifiers":{"natives-windows-64":{
+                    "path":"org/lwjgl/lwjgl-platform/2.9.4/lwjgl-platform-2.9.4-natives-windows-64.jar",
+                    "sha1":sha,"url":"https://libraries.minecraft.net/natives"
+                }}
+            }
+        }]});
+        let plan = plan_version(&version,Path::new("C:/Game"),&env()).unwrap();
+        assert_eq!(plan.iter().filter(|p|p.role==FileRole::Library).count(),1);
+        assert_eq!(plan.iter().filter(|p|p.role==FileRole::NativeArchive).count(),1);
+    }
+
+    #[test]
+    fn classifier_path_traversal_is_rejected() {
+        let version = json!({"id":"1.21.1","libraries":[{
+            "name":"org.lwjgl:lwjgl:3.3.3:natives-windows",
+            "downloads":{"artifact":{"path":"../escape.jar",
+                "url":"https://libraries.minecraft.net/a",
+                "sha1":"0123456789abcdef0123456789abcdef01234567"}}
+        }]});
+        assert!(plan_version(&version,Path::new("C:/Game"),&env()).is_err());
+    }
+
     #[test]
     fn plan_client_assets_libs() {
         let sha = "0123456789abcdef0123456789abcdef01234567";
