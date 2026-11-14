@@ -15,16 +15,33 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
 
-fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, GameError> {
-    let u = reqwest::Url::parse(url).map_err(|e| GameError::InvalidInput(e.to_string()))?;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// Each HTTP stage emits a duration and a fixed approved endpoint label only.
+/// Request URLs (queries, credentials) and response bodies are never logged.
+fn metadata_trace(stage: &str, endpoint: &str, event: &str, since: Instant) {
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} event={event} elapsed_ms={}",
+        since.elapsed().as_millis()
+    );
+}
+
+fn approved_metadata_endpoint(url: &str) -> Result<reqwest::Url, GameError> {
+    let u = reqwest::Url::parse(url)
+        .map_err(|e| GameError::InvalidInput(format!("invalid metadata URL: {e}")))?;
     if u.scheme() != "https"
         || u.port().is_some()
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.query().is_some()
+        || u.fragment().is_some()
         || !matches!(
             u.host_str(),
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
@@ -34,42 +51,164 @@ fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, Ga
             "untrusted metadata endpoint".into(),
         ));
     }
-    let mut response = client
-        .get(u)
-        .send()
-        .map_err(|e| GameError::NetworkFailure(e.to_string()))?;
+    Ok(u)
+}
+
+fn metadata_client() -> Result<Client, GameError> {
+    let start = Instant::now();
+    eprintln!("[vanilla-metadata] stage=client event=start");
+    let result = Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| GameError::NetworkFailure(format!("metadata client initialization: {e}")));
+    metadata_trace(
+        "client",
+        "local",
+        if result.is_ok() { "ok" } else { "error" },
+        start,
+    );
+    result
+}
+
+/// Transport is separately testable with a loopback HTTP server. Production
+/// callers MUST validate HTTPS and the official host before invoking it.
+fn fetch_json_transport(
+    client: &Client,
+    url: reqwest::Url,
+    expected_sha: Option<&str>,
+    stage: &str,
+    endpoint: &str,
+) -> Result<Value, GameError> {
+    let begin = Instant::now();
+    metadata_trace(stage, endpoint, "send_start", begin);
+    // reqwest's timeout bounds connect, TLS negotiation, response headers AND
+    // reading a stalled body. The connect timeout independently bounds TCP setup.
+    let mut response = client.get(url).send().map_err(|e| {
+        metadata_trace(stage, endpoint, "headers_error", begin);
+        GameError::NetworkFailure(format!(
+            "metadata stage={stage} endpoint={endpoint} phase=send_headers elapsed_ms={} timeout={} error={e}",
+            begin.elapsed().as_millis(),
+            e.is_timeout()
+        ))
+    })?;
+    metadata_trace(stage, endpoint, "headers_ok", begin);
     if response.status() != reqwest::StatusCode::OK {
         return Err(GameError::NetworkFailure(format!(
-            "metadata HTTP {}",
-            response.status()
+            "metadata stage={stage} endpoint={endpoint} phase=headers HTTP {} elapsed_ms={}",
+            response.status(),
+            begin.elapsed().as_millis()
         )));
     }
     if response
         .content_length()
         .is_some_and(|len| len > MAX_JSON_BYTES)
     {
-        return Err(GameError::InvalidInput("metadata too large".into()));
+        return Err(GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} body exceeds limit"
+        )));
     }
+    let body_start = Instant::now();
+    metadata_trace(stage, endpoint, "body_start", begin);
     let mut bytes = Vec::new();
     response
         .by_ref()
         .take(MAX_JSON_BYTES + 1)
-        .read_to_end(&mut bytes)?;
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            metadata_trace(stage, endpoint, "body_error", begin);
+            GameError::NetworkFailure(format!(
+                "metadata stage={stage} endpoint={endpoint} phase=body elapsed_ms={} error={e}",
+                begin.elapsed().as_millis()
+            ))
+        })?;
+    metadata_trace(stage, endpoint, "body_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} body_bytes={} body_ms={}",
+        bytes.len(),
+        body_start.elapsed().as_millis()
+    );
     if bytes.len() as u64 > MAX_JSON_BYTES {
-        return Err(GameError::InvalidInput("metadata too large".into()));
+        return Err(GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} body exceeds limit"
+        )));
     }
-    if let Some(expected) = sha {
+    let verify_start = Instant::now();
+    if let Some(expected) = expected_sha {
         if expected.len() != 40
             || !expected.bytes().all(|b| b.is_ascii_hexdigit())
             || format!("{:x}", Sha1::digest(&bytes)) != expected.to_ascii_lowercase()
         {
-            return Err(GameError::IntegrityMismatch("version metadata SHA1".into()));
+            metadata_trace(stage, endpoint, "sha1_mismatch", begin);
+            return Err(GameError::IntegrityMismatch(format!(
+                "metadata stage={stage} endpoint={endpoint} SHA1 mismatch elapsed_ms={}",
+                begin.elapsed().as_millis()
+            )));
         }
     }
-    Ok(serde_json::from_slice(&bytes)?)
+    metadata_trace(stage, endpoint, "sha1_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} sha1_ms={}",
+        verify_start.elapsed().as_millis()
+    );
+    let parse_start = Instant::now();
+    let value: Value = serde_json::from_slice(&bytes).map_err(|e| {
+        GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} phase=json_parse elapsed_ms={} error={e}",
+            begin.elapsed().as_millis()
+        ))
+    })?;
+    metadata_trace(stage, endpoint, "json_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} parse_ms={}",
+        parse_start.elapsed().as_millis()
+    );
+    Ok(value)
+}
+
+fn fetch_json(
+    client: &Client,
+    url: &str,
+    sha: Option<&str>,
+    stage: &str,
+    endpoint: &str,
+) -> Result<Value, GameError> {
+    let verified = approved_metadata_endpoint(url)?;
+    fetch_json_transport(client, verified, sha, stage, endpoint)
+}
+
+const RESOLVER_DEADLINE: Duration = Duration::from_secs(65);
+
+/// A caller-side deadline covers client construction and operating-system
+/// resolver behavior as well as the request-level timeouts. If the OS blocks
+/// a worker in DNS or system proxy discovery, std cannot forcibly cancel it:
+/// the caller still receives a bounded, explicit failure.
+fn with_metadata_deadline<F>(limit: Duration, operation: F) -> Result<Value, GameError>
+where
+    F: FnOnce() -> Result<Value, GameError> + Send + 'static,
+{
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("vanilla-metadata".into())
+        .spawn(move || {
+            let _ = sender.send(operation());
+        })
+        .map_err(|e| GameError::NetworkFailure(format!("metadata worker startup: {e}")))?;
+    match receiver.recv_timeout(limit) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(GameError::NetworkFailure(format!(
+            "metadata stage=resolver endpoint=official phase=overall_deadline timeout_ms={}",
+            limit.as_millis()
+        ))),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(GameError::NetworkFailure(
+            "metadata worker disconnected unexpectedly".into(),
+        )),
+    }
 }
 
 pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
+    // Reject malformed input without starting a thread.
     if version_id.is_empty()
         || version_id.len() > 128
         || !version_id
@@ -78,12 +217,29 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
     {
         return Err(GameError::InvalidInput("invalid version id".into()));
     }
-    let client = Client::builder()
-        .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| GameError::NetworkFailure(e.to_string()))?;
-    let manifest = fetch_json(&client, MANIFEST, None)?;
+    let id = version_id.to_owned();
+    with_metadata_deadline(RESOLVER_DEADLINE, move || {
+        resolve_official_version_inner(&id)
+    })
+}
+
+fn resolve_official_version_inner(version_id: &str) -> Result<Value, GameError> {
+    if version_id.is_empty()
+        || version_id.len() > 128
+        || !version_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b))
+    {
+        return Err(GameError::InvalidInput("invalid version id".into()));
+    }
+    let client = metadata_client()?;
+    let manifest = fetch_json(
+        &client,
+        MANIFEST,
+        None,
+        "manifest",
+        "piston-meta.mojang.com",
+    )?;
     let versions = manifest
         .get("versions")
         .and_then(Value::as_array)
@@ -105,7 +261,7 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
         .get("sha1")
         .and_then(Value::as_str)
         .ok_or_else(|| GameError::InvalidInput("version SHA1 missing".into()))?;
-    let version = fetch_json(&client, url, Some(sha))?;
+    let version = fetch_json(&client, url, Some(sha), "version", "piston-meta.mojang.com")?;
     if version.get("id").and_then(Value::as_str) != Some(version_id)
         || version.get("inheritsFrom").is_some()
     {
@@ -159,7 +315,25 @@ pub fn install_vanilla(
             "Vanilla client or asset index missing".into(),
         ));
     }
-    let mut natives = Vec::new();
+    let native_count = files
+        .iter()
+        .filter(|f| f.role == FileRole::NativeArchive)
+        .count();
+    if native_count == 0 {
+        return Err(GameError::InvalidInput(format!(
+            "no matching Windows native archives in version {} download plan for {}",
+            version
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            env.arch
+        )));
+    }
+    eprintln!(
+        "[vanilla-native] selected_arch={} native_archives_planned={}",
+        env.arch, native_count
+    );
+    let mut natives = Vec::with_capacity(native_count);
     for file in &files {
         if cancelled.load(Ordering::Relaxed) {
             return Err(GameError::Cancelled);
@@ -256,10 +430,16 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
         if !result.status.success() {
             let error = String::from_utf8_lossy(&result.stderr);
             return Err(GameError::InvalidInput(format!(
-                "native ZIP extraction rejected: {}",
+                "native ZIP extraction rejected (archives={}): {}",
+                archives.len(),
                 error.trim()
             )));
         }
+        eprintln!(
+            "[vanilla-native] archives_extracted={} {}",
+            archives.len(),
+            String::from_utf8_lossy(&result.stdout).trim()
+        );
         Ok(())
     })();
     let _ = fs::remove_file(&list);
@@ -517,6 +697,137 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn test_client() -> Client {
+        Client::builder()
+            .connect_timeout(Duration::from_millis(120))
+            .timeout(Duration::from_millis(250))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+    }
+
+    fn local_http<F>(handler: F) -> (reqwest::Url, std::thread::JoinHandle<()>)
+    where
+        F: FnOnce(std::net::TcpStream) + Send + 'static,
+    {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Read the client's request before responding/closing. Closing a TCP
+            // socket with unread request bytes causes Windows to send RST and
+            // turns a body/checksum test into a spurious send_headers error.
+            stream
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            handler(stream);
+        });
+        (format!("http://{addr}/metadata").parse().unwrap(), handle)
+    }
+
+    #[test]
+    fn metadata_overall_watchdog_bounds_blocked_worker() {
+        let start = Instant::now();
+        let error = with_metadata_deadline(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_millis(300));
+            Ok(serde_json::json!({}))
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(error.contains("overall_deadline"), "{error}");
+    }
+
+    #[test]
+    fn metadata_headers_stall_is_bounded() {
+        let (url, server) = local_http(|_stream| {
+            std::thread::sleep(Duration::from_millis(600));
+        });
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("send_headers"), "{error}");
+        assert!(error.contains("endpoint=loopback"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_body_stall_is_bounded() {
+        let (url, server) = local_http(|mut stream| {
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 200\r\nConnection: close\r\n\r\n{\"id\":",
+                )
+                .unwrap();
+            stream.flush().unwrap();
+            std::thread::sleep(Duration::from_millis(600));
+        });
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("phase=body"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_connection_refused_fails_with_stage() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url: reqwest::Url = format!("http://{}/", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        drop(listener);
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("phase=send_headers"), "{error}");
+    }
+
+    #[test]
+    fn metadata_checksum_mismatch_has_precise_error() {
+        let (url, server) = local_http(|mut stream| {
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                )
+                .unwrap();
+        });
+        let error = fetch_json_transport(
+            &test_client(),
+            url,
+            Some("0000000000000000000000000000000000000000"),
+            "version",
+            "loopback",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("SHA1 mismatch"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_endpoint_is_strictly_allowlisted() {
+        for url in [
+            "http://piston-meta.mojang.com/manifest",
+            "https://example.com/metadata",
+            "https://piston-meta.mojang.com:8443/a",
+            "https://user:pass@piston-meta.mojang.com/a",
+            "https://piston-meta.mojang.com/a?secret=x",
+            "https://piston-meta.mojang.com/a#secret",
+            "file:///C:/something",
+        ] {
+            assert!(approved_metadata_endpoint(url).is_err(), "{url}");
+        }
+        assert!(approved_metadata_endpoint(MANIFEST).is_ok());
+    }
+
     #[test]
     fn offline_uuid_uses_tl_core_contract_not_profile_id() {
         let profile = tl_core::OfflineProfile::new("Notch").unwrap();
@@ -546,6 +857,32 @@ mod tests {
                 .game_uuid
         );
         assert!(VanillaIdentity::from_offline_username("bad name").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn install_rejects_zero_native_archives_before_network_download() {
+        let metadata = json!({
+            "id": "1.21.1",
+            "downloads": {"client": {
+                "url": "https://piston-data.mojang.com/client.jar",
+                "sha1": "0123456789abcdef0123456789abcdef01234567"
+            }},
+            "assetIndex": {
+                "id": "17",
+                "url": "https://piston-meta.mojang.com/17.json",
+                "sha1": "0123456789abcdef0123456789abcdef01234567"
+            },
+            "libraries": []
+        });
+        let root = tempfile::tempdir().unwrap();
+        let error = install_vanilla(&metadata, root.path(), &AtomicBool::new(false))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("no matching Windows native archives"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -598,7 +935,8 @@ mod tests {
     #[test]
     fn real_native_zip_dll_is_extracted() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("safe.jar");
+        let archive = dir.path().join("libraries").join("safe.jar");
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
         create_native_zip(&archive, "org/lwjgl/native-test.dll");
         let dest = dir.path().join("natives");
         extract_natives(&[archive], &dest).unwrap();
@@ -609,7 +947,8 @@ mod tests {
     #[test]
     fn malicious_native_zip_traversal_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("traversal.jar");
+        let archive = dir.path().join("libraries").join("traversal.jar");
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
         create_native_zip(&archive, "../../outside.dll");
         let dest = dir.path().join("natives");
         assert!(extract_natives(&[archive], &dest).is_err());
@@ -621,13 +960,114 @@ mod tests {
     #[test]
     fn duplicate_dll_across_archives_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let first = dir.path().join("a.jar");
-        let second = dir.path().join("b.jar");
+        let first = dir.path().join("libraries").join("a.jar");
+        let second = dir.path().join("libraries").join("b.jar");
+        fs::create_dir_all(first.parent().unwrap()).unwrap();
         create_native_zip(&first, "windows/native-test.dll");
         create_native_zip(&second, "another/native-test.dll");
         let dest = dir.path().join("natives");
         assert!(extract_natives(&[first, second], &dest).is_err());
         assert!(!dest.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_51_eight_json_archives_extract_distinct_dlls() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("libraries");
+        fs::create_dir_all(&lib).unwrap();
+        let mut archives = Vec::new();
+        for i in 0..8 {
+            let archive = lib.join(format!("lwjgl-native-{i}.jar"));
+            create_native_zip(&archive, &format!("org/lwjgl/lwjgl-{i}.dll"));
+            archives.push(archive);
+        }
+        let dest = dir.path().join("natives");
+        extract_natives(&archives, &dest).unwrap();
+        for i in 0..8 {
+            assert_eq!(
+                fs::read(dest.join(format!("lwjgl-{i}.dll"))).unwrap(),
+                b"test-dll"
+            );
+        }
+        assert_eq!(fs::read_dir(dest).unwrap().count(), 8);
+    }
+
+    #[cfg(windows)]
+    fn run_native_manifest_fixture(root: &Path, manifest_json: &str) -> String {
+        let destination = root.join("natives");
+        fs::create_dir_all(&destination).unwrap();
+        let script = root.join("native-test.ps1");
+        fs::write(&script, include_str!("native_extract.ps1")).unwrap();
+        let manifest = root.join("archives.json");
+        fs::write(&manifest, manifest_json).unwrap();
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(script)
+            .arg("-Destination")
+            .arg(destination)
+            .arg("-ArchiveListPath")
+            .arg(manifest)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "malformed archive manifest unexpectedly accepted"
+        );
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_empty_or_malformed_native_manifest() {
+        for (index, json) in ["[]", "{}", "null", "not-json", "[42]", "[null]", "[[]]"]
+            .into_iter()
+            .enumerate()
+        {
+            let root = tempfile::tempdir().unwrap();
+            let error = run_native_manifest_fixture(root.path(), json);
+            assert!(!error.trim().is_empty(), "fixture {index} gave no error");
+            assert!(fs::read_dir(root.path().join("natives"))
+                .unwrap()
+                .next()
+                .is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_relative_and_outside_archive_paths() {
+        for archive_list in [
+            serde_json::json!(["relative.jar"]),
+            serde_json::json!(["C:\\outside\\native.jar"]),
+            serde_json::json!(["D:\\outside\\native.jar"]),
+            serde_json::json!([""]),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let error = run_native_manifest_fixture(root.path(), &archive_list.to_string());
+            assert!(!error.trim().is_empty());
+            assert!(fs::read_dir(root.path().join("natives"))
+                .unwrap()
+                .next()
+                .is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_missing_archive_under_libraries() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("libraries")).unwrap();
+        let missing = root.path().join("libraries").join("not-present.jar");
+        let error =
+            run_native_manifest_fixture(root.path(), &serde_json::json!([missing]).to_string());
+        assert!(error.contains("does not exist"), "{error}");
     }
 
     #[test]

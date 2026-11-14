@@ -8,8 +8,51 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$Archives = @(Get-Content -Raw -LiteralPath $ArchiveListPath | ConvertFrom-Json)
-if ($Archives.Count -eq 0) { throw 'No native archives specified' }
+# -InputObject avoids PowerShell 5.1 pipeline unrolling/wrapping surprises:
+# @(... | ConvertFrom-Json) can produce Object[][], which ZipFile.OpenRead cannot use.
+$parsed = ConvertFrom-Json -InputObject (Get-Content -Raw -LiteralPath $ArchiveListPath)
+if (-not ($parsed -is [System.Array])) {
+    throw 'Native archive manifest must be a JSON array'
+}
+if ($parsed.Count -eq 0) { throw 'No native archives specified' }
+$Archives = [System.Collections.Generic.List[string]]::new()
+$destRoot = [System.IO.Path]::GetFullPath($Destination)
+$launcherRoot = [System.IO.Path]::GetDirectoryName($destRoot)
+$libraryRoot = [System.IO.Path]::GetFullPath(
+    [System.IO.Path]::Combine($launcherRoot, 'libraries'))
+$libraryPrefix = $libraryRoot.TrimEnd([char]92, [char]47) +
+    [System.IO.Path]::DirectorySeparatorChar
+foreach ($item in $parsed) {
+    if (-not ($item -is [string]) -or [string]::IsNullOrWhiteSpace($item)) {
+        throw 'Native archive entry must be a non-empty string'
+    }
+    if (-not [System.IO.Path]::IsPathRooted($item)) {
+        throw 'Native archive path must be absolute'
+    }
+    $full = [System.IO.Path]::GetFullPath($item)
+    if (-not $full.StartsWith($libraryPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $full.EndsWith('.jar', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Native archive path must be a JAR under launcher libraries'
+    }
+    if (-not [System.IO.File]::Exists($full)) {
+        throw 'Native archive file does not exist'
+    }
+    # Reject reparse-point ancestors (including NTFS junctions) that could
+    # redirect archive access outside launcher-owned libraries.
+    $cursor = [System.IO.Path]::GetDirectoryName($full)
+    while ($null -ne $cursor -and $cursor.Length -ge $libraryRoot.Length) {
+        if ([System.IO.File]::GetAttributes($cursor).HasFlag(
+            [System.IO.FileAttributes]::ReparsePoint)) {
+            throw 'Native archive path contains a reparse point'
+        }
+        $cursor = [System.IO.Path]::GetDirectoryName($cursor)
+    }
+    if ([System.IO.File]::GetAttributes($full).HasFlag(
+        [System.IO.FileAttributes]::ReparsePoint)) {
+        throw 'Native archive is a reparse point'
+    }
+    $Archives.Add($full)
+}
 
 $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $allowedName = '^[A-Za-z0-9._-]+\.dll$'
@@ -18,7 +61,6 @@ $maxFileBytes = 104857600L
 $maxTotalBytes = 536870912L
 $files = 0
 $total = 0L
-$destRoot = [System.IO.Path]::GetFullPath($Destination)
 if (-not [System.IO.Directory]::Exists($destRoot)) {
     throw 'Destination must be a pre-created empty directory'
 }
@@ -99,6 +141,7 @@ try {
     if ($files -eq 0) {
         throw 'No Windows DLL natives found'
     }
+    Write-Output "native_dll_count=$files total_uncompressed_bytes=$total"
 } finally {
     foreach ($zip in $zipFiles) { $zip.Dispose() }
 }
