@@ -45,7 +45,8 @@ fn vanilla_fails_safe_even_with_a_local_mod_file() {
     let id = library.import_png("Classic", &png(), Model::Classic).unwrap().id;
     library.assign_foundation_profile(&mut p, id, Model::Classic).unwrap();
     let hash = mod_jar(dir.path());
-    let context = ctx(&p, &vanilla(&p), dir.path(), true, Some(&hash));
+    let instance = vanilla(&p);
+    let context = ctx(&p, &instance, dir.path(), true, Some(&hash));
     let state = CustomSkinLoaderLocal.stage(&library, &context).unwrap();
     assert_eq!(state.status, Visibility::PreviewOnly);
     assert_eq!(state.reason, ProviderReason::UnsupportedVanilla);
