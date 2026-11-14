@@ -35,7 +35,7 @@ try {
             $name = $entry.FullName.Replace('\', '/')
             if ([string]::IsNullOrWhiteSpace($name) -or $name.StartsWith('/') -or
                 $name.Contains(':') -or $name.Contains([char]0) -or
-                ($name.Split('/') | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -gt 0) {
+                @($name.Split('/') | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -gt 0) {
                 throw "Unsafe archive entry name"
             }
             $mode = ($entry.ExternalAttributes -shr 16) -band 61440
