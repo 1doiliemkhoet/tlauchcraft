@@ -17,12 +17,15 @@ Not yet complete: trusted Windows Java auto-provisioning, old native layout comp
 
 Use an isolated, fresh root directory that does not contain personal worlds. Install a compatible Java runtime separately; Minecraft 1.21.1 expects Java 21. Use a local offline username. The harness derives the **game/server UUID** via `tl_core::vanilla_offline_server_uuid` (case-sensitive MD5 v3), rather than trusting a manually supplied UUID or the internal persisted profile ID.
 
-From PowerShell in the repository worktree on this branch:
+From PowerShell in an up-to-date `develop` repository worktree (PR #19 is already merged), using a Java 21 executable discoverable on PATH:
 
 ```powershell
-git switch feat/tl-02-game-e2e
-cargo run --locked --release -p tl-game --example vanilla_e2e -- 1.21.1 'C:\TLaunchCraft\E2E' 'C:\Program Files\Java\jdk-21\bin\java.exe' TestPlayer 00000000000000000000000000000001
+git switch develop; git pull --ff-only
+$java = (Get-Command java.exe).Source; & $java -version
+cargo run --locked --release -p tl-game --example vanilla_e2e -- 1.21.1 'D:\TLaunchCraft-E2E' $java TestPlayer
 ```
+
+The harness expects exactly **four** positional arguments after `--`: `<release-id> <absolute-test-root> <java.exe> <offline-username>`. The previous example incorrectly provided a fifth positional UUID; the harness derives it from the username. Confirm the reported Java version is 21 before running the Minecraft 1.21.1 test. Use a different absolute, isolated directory if `D:\TLaunchCraft-E2E` is not suitable; do not reuse an existing world or profile directory. A new installer/download attempt can consume bandwidth and storage; do not treat any failure as a verified E2E PASS.
 
 Replace the Java path with the installed Java executable. Use the **same username** when relaunching; changing name or capitalization changes the offline UUID and can change LAN inventory/playerdata. In the desktop product use `VanillaIdentity::from_offline_profile` with the **persisted** SQLite `OfflineProfile` from PR #18; never substitute `profile.id` for the server UUID. In offline/local mode the harness uses a local placeholder token and `legacy` user type by default; it does **not** authenticate a Microsoft account, bypass an online-mode server or establish a Minecraft entitlement. To use an authorized online session instead, set `TLAUCHCRAFT_ACCESS_TOKEN`, `TLAUCHCRAFT_USER_TYPE`, and optionally `TLAUCHCRAFT_XUID` / `TLAUCHCRAFT_CLIENT_ID` in the environment without saving the token in scripts or logs.
 
@@ -50,7 +53,7 @@ cargo test --locked --workspace --all-targets
 
 ### Gate state
 
-- G1: accepted by Control for PR #12; new PR #19 Windows Rust fmt/Clippy/tests PASS, 84/84 at run #43583681258.
+- G1: accepted by Control for PR #12; PR #19 source merged, 92/92 Windows tests PASS at run #43596210965; real E2E still pending.
 - G2: NOT_TESTED.
 - G3: NOT_TESTED.
 - G4: NOT_TESTED.
