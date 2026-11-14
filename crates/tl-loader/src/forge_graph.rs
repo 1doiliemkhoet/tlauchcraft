@@ -310,6 +310,17 @@ fn resolve_arg(
             let key = format!("[{token}]");
             if let Some(x) = bindings.data.get(&key) {
                 output.push_str(&bound_value(&key, x, bindings, produced)?);
+            } else if let Some(artifact) = bindings.artifacts.get(&token) {
+                if artifact.coordinate != token {
+                    return Err(LoaderError::InvalidInput.into());
+                }
+                crate::runtime::validate_verified_artifact(artifact)?;
+                output.push_str(
+                    artifact
+                        .path
+                        .to_str()
+                        .ok_or(LoaderError::InvalidInput)?,
+                );
             } else {
                 missing.insert(format!("maven:{key}"));
             }
