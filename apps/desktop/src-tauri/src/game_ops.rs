@@ -136,8 +136,9 @@ pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:Str
             let status=if cancelled.load(Ordering::Relaxed) || e=="Install cancelled"{
                 InstanceState::Cancelled
             }else{InstanceState::Failed};
+            let is_cancelled=matches!(status,InstanceState::Cancelled);
             let _=update_state(uuid,status);
-            event(&app,uuid,if matches!(status,InstanceState::Cancelled){"cancelled"}else{"failed"},e);
+            event(&app,uuid,if is_cancelled{"cancelled"}else{"failed"},e);
         }
         if let Ok(mut tasks)=worker.installs.lock(){tasks.remove(&uuid);}
     });
@@ -204,7 +205,7 @@ pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core:
        return Err("Custom JVM args are not permitted by the Desktop bridge".into())
     }
     let (version,natives)=installed_metadata(&dir)?;
-    if version.get("id").and_then(Value::as_str)!=Some(&i.minecraft_version){
+    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
         return Err("Installed version does not match instance".into())
     }
     let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
