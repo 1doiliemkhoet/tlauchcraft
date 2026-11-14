@@ -134,6 +134,9 @@ fn download_file(
         return Err("unsafe mod filename".into());
     }
     let expected_size = entry.expected_size.ok_or("missing expected size")?;
+    // Upstream must provide an independently known checksum; a freshly computed
+    // SHA-256 alone cannot establish that the downloaded bytes are authentic.
+    let expected_sha1 = entry.sha1.as_deref().ok_or("missing trusted SHA-1; manual verification required")?;
     let relative_path = format!("mods/{filename}");
     crate::safe_path(&relative_path).map_err(|_| "unsafe mod relative path")?;
     let destination = stage.join(&relative_path);
@@ -167,7 +170,7 @@ fn download_file(
         response,
         &mut out,
         expected_size,
-        entry.sha1.as_deref(),
+        Some(expected_sha1),
         cancelled,
     );
     drop(out);
@@ -209,6 +212,25 @@ pub fn stage_curseforge_downloads(
         return Err(PackError::Metadata(
             "incomplete dependency resolution".into(),
         ));
+    }
+    if cancelled.load(Ordering::Relaxed) {
+        return Ok(StageReport {
+            status: InstallStatus::Cancelled,
+            installed: Vec::new(),
+            blocked: Vec::new(),
+            failures: Vec::new(),
+            staging_path: new_staging.display().to_string(),
+            ready: false,
+        });
+    }
+    // Validate the complete resolver plan before touching disk or network.
+    for (declared, file) in metadata.files.iter().zip(&resolved.files) {
+        if declared.project_id != Some(file.project_id)
+            || declared.file_id != Some(file.file_id)
+            || declared.required != file.required
+        {
+            return Err(PackError::Metadata("resolver plan does not match archive".into()));
+        }
     }
     // ZIP integrity and override extraction happen before any remote requests.
     crate::stage_overrides(archive, metadata, new_staging)?;

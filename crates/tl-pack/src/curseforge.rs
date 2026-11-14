@@ -263,15 +263,17 @@ fn resolve_one(
             }
         }
     }
-    let availability = if url.is_some() {
+    let availability = if url.is_some() && sha1.is_some() {
         FileAvailability::Available
     } else {
         FileAvailability::NeedsManualDownload
     };
-    let reason = if url.is_some() {
-        "Approved download URL resolved"
-    } else {
+    let reason = if url.is_none() {
         "No permitted download URL; authorized manual download required"
+    } else if sha1.is_none() {
+        "No trusted SHA-1 provided; authorized manual verification required"
+    } else {
+        "Approved URL and trusted SHA-1 resolved"
     };
     CurseForgeFile {
         project_id,
@@ -425,6 +427,27 @@ mod tests {
             FileAvailability::InvalidMetadata
         );
     }
+    #[test]
+    fn missing_trusted_checksum_is_never_downloadable() {
+        let api = MockApi {
+            file_status: 200,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[]}}"#,
+            fallback: "",
+        };
+        let report = resolve_curseforge_files(&metadata(), &api, "fake-key").unwrap();
+        assert_eq!(report.files[0].availability, FileAvailability::NeedsManualDownload);
+        assert_eq!(report.needs_action_count, 1);
+        assert!(!report.ready);
+    }
+
+    #[test]
+    fn redirect_response_is_not_followed() {
+        let api = MockApi { file_status: 302, body: "https://evil.test/", fallback: "" };
+        let report = resolve_curseforge_files(&metadata(), &api, "fake-key").unwrap();
+        assert_eq!(report.files[0].availability, FileAvailability::NetworkFailure);
+        assert!(!report.ready);
+    }
+
     #[test]
     fn permission_denied_is_explicit() {
         let api = MockApi {
