@@ -2,6 +2,7 @@
 //! This crate does not assert that an imported instance is runnable.
 pub mod curseforge;
 pub mod install;
+pub mod validation;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
