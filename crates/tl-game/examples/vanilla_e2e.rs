@@ -1,5 +1,5 @@
 //! Windows-only manual G2/G3/G4 harness. No automated menu/world success claim.
-use std::{env, error::Error, fs, path::PathBuf, sync::atomic::AtomicBool};
+use std::{env, error::Error, fs, path::PathBuf, process::Command, sync::atomic::AtomicBool};
 use tl_game::{
     launch,
     vanilla::{
@@ -69,6 +69,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let launch_config = build_vanilla_launch(&version, &paths, &player, 512, 4096)?;
     let stdout = evidence.join(format!("client-{native_nonce}-stdout.log"));
     let stderr = evidence.join(format!("client-{native_nonce}-stderr.log"));
+    let java_version = Command::new(&paths.java).arg("-version").output()?;
+    let java_detail = format!(
+        "{}{}",
+        String::from_utf8_lossy(&java_version.stderr),
+        String::from_utf8_lossy(&java_version.stdout)
+    );
+    let windows_version = Command::new("cmd.exe").args(["/C", "ver"]).output()?;
+    let windows_detail = String::from_utf8_lossy(&windows_version.stdout).trim().to_owned();
     let mut child = launch(&launch_config, &stdout, &stderr)?;
     let pid = child.id();
     write_launch_evidence(
@@ -85,6 +93,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Evidence directory: {}", evidence.display());
     let result = child.wait()?;
     println!("Game process exited: {result}");
+    let actual_log = paths.game_dir.join("logs").join("latest.log");
+    let runtime_report = serde_json::json!({
+        "minecraft_version": version_id,
+        "windows_version": windows_detail,
+        "java_version": java_detail.trim(),
+        "java_major_expected": tl_game::required_java(&version)?,
+        "pid": pid,
+        "exit_code": result.code(),
+        "stdout": stdout,
+        "stderr": stderr,
+        "game_log_path": actual_log,
+        "game_log_present": actual_log.is_file(),
+        "main_menu_verified": false,
+        "world_reopened_verified": false
+    });
+    let runtime_path = evidence.join(format!("runtime-{native_nonce}.json"));
+    let mut runtime_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&runtime_path)?;
+    use std::io::Write;
+    runtime_file.write_all(serde_json::to_string_pretty(&runtime_report)?.as_bytes())?;
+    runtime_file.sync_all()?;
+    println!("Runtime evidence: {}", runtime_path.display());
     let worlds = write_world_snapshot(
         &paths.game_dir,
         &evidence.join(format!("world-snapshot-{native_nonce}.json")),
