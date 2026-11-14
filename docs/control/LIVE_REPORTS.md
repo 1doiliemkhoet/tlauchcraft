@@ -18,7 +18,7 @@
 
 | Chat | Module | Status | PR | Chat tests | Control gate |
 |---|---|---|---|---|---|
-| [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN_UNREVIEWED · #18 CI PASS** | [#18](https://github.com/1doiliemkhoet/tlauchcraft/pull/18) | Windows 30/30 tests; fmt/clippy PASS | Baseline G0/G1 ACCEPTED; follow-up NOT_VERIFIED |
+| [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR_OPEN_UNREVIEWED · #18 7-CRATE CI PASS** | [#18](https://github.com/1doiliemkhoet/tlauchcraft/pull/18) | Windows 81/81 tests; fmt/clippy PASS; locked 7 crates | Baseline G0/G1 ACCEPTED; follow-up NOT_VERIFIED |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **G1 ACCEPTED · E2E P0 IN_PROGRESS** | [#19 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/19) | [Windows fmt, Clippy, 80/80 tests PASS](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43497703828) | **G2–G4 NOT_VERIFIED** |
 | [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **MERGED · G1 CONTROL_ACCEPTED** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | Windows 35/35 tests; fmt/clippy PASS | **G1 ACCEPTED · G2/G3/G5 NOT_VERIFIED** |
 | [Chat 4](#chat-4--modpack-zip-import) | Modpack ZIP Import | **MERGED · G1 CONTROL_ACCEPTED** | [#10](https://github.com/1doiliemkhoet/tlauchcraft/pull/10) | Windows 75/75 workspace tests; fmt/clippy PASS | **G1 ACCEPTED · G5 NOT_VERIFIED** |
@@ -26,27 +26,31 @@
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **MERGED · G1 CONTROL_ACCEPTED** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) | Windows 62/62 tests; fmt/clippy PASS | **G1 ACCEPTED · G7 NOT_VERIFIED** |
 | [Chat 7](#chat-7--desktop-ui--packaging) | Desktop UI & Packaging / G8 | **G8_PARTIAL · PR_DRAFT** | [#20](https://github.com/1doiliemkhoet/tlauchcraft/pull/20) | NSIS/build/silent smoke PASS; interactive capture NOT_TESTED | G8 NOT_VERIFIED (needs clean Windows UI evidence) |
 
----
-
-## Individual reports
-
-<!-- CHAT-01:START -->
+---<!-- CHAT-01:START -->
 ## Chat 1 — Foundation & Persistence
 
 - **Baseline:** Foundation PR [#13](https://github.com/1doiliemkhoet/tlauchcraft/pull/13) MERGED into develop; Control approved G0/G1 for baseline only (2026-11-13). No further work on PR #13.
 - **New branch:** `feat/tl-01-concurrency-identity` (created from `develop`).
-- **Current HEAD:** [`1b7a0c8494c3e5e6d29ab204a610511ee96acf90`](https://github.com/1doiliemkhoet/tlauchcraft/commit/1b7a0c8494c3e5e6d29ab204a610511ee96acf90).
+- **Current HEAD:** [`f34ca8baa395d4cf0d4317a5b40c92a23b268960`](https://github.com/1doiliemkhoet/tlauchcraft/commit/f34ca8baa395d4cf0d4317a5b40c92a23b268960), seven-crate develop synchronized, latest Windows CI SUCCESS.
 - **New PR:** [#18](https://github.com/1doiliemkhoet/tlauchcraft/pull/18) into `develop`, DRAFT/OPEN/UNMERGED, covering [Issue #17](https://github.com/1doiliemkhoet/tlauchcraft/issues/17) and Chat 1 contract scope of [Issue #16](https://github.com/1doiliemkhoet/tlauchcraft/issues/16).
-- **Status 2026-11-14:** `IN_PROGRESS` / `PR_OPEN_UNREVIEWED`, source `IMPLEMENTED`, Windows CI `TESTED: PASS` on current head; G0/G1 new changes `NOT_VERIFIED` by Control.
+- **Status 2026-11-14:** `IN_PROGRESS` / `PR_OPEN_UNREVIEWED`, source `IMPLEMENTED`, Windows CI `TESTED: PASS` on full seven-crate workspace; G0/G1 new changes `NOT_VERIFIED` by Control.
 - **Implemented:** SQLite schema v2 adds `revision INTEGER NOT NULL DEFAULT 0` to profiles and instances with transactional v1→v2 migration; versioned reads and conditional CAS updates reject stale revisions. Existing `update_profile`/`update_instance` methods use observed revisions to reject stale data, preserving serialized profile and instance formats. Safe SQLite backup uses staging file + `persist_noclobber` and checks backup parent symlink, refusing existing targets; no world data mutation.
 - **Identity contract:** `tl_core::identity` declares separate `profile_id`, `effective_game_uuid`, `offline_server_uuid`; vanilla offline-mode MD5/v3 algorithm over case-sensitive `OfflinePlayer:<username>`. `preview_rename_impact` flags world backup and potential inventory change; original `OfflineProfile` JSON remains unchanged. Algorithm requires Chat 5 real-game validation; this is not G6 evidence.
 - **Changed paths:** `Cargo.toml`, `Cargo.lock`, `crates/tl-core/Cargo.toml`, `crates/tl-core/src/lib.rs`, `crates/tl-core/src/identity.rs`, `crates/tl-storage/Cargo.toml`, `crates/tl-storage/src/lib.rs`, `crates/tl-storage/tests/storage.rs`, `docs/foundation/OFFLINE_IDENTITY_V1.md`. Temporary formatter/lock generator workflow was deleted from feature branch.
-- **Tests added:** two SQLite connections stale profile write, old API stale profile/instance writes, v1 schema/records retained after upgrade, backup refuses existing symlink, identity sample fixture, rename impacts and username case behavior. Final Windows CI: **30/30 passed, 0 failed** (7 core, 12 game, 11 storage).
+- **Tests added:** two SQLite connections stale profile write, old API stale profile/instance writes, v1 schema/records retained after upgrade, backup refuses existing symlink, identity sample fixture, rename impacts and username case behavior. Final Windows CI: **30/30 passed, 0 failed (historical three-crate baseline)** (7 core, 12 game, 11 storage).
 - **CI final verified:** [Windows workflow run 43471222988](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43471222988) on commit `1b7a0c8494c3e5e6d29ab204a610511ee96acf90`, overall **SUCCESS**. `cargo fmt --all -- --check` PASS; `cargo clippy --locked --workspace --all-targets -- -D warnings` PASS; `cargo test --locked --workspace --all-targets` **30 passed / 0 failed** (tl-core 7, tl-game 12, tl-storage 11). Earlier failed Windows run [43470179160](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43470179160) identified missing `instances.revision` on new schema; fixed in [`1459ba6`](https://github.com/1doiliemkhoet/tlauchcraft/commit/1459ba6484bb74a2ecd62c69afc55a636089eddb). Follow-up fixed stale CAS check not refreshing expected revision; latest fmt/clippy/test PASS. No full launcher E2E evidence.
 - **E2E / gates:** No real client/server/world/playerdata tests by Chat 1. G0/G1 from accepted PR #13 remain Control-accepted baseline; current PR #18 `NOT_VERIFIED`. G2–G8 `NOT_TESTED` here.
 - **Risks / dependencies:** Chat 5 must test authoritative server UUID, two Windows users, reconnect and playerdata/inventory with backups; Chat 2 must check launch UUID args. Contract must be approved by Control. Offline-mode must remain trusted LAN only. Parent reparse-point path race on Windows still requires review; backup symlink checks do not eliminate malicious concurrent parent replacement.
 - **Coordination:** [Issue #16 comment](https://github.com/1doiliemkhoet/tlauchcraft/issues/16) specifies proposed shared mapping and requests Chat 5/Chat 2 validation.
-- **Next:** Control reviews PR #18, identity mapping and security residual risks; Chat 5 must verify real LAN/playerdata, Chat 2 launch UUID contract. No self-merge.
+- **Next:** Control review PR #18 against current seven-crate `develop`; Chat 5 still owns real offline UUID/playerdata LAN validation. No self-merge.
+
+
+- **2026-11-14 Control synchronization (PR #18):** `IMPLEMENTED` a genuine two-parent merge commit [`ee647ac`](https://github.com/1doiliemkhoet/tlauchcraft/commit/ee647ac1b87204ec0a97eb57e4d5828fc2032740) with the then-current seven-crate `develop` source baseline `564a4da48aeaad2a618e0a3ba474d9542b287f56`, keeping `tl-core`, `tl-storage`, `tl-game`, `tl-loader`, `tl-lan`, `tl-skin`, `tl-pack` in root `Cargo.toml`. Existing CAS/migration/safe backup and identity code preserved; no Chat 2–6 crate source modified.
+- **Windows Cargo.lock evidence:** [Windows workflow run 43583296814](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43583296814) **SUCCESS** on Rust 1.88.0; ran `cargo generate-lockfile` and `cargo metadata --locked --no-deps --format-version 1`, output `WINDOWS_CARGO_LOCK_GENERATED; WORKSPACE_COUNT=7`; committed new `Cargo.lock` on feature branch. One-shot helper workflow removed afterward. Lockfile includes 7 crates plus `md5`.
+- **Final HEAD:** [`f34ca8baa395d4cf0d4317a5b40c92a23b268960`](https://github.com/1doiliemkhoet/tlauchcraft/commit/f34ca8baa395d4cf0d4317a5b40c92a23b268960), PR #18 still OPEN/DRAFT/UNMERGED.
+- **Windows full workspace CI:** [run 43583379799](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43583379799) **SUCCESS on final HEAD**. `cargo metadata --locked` workspace registration gate PASS; `cargo fmt --all -- --check` PASS; `cargo clippy --locked --workspace --all-targets -- -D warnings` PASS; `cargo test --locked --workspace --all-targets` **81 tests passed, 0 failed** across all seven workspace crates (11 test result groups, some 0-test targets). This replaces the earlier 30-test, three-crate-only baseline evidence for PR #18.
+- **Review status:** New hardening contract `TESTED` by Windows CI but still `NOT_VERIFIED` by Control; LAN inventory/playerdata E2E on two Windows PCs remains `NOT_TESTED` by Chat 1 / owned by Chat 5. No self-merge.
+ontract. No self-merge.
 
 <!-- CHAT-01:END -->
 
