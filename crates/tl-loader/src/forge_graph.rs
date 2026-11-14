@@ -134,13 +134,7 @@ fn prepare_inner(
     let mut produced = BTreeSet::<String>::new();
     for step in &blueprint.steps {
         let mut missing = BTreeSet::new();
-        let prepared = prepare_step(
-            step,
-            &profile,
-            bindings,
-            &produced,
-            &mut missing,
-        )?;
+        let prepared = prepare_step(step, &profile, bindings, &produced, &mut missing)?;
         if !missing.is_empty() {
             all_missing.extend(missing);
             continue;
@@ -148,7 +142,9 @@ fn prepare_inner(
         if let Some((processor, outputs)) = prepared {
             for output in outputs {
                 if !produced.insert(output) {
-                    return Err(LoaderError::InvalidMetadata("duplicate processor output".into()).into());
+                    return Err(
+                        LoaderError::InvalidMetadata("duplicate processor output".into()).into(),
+                    );
                 }
             }
             results.push(processor);
@@ -209,7 +205,9 @@ fn prepare_step(
         return Ok(None);
     }
     if outputs.is_empty() {
-        return Err(LoaderError::InvalidMetadata("processor has no verifiable outputs".into()).into());
+        return Err(
+            LoaderError::InvalidMetadata("processor has no verifiable outputs".into()).into(),
+        );
     }
     Ok(Some((
         ApprovedProcessor {
@@ -233,7 +231,9 @@ fn approved_main(coordinate: &str) -> Result<&'static str, PrepareFailure> {
     } else if coordinate.starts_with("net.minecraftforge:binarypatcher:") {
         "net.minecraftforge.binarypatcher.ConsoleTool"
     } else {
-        return Err(LoaderError::InvalidMetadata("unapproved Forge processor coordinate".into()).into());
+        return Err(
+            LoaderError::InvalidMetadata("unapproved Forge processor coordinate".into()).into(),
+        );
     };
     Ok(main)
 }
@@ -280,7 +280,12 @@ fn resolve_arg(
                 }
                 token.push(value);
             }
-            if !closed || token.is_empty() || !token.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {
+            if !closed
+                || token.is_empty()
+                || !token
+                    .bytes()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
+            {
                 return Err(LoaderError::InvalidMetadata("malformed data token".into()).into());
             }
             let result = resolve_data(&token, profile, bindings, produced, missing)?;
@@ -298,7 +303,9 @@ fn resolve_arg(
                 token.push(value);
             }
             if !closed {
-                return Err(LoaderError::InvalidMetadata("unterminated Maven reference".into()).into());
+                return Err(
+                    LoaderError::InvalidMetadata("unterminated Maven reference".into()).into(),
+                );
             }
             let key = format!("[{token}]");
             if let Some(x) = bindings.data.get(&key) {
@@ -312,7 +319,8 @@ fn resolve_arg(
             output.push(ch);
         }
     }
-    if output.contains('{') || output.contains('}') || output.contains('[') || output.contains(']') {
+    if output.contains('{') || output.contains('}') || output.contains('[') || output.contains(']')
+    {
         return Err(LoaderError::InvalidMetadata("nested/unresolved token".into()).into());
     }
     if output.is_empty() && !missing.is_empty() {
@@ -342,7 +350,7 @@ fn resolve_data(
         return Ok(None);
     };
     if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
-        return Ok(Some(value[1..value.len()-1].to_string()));
+        return Ok(Some(value[1..value.len() - 1].to_string()));
     }
     if value.starts_with('[') && value.ends_with(']') {
         let result = resolve_arg(value, profile, bindings, produced, missing)?;
@@ -362,10 +370,16 @@ fn bound_value(
     match value {
         BoundValue::Literal(x) => {
             // Literals are scalar metadata, never an unverified jar/zip path.
-            if key.starts_with('[') || x.contains('/') || x.contains('\\')
-                || x.ends_with(".jar") || x.ends_with(".zip")
-                || x.is_empty() || x.len() > 8192 || x.chars().any(char::is_control)
-                || x.chars().any(|ch| matches!(ch, '{' | '}' | '[' | ']')) {
+            if key.starts_with('[')
+                || x.contains('/')
+                || x.contains('\\')
+                || x.ends_with(".jar")
+                || x.ends_with(".zip")
+                || x.is_empty()
+                || x.len() > 8192
+                || x.chars().any(char::is_control)
+                || x.chars().any(|ch| matches!(ch, '{' | '}' | '[' | ']'))
+            {
                 return Err(LoaderError::InvalidMetadata(format!("invalid literal {key}")).into());
             }
             Ok(x.clone())
@@ -382,7 +396,10 @@ fn bound_value(
         BoundValue::Staged(rel) => {
             safe_stage_relative(rel)?;
             if !produced.contains(rel) && key.starts_with("INPUT_") {
-                return Err(LoaderError::InvalidMetadata("input depends on unavailable output".into()).into());
+                return Err(LoaderError::InvalidMetadata(
+                    "input depends on unavailable output".into(),
+                )
+                .into());
             }
             Ok(bindings.stage_root.join(rel).to_string_lossy().into_owned())
         }
@@ -409,7 +426,9 @@ fn resolve_output_path(
             safe_stage_relative(path)?;
             Ok(Some(path.clone()))
         }
-        Some(_) => Err(LoaderError::InvalidMetadata("output is not private staging path".into()).into()),
+        Some(_) => {
+            Err(LoaderError::InvalidMetadata("output is not private staging path".into()).into())
+        }
         None => {
             missing.insert(format!("staged-output:{name}"));
             Ok(None)
@@ -441,7 +460,11 @@ fn safe_stage_relative(path: &str) -> Result<(), PrepareFailure> {
         return Err(LoaderError::InvalidInput.into());
     }
     let parts = Path::new(path);
-    if parts.is_absolute() || parts.components().any(|x| !matches!(x, Component::Normal(_))) {
+    if parts.is_absolute()
+        || parts
+            .components()
+            .any(|x| !matches!(x, Component::Normal(_)))
+    {
         return Err(LoaderError::InvalidInput.into());
     }
     Ok(())

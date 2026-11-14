@@ -115,7 +115,10 @@ fn execute(
     let java_major = tl_game::probe_java(&request.java, 8)
         .map_err(|e| LoaderError::InvalidMetadata(format!("Java 8 required: {e}")))?;
     if java_major != 8 {
-        return Err(LoaderError::JavaIncompatible { required: 8, actual: java_major });
+        return Err(LoaderError::JavaIncompatible {
+            required: 8,
+            actual: java_major,
+        });
     }
     fs::create_dir(&request.stage_root)
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage create: {e}")))?;
@@ -247,15 +250,14 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
 }
 
 /// Trust gate shared with the Forge graph resolver. Validates origin *and* bytes.
-pub(crate) fn validate_verified_artifact(
-    file: &VerifiedProcessorJar,
-) -> Result<(), LoaderError> {
+pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<(), LoaderError> {
     let origin_ok = if file.coordinate == "net.minecraft:client:1.16.5" {
         // Mojang object storage names the object by its expected digest.
-        file.source == format!(
-            "https://piston-data.mojang.com/v1/objects/{}/client.jar",
-            file.sha1.to_ascii_lowercase()
-        )
+        file.source
+            == format!(
+                "https://piston-data.mojang.com/v1/objects/{}/client.jar",
+                file.sha1.to_ascii_lowercase()
+            )
     } else {
         let relative = if let Some((coordinate, ext)) = file.coordinate.split_once('@') {
             if !matches!(ext, "zip" | "txt") {
