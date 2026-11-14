@@ -170,6 +170,8 @@ fn prepare_step(
     produced: &BTreeSet<String>,
     missing: &mut BTreeSet<String>,
 ) -> Result<Option<(ApprovedProcessor, Vec<String>)>, PrepareFailure> {
+    // Reject unapproved processor classes before reporting missing dependencies.
+    let main = approved_main(&step.jar)?;
     let jar = match resolve_artifact(&step.jar, bindings, missing)? {
         Some(x) => x,
         None => return Ok(None),
@@ -180,7 +182,6 @@ fn prepare_step(
             classpath.push(x);
         }
     }
-    let main = approved_main(&step.jar)?;
     let mut args = Vec::new();
     for token in &step.args {
         if let Some(x) = resolve_arg(token, profile, bindings, produced, missing)? {
