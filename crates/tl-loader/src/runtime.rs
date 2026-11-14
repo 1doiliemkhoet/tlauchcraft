@@ -219,21 +219,7 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
         ));
     }
     for file in std::iter::once(&processor.executable).chain(processor.classpath.iter()) {
-        maven::artifact_path(&file.coordinate)?;
-        let relative = maven::artifact_path(&file.coordinate)?;
-        let origin_ok = [
-            "https://maven.minecraftforge.net",
-            "https://repo.maven.apache.org/maven2",
-            "https://libraries.minecraft.net",
-        ]
-        .iter()
-        .any(|base| file.source == format!("{base}/{relative}"));
-        if !origin_ok {
-            return Err(LoaderError::InvalidMetadata(
-                "unapproved processor artifact source".into(),
-            ));
-        }
-        verify_sha1(&file.path, &file.sha1)?;
+        validate_verified_artifact(file)?;
     }
     for arg in &processor.arguments {
         if arg.is_empty()
@@ -255,6 +241,27 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
         valid_sha1(&item.sha1)?;
     }
     Ok(())
+}
+
+/// Trust gate shared with the Forge graph resolver. Validates origin *and* bytes.
+pub(crate) fn validate_verified_artifact(
+    file: &VerifiedProcessorJar,
+) -> Result<(), LoaderError> {
+    let relative = maven::artifact_path(&file.coordinate)?;
+    let trusted_bases = [
+        "https://maven.minecraftforge.net",
+        "https://repo.maven.apache.org/maven2",
+        "https://libraries.minecraft.net",
+    ];
+    if !trusted_bases
+        .iter()
+        .any(|base| file.source == format!("{base}/{relative}"))
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "unapproved processor artifact source".into(),
+        ));
+    }
+    verify_sha1(&file.path, &file.sha1)
 }
 
 fn valid_sha1(sha1: &str) -> Result<(), LoaderError> {
