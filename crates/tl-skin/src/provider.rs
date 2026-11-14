@@ -43,7 +43,7 @@ pub enum ProviderReason {
 pub struct ProviderReport {
     pub status: Visibility,
     pub reason: ProviderReason,
-    pub provider_id: &'static str,
+    pub provider_id: String,
     pub profile_id: Uuid,
     pub instance_id: Uuid,
     pub skin_id: Option<Uuid>,
@@ -55,7 +55,7 @@ impl ProviderReport {
     fn preview(ctx: &ProviderContext<'_>, reason: ProviderReason) -> Self {
         Self {
             status: Visibility::PreviewOnly,
-            reason, provider_id: MOD_ID, profile_id: ctx.profile.id,
+            reason, provider_id: MOD_ID.to_owned(), profile_id: ctx.profile.id,
             instance_id: ctx.instance.id, skin_id: None, model: None,
             target: None, image_sha256: None,
         }
