@@ -85,8 +85,11 @@ fn safe_component(name: &str) -> bool {
 }
 fn no_symlink_ancestors(path: &Path) -> bool {
     path.ancestors().all(|ancestor| {
-        if !ancestor.exists() { return true; }
-        fs::symlink_metadata(ancestor).is_ok_and(|meta| !meta.file_type().is_symlink())
+        match fs::symlink_metadata(ancestor) {
+            Ok(meta) => !meta.file_type().is_symlink(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+            Err(_) => false,
+        }
     })
 }
 fn acceptable_game_dir(ctx: &ProviderContext<'_>) -> bool {
@@ -142,8 +145,11 @@ fn write_new(path: &Path, contents: &[u8]) -> crate::Result<()> {
     }
     fs::create_dir_all(parent)?;
     let mut file = fs::OpenOptions::new().create_new(true).write(true).open(path)?;
-    file.write_all(contents)?;
-    file.sync_all()?;
+    if let Err(e) = file.write_all(contents).and_then(|_| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(path);
+        return Err(e.into());
+    }
     Ok(())
 }
 impl SkinProvider for CustomSkinLoaderLocal {
