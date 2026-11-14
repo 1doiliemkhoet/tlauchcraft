@@ -10,7 +10,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$Installer,
-    [string]$ReportPath
+    [string]$ReportPath,
+    [string]$MetadataDir
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -38,7 +39,7 @@ try {
         if ($entryMap.ContainsKey($entry.FullName)) { Fail "Duplicate ZIP entry: $($entry.FullName)" }
         $entryMap[$entry.FullName] = $entry
     }
-    function Read-Manifest([string]$name) {
+    function Read-ManifestText([string]$name) {
         if (-not $entryMap.ContainsKey($name)) { Fail "Missing $name" }
         $entry = $entryMap[$name]
         if ($entry.Length -gt 4194304 -or $entry.Length -eq 0) { Fail "Invalid $name size" }
@@ -47,10 +48,12 @@ try {
             $reader = New-Object IO.StreamReader($stream, (New-Object Text.UTF8Encoding($false)), $true)
             try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
         } finally { $stream.Dispose() }
-        return ($content | ConvertFrom-Json)
+        return $content
     }
-    $profile = Read-Manifest 'install_profile.json'
-    $version = Read-Manifest 'version.json'
+    $profileText = Read-ManifestText 'install_profile.json'
+    $versionText = Read-ManifestText 'version.json'
+    $profile = $profileText | ConvertFrom-Json
+    $version = $versionText | ConvertFrom-Json
     if ($profile.minecraft -ne '1.16.5') { Fail "Unexpected Minecraft profile: $($profile.minecraft)" }
     if (-not $profile.processors) { Fail "No processors in installer profile" }
     if ($version.inheritsFrom -ne '1.16.5') { Fail "Unexpected derived version parent" }
@@ -94,6 +97,13 @@ try {
         processors_client = $client
         archive_entries = $zip.Entries.Count
         note = 'Read-only: no processor executed; no Minecraft version installed; G2/G3/G5 not verified'
+    }
+    if ($MetadataDir) {
+        $metadataRoot = [IO.Path]::GetFullPath($MetadataDir)
+        if ([IO.Directory]::Exists($metadataRoot) -or [IO.File]::Exists($metadataRoot)) { Fail 'Metadata destination already exists (no overwrite)' }
+        [void][IO.Directory]::CreateDirectory($metadataRoot)
+        [IO.File]::WriteAllText(([IO.Path]::Combine($metadataRoot, 'install_profile.json')), $profileText, (New-Object Text.UTF8Encoding($false)))
+        [IO.File]::WriteAllText(([IO.Path]::Combine($metadataRoot, 'version.json')), $versionText, (New-Object Text.UTF8Encoding($false)))
     }
     $json = $result | ConvertTo-Json -Depth 25
     if ($ReportPath) {
