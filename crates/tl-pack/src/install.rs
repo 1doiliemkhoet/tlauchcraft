@@ -242,12 +242,20 @@ pub fn stage_curseforge_downloads(
     let mods = new_staging.join("mods");
     fs::create_dir_all(&mods)?;
     let mut installed = Vec::new();
-    let mut blocked = resolved.dependency_actions.iter()
-        .map(|action| format!(
-            "dependency projectID={} parent={}/{} required={} fileID=UNRESOLVED: {}",
-            action.project_id, action.parent_project_id, action.parent_file_id,
-            action.required, action.reason
-        )).collect::<Vec<_>>();
+    let mut blocked = resolved
+        .dependency_actions
+        .iter()
+        .map(|action| {
+            format!(
+                "dependency projectID={} parent={}/{} required={} fileID=UNRESOLVED: {}",
+                action.project_id,
+                action.parent_project_id,
+                action.parent_file_id,
+                action.required,
+                action.reason
+            )
+        })
+        .collect::<Vec<_>>();
     let mut failures = Vec::new();
     for (declared, file) in metadata.files.iter().zip(&resolved.files) {
         if declared.project_id != Some(file.project_id)
