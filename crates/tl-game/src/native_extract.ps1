@@ -2,10 +2,14 @@
 # Uses .NET ZipArchive, extracts Windows DLL files only and refuses unsafe/duplicate entries.
 param(
     [Parameter(Mandatory = $true)][string]$Destination,
-    [Parameter(Mandatory = $true)][string[]]$Archives
+    [Parameter(Mandatory = $true)][string]$ArchiveListPath
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$Archives = @(Get-Content -Raw -LiteralPath $ArchiveListPath | ConvertFrom-Json)
+if ($Archives.Count -eq 0) { throw 'No native archives specified' }
 
 $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $allowedName = '^[A-Za-z0-9._-]+\.dll$'
