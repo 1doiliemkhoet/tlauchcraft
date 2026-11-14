@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backendError, canCancelInstall, canPlayInstance, installFailure, terminalInstallEvent, validateJavaForm } from './desktopState';
+import { backendError, canCancelInstall, canPlayInstance, installFailure, terminalInstallEvent, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending } from './desktopState';
 import type { GameInstance, GameStatus, JavaSettings, MemoryInfo, ProgressEvent } from './backend';
 
 const instance: GameInstance = {
@@ -71,5 +71,26 @@ describe('Java settings persisted wire state and physical memory',()=>{
     expect(validateJavaForm({...saved,xmx_mb:10000},mem)).toContain('available');
     expect(validateJavaForm({...saved,xms_mb:512.5},mem)).toContain('RAM');
     expect(validateJavaForm(null,mem)).toContain('Select');
+  });
+});
+
+describe('backend-driven Activity state and asynchronous acceptance', () => {
+  it('uses actual install state and last_error instead of treating accepted as finished', () => {
+    const downloading = {...status,install_state:'downloading' as const,installing:true};
+    expect(backendStatusLine(downloading)).toContain('downloading');
+    expect(backendStatusLine(downloading)).toContain('worker running');
+    expect(backendStatusLine(downloading)).not.toContain('ready');
+    expect(isInstallPending(downloading)).toBe(true);
+    const failure={...status,install_state:'failed' as const,last_error:'SHA-1 mismatch'};
+    expect(backendStatusLine(failure)).toContain('SHA-1 mismatch');
+    expect(backendStatusSignature(failure)).not.toEqual(backendStatusSignature(downloading));
+    expect(isInstallPending(failure)).toBe(false);
+  });
+  it('never invents a download percent or a completion from a partial count', () => {
+    const actual=event('downloading','Official Mojang files downloaded');
+    actual.details={downloaded_files:3970,native_archives:8};
+    expect(actual.percent).toBeNull();
+    expect(terminalInstallEvent(actual)).toBe(false);
+    expect(terminalInstallEvent(event('verifying','Independent SHA-1 file attestation complete'))).toBe(false);
   });
 });

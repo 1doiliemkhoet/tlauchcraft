@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { BackendUnavailable, EMPTY_CAPABILITIES, negotiate, operations, requireFeature, safeArchive, safePercent } from './backend';
+import { listen } from '@tauri-apps/api/event';
+import { BackendUnavailable, EMPTY_CAPABILITIES, negotiate, operations, requireFeature, safeArchive, safePercent, subscribeProgress, EVENT_NAMES } from './backend';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
+const mockedListen = vi.mocked(listen);
 const withFeature = (feature: keyof typeof EMPTY_CAPABILITIES.features) => ({
   ...EMPTY_CAPABILITIES,
   features: { ...EMPTY_CAPABILITIES.features, [feature]: true }
 });
-beforeEach(() => mockedInvoke.mockReset());
+beforeEach(() => { mockedInvoke.mockReset(); mockedListen.mockReset(); });
 
 describe('capability negotiation', () => {
   it('fails closed on malformed response', async () => {
@@ -99,5 +102,36 @@ describe('real Vanilla and Java settings command contracts', () => {
     expect(mockedInvoke).toHaveBeenNthCalledWith(2,'game_status',{instanceId:'uuid'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(3,'game_preflight',{instanceId:'uuid',profileId:'profile'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(4,'game_launch',{request:{instance_id:'uuid',profile_id:'profile'}});
+  });
+});
+
+describe('event listener startup race and cleanup', () => {
+  it('registers every event listener concurrently instead of 15 serial handshakes', async () => {
+    const cleanups = Array.from({length: EVENT_NAMES.length}, () => vi.fn());
+    const resolvers: Array<(value: () => void) => void> = [];
+    mockedListen.mockImplementation(() => new Promise(resolve => { resolvers.push(resolve); }));
+    const events: string[] = [];
+    const waiting = subscribeProgress(e => events.push(e.phase));
+    await Promise.resolve();
+    expect(mockedListen).toHaveBeenCalledTimes(EVENT_NAMES.length);
+    expect(resolvers).toHaveLength(EVENT_NAMES.length);
+    resolvers.forEach((done,i) => done(cleanups[i]));
+    const stop = await waiting;
+    const eventCallback = mockedListen.mock.calls[0][1];
+    eventCallback?.({payload:{
+      contract_version:1,operation_id:'real-install',instance_id:'abc',
+      phase:'downloading',message_key:'Verified Mojang files',timestamp:'',details:{downloaded_files:3970},percent:null
+    }} as never);
+    expect(events).toEqual(['downloading']);
+    stop();
+    expect(cleanups.every(fn => fn.mock.calls.length === 1)).toBe(true);
+  });
+  it('unsubscribes successful listeners when any registration fails', async () => {
+    const cleanup = vi.fn();
+    mockedListen.mockImplementation((name) => name === EVENT_NAMES[0]
+      ? Promise.reject(new Error('listener unavailable'))
+      : Promise.resolve(cleanup));
+    await expect(subscribeProgress(() => {})).rejects.toThrow('listener unavailable');
+    expect(cleanup).toHaveBeenCalledTimes(EVENT_NAMES.length - 1);
   });
 });
