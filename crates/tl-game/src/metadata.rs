@@ -253,6 +253,45 @@ mod tests {
     }
 
     #[test]
+    fn actual_1211_lwjgl_fixture_keeps_only_selected_arch_natives() {
+        // Structure and SHA1 values copied from a 1.21.1 version metadata
+        // snapshot, not fabricated runtime download outcomes.
+        let version: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/mojang_1_21_1_lwjgl_windows.json"
+        ))
+        .unwrap();
+        for (arch, suffix) in [
+            ("x86_64", "natives-windows"),
+            ("x86", "natives-windows-x86"),
+            ("arm64", "natives-windows-arm64"),
+        ] {
+            let mut host = env();
+            host.arch = arch.into();
+            let files = plan_version(&version, Path::new("C:/E2E"), &host).unwrap();
+            let normals: Vec<_> = files
+                .iter()
+                .filter(|file| file.role == FileRole::Library)
+                .collect();
+            let natives: Vec<_> = files
+                .iter()
+                .filter(|file| file.role == FileRole::NativeArchive)
+                .collect();
+            assert_eq!(normals.len(), 3, "normal jars for {arch}");
+            assert_eq!(natives.len(), 3, "only selected native jars for {arch}");
+            for native in natives {
+                assert!(
+                    native
+                        .target
+                        .to_string_lossy()
+                        .ends_with(&format!("-{suffix}.jar")),
+                    "wrong architecture jar: {}",
+                    native.target.display()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn modern_lwjgl_natives_1211_exact_architecture_and_classpath() {
         // Mojang 1.21.1 structure: standalone 4-coordinate Maven artifacts
         // with downloads.artifact, plus Windows-only rules (not arch rules).
