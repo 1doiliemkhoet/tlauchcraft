@@ -5,11 +5,7 @@
 //! This is a diagnostic harness, NOT proof of playability. It never launches Java,
 //! runs Forge processors, publishes an instance or logs the API key.
 use serde_json::json;
-use std::{
-    env,
-    path::PathBuf,
-    sync::atomic::AtomicBool,
-};
+use std::{env, path::PathBuf, sync::atomic::AtomicBool};
 use tl_pack::{
     curseforge::{configured_api_key, resolve_curseforge_files, OfficialApiClient},
     inspect_archive,
@@ -47,46 +43,59 @@ fn run() -> Result<(), String> {
     let key = match configured_api_key() {
         Ok(value) => value,
         Err(_) => {
-            println!("{}", json!({
-                "mode": "inspect_only",
-                "archive_sha256": metadata.archive_sha256,
-                "pack_name": metadata.name,
-                "minecraft": metadata.game_version,
-                "loader": metadata.loader,
-                "total": metadata.files.len(),
-                "required": required,
-                "optional": optional,
-                "verified_downloads": 0,
-                "blocked": metadata.files.len(),
-                "blocked_items": metadata.files.iter().map(|f|json!({
-                    "project_id":f.project_id,
-                    "file_id":f.file_id,
-                    "required":f.required,
-                    "reason":"CurseForge API credentials unavailable; legal download unresolved"
-                })).collect::<Vec<_>>(),
-                "ready": false,
-                "status": "NEEDS_ACTION"
-            }));
+            println!(
+                "{}",
+                json!({
+                    "mode": "inspect_only",
+                    "archive_sha256": metadata.archive_sha256,
+                    "pack_name": metadata.name,
+                    "minecraft": metadata.game_version,
+                    "loader": metadata.loader,
+                    "total": metadata.files.len(),
+                    "required": required,
+                    "optional": optional,
+                    "verified_downloads": 0,
+                    "blocked": metadata.files.len(),
+                    "blocked_items": metadata.files.iter().map(|f|json!({
+                        "project_id":f.project_id,
+                        "file_id":f.file_id,
+                        "required":f.required,
+                        "reason":"CurseForge API credentials unavailable; legal download unresolved"
+                    })).collect::<Vec<_>>(),
+                    "ready": false,
+                    "status": "NEEDS_ACTION"
+                })
+            );
             return Ok(());
         }
     };
     let resolved = resolve_curseforge_files(&metadata, &OfficialApiClient, &key)
         .map_err(|_| "official CurseForge dependency resolution failed")?;
-    let unresolved: Vec<_> = resolved.files.iter()
+    let unresolved: Vec<_> = resolved
+        .files
+        .iter()
         .filter(|f| f.availability != tl_pack::curseforge::FileAvailability::Available)
-        .map(|f| json!({
-            "project_id":f.project_id, "file_id":f.file_id,
-            "required":f.required, "reason":f.reason,
-            "availability":f.availability
-        })).collect();
-    let dependency_actions: Vec<_> = resolved.dependency_actions.iter()
-        .map(|d| json!({
-            "parent_project_id":d.parent_project_id,
-            "parent_file_id":d.parent_file_id,
-            "dependency_project_id":d.project_id,
-            "required":d.required,
-            "reason":d.reason
-        })).collect();
+        .map(|f| {
+            json!({
+                "project_id":f.project_id, "file_id":f.file_id,
+                "required":f.required, "reason":f.reason,
+                "availability":f.availability
+            })
+        })
+        .collect();
+    let dependency_actions: Vec<_> = resolved
+        .dependency_actions
+        .iter()
+        .map(|d| {
+            json!({
+                "parent_project_id":d.parent_project_id,
+                "parent_file_id":d.parent_file_id,
+                "dependency_project_id":d.project_id,
+                "required":d.required,
+                "reason":d.reason
+            })
+        })
+        .collect();
     let mut installed = Vec::new();
     let mut failures = Vec::new();
     let mut state = TransactionState::NeedsAction;
@@ -100,39 +109,48 @@ fn run() -> Result<(), String> {
             &AtomicBool::new(false),
         )?;
         state = report.journal.state;
-        installed = report.installed.iter().map(|m| json!({
-            "project_id":m.project_id,
-            "file_id":m.file_id,
-            "path":m.relative_path,
-            "sha256":m.actual_sha256,
-            "size_bytes":m.bytes
-        })).collect();
+        installed = report
+            .installed
+            .iter()
+            .map(|m| {
+                json!({
+                    "project_id":m.project_id,
+                    "file_id":m.file_id,
+                    "path":m.relative_path,
+                    "sha256":m.actual_sha256,
+                    "size_bytes":m.bytes
+                })
+            })
+            .collect();
         failures = report.failures;
     }
-    println!("{}", json!({
-        "mode": if enable_staging { "private_stage" } else { "resolve_only" },
-        "pack_name": metadata.name,
-        "archive_sha256": metadata.archive_sha256,
-        "minecraft": metadata.game_version,
-        "loader": metadata.loader,
-        "archive_entries": metadata.archive_entries,
-        "total": metadata.files.len(),
-        "required":required,
-        "optional":optional,
-        "resolved_official":resolved.resolved_count,
-        "blocked_file_count": unresolved.len(),
-        "blocked_items": unresolved,
-        "dependency_actions":dependency_actions,
-        "required_dependency_actions": resolved.dependency_actions.iter().filter(|d|d.required).count(),
-        "optional_dependency_actions": resolved.dependency_actions.iter().filter(|d|!d.required).count(),
-        "verified_downloads": installed.len(),
-        "installed_files": installed,
-        "failed_downloads": failures.len(),
-        "failures": failures,
-        "state": state,
-        "forge_runtime_verified":false,
-        "ready":false,
-        "G5":"NOT_VERIFIED"
-    }));
+    println!(
+        "{}",
+        json!({
+            "mode": if enable_staging { "private_stage" } else { "resolve_only" },
+            "pack_name": metadata.name,
+            "archive_sha256": metadata.archive_sha256,
+            "minecraft": metadata.game_version,
+            "loader": metadata.loader,
+            "archive_entries": metadata.archive_entries,
+            "total": metadata.files.len(),
+            "required":required,
+            "optional":optional,
+            "resolved_official":resolved.resolved_count,
+            "blocked_file_count": unresolved.len(),
+            "blocked_items": unresolved,
+            "dependency_actions":dependency_actions,
+            "required_dependency_actions": resolved.dependency_actions.iter().filter(|d|d.required).count(),
+            "optional_dependency_actions": resolved.dependency_actions.iter().filter(|d|!d.required).count(),
+            "verified_downloads": installed.len(),
+            "installed_files": installed,
+            "failed_downloads": failures.len(),
+            "failures": failures,
+            "state": state,
+            "forge_runtime_verified":false,
+            "ready":false,
+            "G5":"NOT_VERIFIED"
+        })
+    );
     Ok(())
 }
