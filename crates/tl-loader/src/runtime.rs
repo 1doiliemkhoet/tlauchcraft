@@ -78,22 +78,12 @@ pub fn run_verified_processors(request: &ProcessorRunRequest) -> ProcessorRunRep
     };
     if let Err(err) = execute(request, &mut report) {
         report.error = Some(err.to_string());
-        // Never remove or write an existing root. Only remove our own fresh staging tree.
-        if report_stage_created(request, &report) {
-            let _ = fs::remove_dir_all(&request.stage_root);
-        }
+        // A failed private stage is NOT committed. Retain it for processor logs/evidence;
+        // the caller may explicitly clean it up after collecting diagnostics.
         return report;
     }
     report.outcome = ProcessorOutcome::Verified;
     report
-}
-
-fn report_stage_created(request: &ProcessorRunRequest, report: &ProcessorRunReport) -> bool {
-    // The marker can be created only by this runner after create_dir succeeded.
-    let marker = request.stage_root.join(".tl-loader-stage");
-    report.outcome == ProcessorOutcome::Failed
-        && marker.is_file()
-        && fs::read_to_string(marker).ok().as_deref() == Some("tl-loader-forge-v1")
 }
 
 fn execute(request: &ProcessorRunRequest, report: &mut ProcessorRunReport) -> Result<(), LoaderError> {
@@ -199,10 +189,15 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
     }
     for file in std::iter::once(&processor.executable).chain(processor.classpath.iter()) {
         maven::artifact_path(&file.coordinate)?;
-        if !file.source.starts_with("https://maven.minecraftforge.net/")
-            && !file.source.starts_with("https://repo.maven.apache.org/maven2/")
-            && !file.source.starts_with("https://libraries.minecraft.net/")
-        {
+        let relative = maven::artifact_path(&file.coordinate)?;
+        let origin_ok = [
+            "https://maven.minecraftforge.net",
+            "https://repo.maven.apache.org/maven2",
+            "https://libraries.minecraft.net",
+        ]
+        .iter()
+        .any(|base| file.source == format!("{base}/{relative}"));
+        if !origin_ok {
             return Err(LoaderError::InvalidMetadata("unapproved processor artifact source".into()));
         }
         verify_sha1(&file.path, &file.sha1)?;
@@ -266,7 +261,7 @@ mod tests {
                 coordinate: "net.minecraftforge:installertools:1.2.0".into(),
                 path: jar,
                 sha1: sha.into(),
-                source: "https://maven.minecraftforge.net/net/minecraftforge/forge.jar".into(),
+                source: "https://maven.minecraftforge.net/net/minecraftforge/installertools/1.2.0/installertools-1.2.0.jar".into(),
             },
             classpath: vec![],
             main_class: "net.minecraftforge.installertools.ConsoleTool".into(),
