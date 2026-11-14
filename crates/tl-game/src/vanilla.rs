@@ -1002,7 +1002,13 @@ mod tests {
         let manifest = root.join("archives.json");
         fs::write(&manifest, manifest_json).unwrap();
         let output = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
             .arg(script)
             .arg("-Destination")
             .arg(destination)
@@ -1010,7 +1016,10 @@ mod tests {
             .arg(manifest)
             .output()
             .unwrap();
-        assert!(!output.status.success(), "malformed archive manifest unexpectedly accepted");
+        assert!(
+            !output.status.success(),
+            "malformed archive manifest unexpectedly accepted"
+        );
         String::from_utf8_lossy(&output.stderr).into_owned()
     }
 
@@ -1024,7 +1033,10 @@ mod tests {
             let root = tempfile::tempdir().unwrap();
             let error = run_native_manifest_fixture(root.path(), json);
             assert!(!error.trim().is_empty(), "fixture {index} gave no error");
-            assert!(fs::read_dir(root.path().join("natives")).unwrap().next().is_none());
+            assert!(fs::read_dir(root.path().join("natives"))
+                .unwrap()
+                .next()
+                .is_none());
         }
     }
 
@@ -1040,7 +1052,10 @@ mod tests {
             let root = tempfile::tempdir().unwrap();
             let error = run_native_manifest_fixture(root.path(), &archive_list.to_string());
             assert!(!error.trim().is_empty());
-            assert!(fs::read_dir(root.path().join("natives")).unwrap().next().is_none());
+            assert!(fs::read_dir(root.path().join("natives"))
+                .unwrap()
+                .next()
+                .is_none());
         }
     }
 
@@ -1050,7 +1065,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir_all(root.path().join("libraries")).unwrap();
         let missing = root.path().join("libraries").join("not-present.jar");
-        let error = run_native_manifest_fixture(root.path(), &serde_json::json!([missing]).to_string());
+        let error =
+            run_native_manifest_fixture(root.path(), &serde_json::json!([missing]).to_string());
         assert!(error.contains("does not exist"), "{error}");
     }
 
