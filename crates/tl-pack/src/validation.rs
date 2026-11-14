@@ -673,11 +673,9 @@ mod tests {
             actual_sha256: sha256,
             bytes: bytes.len() as u64,
         }];
-        let audit = audit_dependencies(&[
-            node(101, "mods/fixture.jar", vec![], true),
-        ], "1.16.5");
-        // The fixture's node uses fileID 201, so align with resolver 202.
-        let mut audit = audit;
+        let mut fixture_node = node(101, "mods/fixture.jar", vec![], true);
+        fixture_node.file_id = 202;
+        let mut audit = audit_dependencies(&[fixture_node], "1.16.5");
         assert!(audit.complete);
         let receipt = ForgeRuntimeReceipt {
             minecraft_version: "1.16.5".into(),
@@ -700,7 +698,7 @@ mod tests {
         assert_eq!(valid.blocked, 0);
         assert_eq!(valid.failed, 0);
 
-        std::fs::write(stage.join("mods/fixture.jar"), b"tampered fixture jar bytes").unwrap();
+        std::fs::write(stage.join("mods/fixture.jar"), b"offline fixture jar bytex").unwrap();
         let altered = validate_staged_instance(
             &stage, &manifest, &resolved, &installed, &audit, Some(&receipt),
         );

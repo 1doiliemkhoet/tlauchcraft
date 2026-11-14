@@ -88,6 +88,8 @@ struct ApiFile {
     mod_id: u64,
     file_name: String,
     file_length: u64,
+    #[serde(default)]
+    game_versions: Vec<String>,
     download_url: Option<String>,
     #[serde(default)]
     hashes: Vec<ApiHash>,
@@ -221,6 +223,7 @@ fn resolve_one(
     project_id: u64,
     file_id: u64,
     required: bool,
+    minecraft_version: &str,
 ) -> CurseForgeFile {
     let path = format!("/mods/{project_id}/files/{file_id}");
     let (status, body) = match api.get(&path, key) {
@@ -283,6 +286,14 @@ fn resolve_one(
             required,
             FileAvailability::InvalidMetadata,
             "File identity, name or size rejected",
+        );
+    }
+    // Core API must explicitly list the target game version. Do not infer
+    // compatibility from the filename or modpack's own requested version.
+    if !data.game_versions.iter().any(|v| v == minecraft_version) {
+        return make_blocked(
+            project_id, file_id, required, FileAvailability::InvalidMetadata,
+            "official file metadata does not confirm target Minecraft version",
         );
     }
     let dependencies = data
@@ -361,7 +372,9 @@ pub fn resolve_curseforge_files(
         if !unique.insert((project, file)) {
             return Err(ResolveError::InvalidResponse("duplicate file IDs".into()));
         }
-        files.push(resolve_one(api, api_key, project, file, item.required));
+        files.push(resolve_one(
+            api, api_key, project, file, item.required, &metadata.game_version,
+        ));
     }
     let resolved_count = files
         .iter()
@@ -488,7 +501,7 @@ mod tests {
     fn resolved_url_does_not_mean_installed_or_ready() {
         let api = MockApi {
             file_status: 200,
-            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[{"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","algo":1}]}}"#,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"gameVersions":["1.16.5","Forge"],"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[{"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","algo":1}]}}"#,
             fallback: "",
         };
         let result = resolve_curseforge_files(&metadata(), &api, "test-key").unwrap();
@@ -503,7 +516,7 @@ mod tests {
     fn blocked_file_is_reported_not_dropped() {
         let api = MockApi {
             file_status: 200,
-            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":null,"hashes":[]}}"#,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"gameVersions":["1.16.5","Forge"],"downloadUrl":null,"hashes":[]}}"#,
             fallback: r#"{"data":null}"#,
         };
         let result = resolve_curseforge_files(&metadata(), &api, "key").unwrap();
@@ -531,7 +544,7 @@ mod tests {
     fn id_mismatch_and_unsafe_name_fail_closed() {
         let api = MockApi {
             file_status: 200,
-            body: r#"{"data":{"id":201,"modId":100,"fileName":"../evil.jar","fileLength":100,"downloadUrl":null,"hashes":[]}}"#,
+            body: r#"{"data":{"id":201,"modId":100,"fileName":"../evil.jar","fileLength":100,"gameVersions":["1.16.5","Forge"],"downloadUrl":null,"hashes":[]}}"#,
             fallback: "",
         };
         let result = resolve_curseforge_files(&metadata(), &api, "key").unwrap();
@@ -544,7 +557,7 @@ mod tests {
     fn missing_trusted_checksum_is_never_downloadable() {
         let api = MockApi {
             file_status: 200,
-            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[]}}"#,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"gameVersions":["1.16.5","Forge"],"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[]}}"#,
             fallback: "",
         };
         let report = resolve_curseforge_files(&metadata(), &api, "fake-key").unwrap();
@@ -572,10 +585,24 @@ mod tests {
     }
 
     #[test]
+    fn wrong_minecraft_version_is_never_auto_approved() {
+        let api = MockApi {
+            file_status: 200,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"bad.jar","fileLength":100,"gameVersions":["1.20.1"],"downloadUrl":"https://edge.forgecdn.net/files/1/2/bad.jar","hashes":[{"algo":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}}"#,
+            fallback: "",
+        };
+        let result = resolve_curseforge_files(&metadata(), &api, "fake").unwrap();
+        assert_eq!(result.resolved_count, 0);
+        assert_eq!(result.needs_action_count, 1);
+        assert_eq!(result.files[0].availability, FileAvailability::InvalidMetadata);
+        assert!(!result.ready);
+    }
+
+    #[test]
     fn required_unknown_dependency_is_actionable_not_silently_skipped() {
         let api = MockApi {
             file_status: 200,
-            body: r#"{"data":{"id":200,"modId":100,"fileName":"a.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/a.jar","hashes":[{"algo":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"dependencies":[{"modId":999,"relationType":3},{"modId":888,"relationType":2}]}}"#,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"a.jar","fileLength":100,"gameVersions":["1.16.5","Forge"],"downloadUrl":"https://edge.forgecdn.net/files/1/2/a.jar","hashes":[{"algo":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"dependencies":[{"modId":999,"relationType":3},{"modId":888,"relationType":2}]}}"#,
             fallback: "",
         };
         let report = resolve_curseforge_files(&metadata(), &api, "fake").unwrap();

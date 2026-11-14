@@ -264,9 +264,13 @@ fn from_cf<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<ParsedPac
         },
     };
     let mut ids = HashSet::new();
+    let mut projects = HashSet::new();
     let mut files = Vec::new();
     for file in doc.files {
-        if file.project_id == 0 || file.file_id == 0 || !ids.insert((file.project_id, file.file_id))
+        if file.project_id == 0
+            || file.file_id == 0
+            || !ids.insert((file.project_id, file.file_id))
+            || !projects.insert(file.project_id)
         {
             return Err(PackError::Metadata(
                 "invalid or duplicate CurseForge project/file ID".into(),
