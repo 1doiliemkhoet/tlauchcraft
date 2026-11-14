@@ -360,19 +360,18 @@ fn bound_value(
     match value {
         BoundValue::Literal(x) => {
             if x.is_empty() || x.len() > 8192 || x.chars().any(char::is_control)
-                || x.contains(['{', '}', '[', ']']) {
+                || x.chars().any(|ch| matches!(ch, '{' | '}' | '[' | ']')) {
                 return Err(LoaderError::InvalidMetadata(format!("invalid literal {key}")).into());
             }
             Ok(x.clone())
         }
         BoundValue::VerifiedExternal(x) => {
-            // Trust must be established by caller and is re-checked before execution.
-            if x.sha1.len() != 40 || !x.sha1.bytes().all(|v| v.is_ascii_hexdigit()) {
-                return Err(LoaderError::InvalidMetadata("external missing hash".into()).into());
+            // Every referenced input is checked before any process can spawn.
+            // A metadata source string never substitutes for a locally checked hash.
+            if !x.path.is_absolute() {
+                return Err(LoaderError::InvalidInput.into());
             }
-            if !x.path.is_file() || !x.path.is_absolute() {
-                return Err(LoaderError::InvalidMetadata("external file missing".into()).into());
-            }
+            crate::runtime::validate_verified_artifact(x)?;
             Ok(x.path.to_string_lossy().into_owned())
         }
         BoundValue::Staged(rel) => {
