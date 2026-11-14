@@ -238,10 +238,18 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
         let _ = fs::remove_file(&script);
         return Err(GameError::Io(err));
     }
+    let list = parent.join(format!(
+        ".tl-native-archives-{}.json",
+        std::process::id()
+    ));
     let work = (|| -> Result<(), GameError> {
+        let manifest = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&list)?;
+        serde_json::to_writer(manifest, archives)?;
         fs::create_dir(destination)?;
-        let mut command = Command::new("powershell.exe");
-        command
+        let result = Command::new("powershell.exe")
             .arg("-NoProfile")
             .arg("-NonInteractive")
             .arg("-ExecutionPolicy")
@@ -250,9 +258,9 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
             .arg(&script)
             .arg("-Destination")
             .arg(destination)
-            .arg("-Archives")
-            .args(archives);
-        let result = command.output()?;
+            .arg("-ArchiveListPath")
+            .arg(&list)
+            .output()?;
         if !result.status.success() {
             let error = String::from_utf8_lossy(&result.stderr);
             return Err(GameError::InvalidInput(format!(
@@ -262,6 +270,7 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
         }
         Ok(())
     })();
+    let _ = fs::remove_file(&list);
     let _ = fs::remove_file(&script);
     if work.is_err() {
         let _ = fs::remove_dir_all(destination);
