@@ -1,5 +1,6 @@
 //! Trusted LAN primitives. Standalone until tl-core freezes its shared API.
 //! Does not download Minecraft, install a server loader, or bypass authentication.
+pub mod e2e_preflight;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
