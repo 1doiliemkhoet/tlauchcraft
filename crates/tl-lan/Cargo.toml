@@ -10,3 +10,4 @@ name = "tl_lan"
 path = "src/lib.rs"
 
 [dependencies]
+tl-core = { path = "../tl-core" }
