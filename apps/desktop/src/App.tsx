@@ -24,7 +24,6 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities>(EMPTY_CAPABILITIES);
   const [profiles, setProfiles] = useState<OfflineProfile[]>([]);
   const [instances, setInstances] = useState<GameInstance[]>([]);
-  const [versions, setVersions] = useState<string[]>([]);
   const [username, setUsername] = useState('');
   const [selectedProfile, setSelectedProfile] = useState('');
   const [selectedInstance, setSelectedInstance] = useState('');
@@ -48,8 +47,7 @@ export default function App() {
   const refresh = useCallback(async (c: Capabilities) => {
     const tasks = [
       c.features.profiles ? operations.listProfiles(c).then(setProfiles) : Promise.resolve(),
-      c.features.instances ? operations.listInstances(c).then(setInstances) : Promise.resolve(),
-      c.features.versions ? operations.listVersions(c).then(setVersions) : Promise.resolve()
+      c.features.instances ? operations.listInstances(c).then(setInstances) : Promise.resolve()
     ];
     const results = await Promise.allSettled(tasks);
     results.forEach(r => { if (r.status === 'rejected') log('Backend list failed: ' + String(r.reason)); });
