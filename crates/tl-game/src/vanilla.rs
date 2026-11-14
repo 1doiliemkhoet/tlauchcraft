@@ -935,7 +935,8 @@ mod tests {
     #[test]
     fn real_native_zip_dll_is_extracted() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("safe.jar");
+        let archive = dir.path().join("libraries").join("safe.jar");
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
         create_native_zip(&archive, "org/lwjgl/native-test.dll");
         let dest = dir.path().join("natives");
         extract_natives(&[archive], &dest).unwrap();
@@ -946,7 +947,8 @@ mod tests {
     #[test]
     fn malicious_native_zip_traversal_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("traversal.jar");
+        let archive = dir.path().join("libraries").join("traversal.jar");
+        fs::create_dir_all(archive.parent().unwrap()).unwrap();
         create_native_zip(&archive, "../../outside.dll");
         let dest = dir.path().join("natives");
         assert!(extract_natives(&[archive], &dest).is_err());
@@ -958,13 +960,98 @@ mod tests {
     #[test]
     fn duplicate_dll_across_archives_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let first = dir.path().join("a.jar");
-        let second = dir.path().join("b.jar");
+        let first = dir.path().join("libraries").join("a.jar");
+        let second = dir.path().join("libraries").join("b.jar");
+        fs::create_dir_all(first.parent().unwrap()).unwrap();
         create_native_zip(&first, "windows/native-test.dll");
         create_native_zip(&second, "another/native-test.dll");
         let dest = dir.path().join("natives");
         assert!(extract_natives(&[first, second], &dest).is_err());
         assert!(!dest.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_51_eight_json_archives_extract_distinct_dlls() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("libraries");
+        fs::create_dir_all(&lib).unwrap();
+        let mut archives = Vec::new();
+        for i in 0..8 {
+            let archive = lib.join(format!("lwjgl-native-{i}.jar"));
+            create_native_zip(&archive, &format!("org/lwjgl/lwjgl-{i}.dll"));
+            archives.push(archive);
+        }
+        let dest = dir.path().join("natives");
+        extract_natives(&archives, &dest).unwrap();
+        for i in 0..8 {
+            assert_eq!(
+                fs::read(dest.join(format!("lwjgl-{i}.dll"))).unwrap(),
+                b"test-dll"
+            );
+        }
+        assert_eq!(fs::read_dir(dest).unwrap().count(), 8);
+    }
+
+    #[cfg(windows)]
+    fn run_native_manifest_fixture(root: &Path, manifest_json: &str) -> String {
+        let destination = root.join("natives");
+        fs::create_dir_all(&destination).unwrap();
+        let script = root.join("native-test.ps1");
+        fs::write(&script, include_str!("native_extract.ps1")).unwrap();
+        let manifest = root.join("archives.json");
+        fs::write(&manifest, manifest_json).unwrap();
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(script)
+            .arg("-Destination")
+            .arg(destination)
+            .arg("-ArchiveListPath")
+            .arg(manifest)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "malformed archive manifest unexpectedly accepted");
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_empty_or_malformed_native_manifest() {
+        for (index, json) in ["[]", "{}", "null", "not-json", "[42]", "[null]", "[[]]"]
+            .into_iter()
+            .enumerate()
+        {
+            let root = tempfile::tempdir().unwrap();
+            let error = run_native_manifest_fixture(root.path(), json);
+            assert!(!error.trim().is_empty(), "fixture {index} gave no error");
+            assert!(fs::read_dir(root.path().join("natives")).unwrap().next().is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_relative_and_outside_archive_paths() {
+        for archive_list in [
+            serde_json::json!(["relative.jar"]),
+            serde_json::json!(["C:\\outside\\native.jar"]),
+            serde_json::json!(["D:\\outside\\native.jar"]),
+            serde_json::json!([""]),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let error = run_native_manifest_fixture(root.path(), &archive_list.to_string());
+            assert!(!error.trim().is_empty());
+            assert!(fs::read_dir(root.path().join("natives")).unwrap().next().is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_powershell_rejects_missing_archive_under_libraries() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("libraries")).unwrap();
+        let missing = root.path().join("libraries").join("not-present.jar");
+        let error = run_native_manifest_fixture(root.path(), &serde_json::json!([missing]).to_string());
+        assert!(error.contains("does not exist"), "{error}");
     }
 
     #[test]
