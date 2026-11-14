@@ -422,6 +422,18 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn actual_output_bytes_must_match_declared_hash() {
+        let root = scratch();
+        fs::create_dir(&root).unwrap();
+        let output = root.join("mismatch.jar");
+        fs::write(&output, b"wrong-output").unwrap();
+        let official_expected_sha1 = "51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa";
+        assert!(verify_sha1(&output, official_expected_sha1).is_err());
+        // Hash mismatch cannot be accepted as a verified processor output.
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_java_probe_does_not_create_stage() {
         let (root, p) = fixture();
         let stage = root.join("stage");
