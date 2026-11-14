@@ -47,7 +47,9 @@ fn approved_metadata_endpoint(url: &str) -> Result<reqwest::Url, GameError> {
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
         )
     {
-        return Err(GameError::InvalidInput("untrusted metadata endpoint".into()));
+        return Err(GameError::InvalidInput(
+            "untrusted metadata endpoint".into(),
+        ));
     }
     Ok(u)
 }
@@ -61,7 +63,12 @@ fn metadata_client() -> Result<Client, GameError> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| GameError::NetworkFailure(format!("metadata client initialization: {e}")));
-    metadata_trace("client", "local", if result.is_ok() { "ok" } else { "error" }, start);
+    metadata_trace(
+        "client",
+        "local",
+        if result.is_ok() { "ok" } else { "error" },
+        start,
+    );
     result
 }
 
@@ -181,7 +188,13 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
         return Err(GameError::InvalidInput("invalid version id".into()));
     }
     let client = metadata_client()?;
-    let manifest = fetch_json(&client, MANIFEST, None, "manifest", "piston-meta.mojang.com")?;
+    let manifest = fetch_json(
+        &client,
+        MANIFEST,
+        None,
+        "manifest",
+        "piston-meta.mojang.com",
+    )?;
     let versions = manifest
         .get("versions")
         .and_then(Value::as_array)
@@ -656,7 +669,9 @@ mod tests {
     fn metadata_body_stall_is_bounded() {
         let (url, server) = local_http(|mut stream| {
             stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 200\r\nConnection: close\r\n\r\n{\"id\":")
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 200\r\nConnection: close\r\n\r\n{\"id\":",
+                )
                 .unwrap();
             stream.flush().unwrap();
             std::thread::sleep(Duration::from_millis(600));
