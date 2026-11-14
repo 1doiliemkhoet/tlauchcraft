@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|
 | [Chat 1](#chat-1--foundation--persistence) | Foundation & Persistence | **PR #18 MERGED · G1 ACCEPTED** | [#18](https://github.com/1doiliemkhoet/tlauchcraft/pull/18) | Windows 81/81 tests; fmt/clippy PASS, 7 crates | **CAS/migration/backup/identity ACCEPTED · G6 NOT_VERIFIED** |
 | [Chat 2](#chat-2--minecraft-core--singleplayer) | Minecraft Core & Singleplayer | **G2 POWERSHELL 5.1 NATIVE FIX · CI PASS** | [#26 (draft)](https://github.com/1doiliemkhoet/tlauchcraft/pull/26) | [Windows fmt/Clippy/108 tests PASS](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43618688748) | **G2 PARTIAL · G3/G4 NOT_VERIFIED** |
-| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **MERGED · G1 CONTROL_ACCEPTED** | [#8](https://github.com/1doiliemkhoet/tlauchcraft/pull/8) | Windows 35/35 tests; fmt/clippy PASS | **G1 ACCEPTED · G2/G3/G5 NOT_VERIFIED** |
+| [Chat 3](#chat-3--mod-loader-adapters) | Mod Loader Adapters | **PR #28 DRAFT · Forge runtime IN_PROGRESS** | [#28](https://github.com/1doiliemkhoet/tlauchcraft/pull/28) | Windows CI pending · fmt PASS | G2/G3/G5 NOT_VERIFIED |
 | [Chat 4](#chat-4--modpack-zip-import) | CurseForge installer security P0 | **IN_PROGRESS · SECURITY_PATCHED** | [#25](https://github.com/1doiliemkhoet/tlauchcraft/pull/25) | Windows CI IN_PROGRESS | G5 NOT_VERIFIED |
 | [Chat 5](#chat-5--trusted-lan-multiplayer) | Trusted LAN Multiplayer | **MERGED · G1 CONTROL_ACCEPTED** | [#9](https://github.com/1doiliemkhoet/tlauchcraft/pull/9) | Windows 44/44 tests; fmt/clippy PASS | **G1 ACCEPTED · G6 NOT_VERIFIED** |
 | [Chat 6](#chat-6--offline-skin-manager) | Offline Skin Manager | **MERGED · G1 CONTROL_ACCEPTED** | [#11](https://github.com/1doiliemkhoet/tlauchcraft/pull/11) | Windows 62/62 tests; fmt/clippy PASS | **G1 ACCEPTED · G7 NOT_VERIFIED** |
@@ -94,6 +94,12 @@ ontract. No self-merge.
 - **Next:** integrate approved verified downloader and official installers, verify Minecraft mod startup on Windows before G2/G3/G5 claim.
 
 - **Control decision 2026-11-14:** PR #8 merged into `develop` (`1bd1ce8e`), G1 Windows metadata-planning ACCEPTED ([CI 35/35](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43468262347)). No actual loader installation/launch or Forge processor execution verified (G2/G3/G5 NOT_VERIFIED). Previous Chat 3 status above is historical.
+
+
+- **Chat 3 new P0 work (2026-11-15):** Original PR #8 is MERGED (historical accepted G1). New branch `feat/tl-03-forge-runtime` created from latest develop; [PR #28](https://github.com/1doiliemkhoet/tlauchcraft/pull/28) OPEN DRAFT, **NOT MERGED**. Current HEAD `69807a584ca638ed3cb891f935132d11e7ee4a7c`.
+- **Code added:** `crates/tl-loader/src/runtime.rs`: allowlisted Forge 1.16.5 processor Java subprocess runner, official Maven URL + SHA-1 preflight, Java 8 `tl_game::probe_java`, private fresh staging, timeout, exit codes, logs, output SHA-1 and explicit `Failed/Verified` processor stage. `src/forge_1165.rs`: Forge 1.16.5 client processor blueprint + version inheritance checks through Chat 2. `tests/fixtures/forge_1165_profile.json` is **synthetic shape fixture**, not official/E2E evidence. `FORGE_1165_RUNTIME_CONTRACT.md` defines Chat 4 handoff.
+- **CI status:** First Windows runs failed rustfmt only; applied diff from Windows rustfmt. [Latest standard CI #43619968229](https://github.com/1doiliemkhoet/tlauchcraft/actions/runs/43619968229) underway at reporting time; workspace registration and fmt PASS, Clippy/tests **PENDING**. No fabricated PASS.
+- **Dependencies/blockers:** Exact full Forge install_profile data-token expansion, verified archive extraction, official Maven downloader extension (Chat 2 / Control approval), staged file commit into Chat 4 instance, true installer execution logs not yet available. No actual Forge launch/E2E evidence. G2/G3/G5 NOT_VERIFIED. Code G1 awaiting latest CI review.
 
 <!-- CHAT-03:END -->
 
