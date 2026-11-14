@@ -2,7 +2,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use tl_core::{CoreError, GameInstance, OfflineProfile, CONTRACT_VERSION};
-use tl_storage::{default_data_dir, InstanceStore, ProfileStore, SqliteStore};
+use tl_storage::{default_data_dir, isolated_data_dir, InstanceStore, ProfileStore, SqliteStore};
 use tl_pack::{inspect_archive, PackMetadata};
 use tl_pack::curseforge::{configured_api_key, resolve_curseforge_files, CurseForgeResolveReport, OfficialApiClient};
 use tl_pack::install::{stage_curseforge_downloads, InstallStatus, StageReport};
@@ -154,19 +154,20 @@ async fn pack_stage_curseforge(
             });
         }
         emit_pack_progress(&app, &id, "DOWNLOADING", "pack.staging", None);
-        let root = default_data_dir().map_err(|e| e.to_string())?.join("instances");
-        std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+        let root = isolated_data_dir(
+            &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
+        ).map_err(|e| e.to_string())?;
         let stage = root.join(format!("{id}.staging"));
         let report = stage_curseforge_downloads(
             archive, &metadata, &resolved, &stage, &key, &cancel,
         ).map_err(|e| e.to_string())?;
         emit_pack_progress(&app, &id, "NEEDS_ACTION", "pack.not_ready", Some(100.0));
         Ok(report)
-    }).await.map_err(|_| "pack staging task failed".to_string())?;
+    }).await;
     if let Ok(mut jobs) = pack_jobs().lock() {
         jobs.remove(&operation_id);
     }
-    worker
+    worker.map_err(|_| "pack staging task failed".to_string())?
 }
 
 /// Cancel a running staging transfer without deleting unrelated user data.
