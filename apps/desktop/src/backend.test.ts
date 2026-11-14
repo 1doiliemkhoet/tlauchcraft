@@ -64,3 +64,38 @@ describe('UX validation', () => {
     expect([state,loader]).toEqual(['ready','neo_forge']);
   });
 });
+
+describe('real Vanilla and Java settings command contracts', () => {
+  it('creates Vanilla instance only through a registered game command', async () => {
+    mockedInvoke.mockResolvedValue({ id: 'instance-uuid', state: 'empty' });
+    await operations.createVanillaInstance(withFeature('game'), {
+      name: 'Vanilla', version: '1.21.1', profile_id: 'profile-uuid'
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith('instance_create_vanilla', {
+      req: { name: 'Vanilla', version: '1.21.1', profile_id: 'profile-uuid' }
+    });
+  });
+  it('sends persisted per-instance RAM and CAS revision without fake success', async () => {
+    const value = {instance_id:'uuid',xms_mb:512,xmx_mb:4096,java_path:'C:/Java/bin/java.exe',revision:4};
+    mockedInvoke.mockResolvedValue({...value,revision:5});
+    expect(await operations.javaSettingsSave(withFeature('settings'), value)).toMatchObject({revision:5});
+    expect(mockedInvoke).toHaveBeenCalledWith('java_settings_save', {
+      instanceId:'uuid',xmsMb:512,xmxMb:4096,javaPath:'C:/Java/bin/java.exe',expectedRevision:4
+    });
+  });
+  it('does not send installation or stop actions to a disabled backend', async () => {
+    await expect(operations.installVanilla(EMPTY_CAPABILITIES,'uuid')).rejects.toThrow(BackendUnavailable);
+    await expect(operations.stopGame(EMPTY_CAPABILITIES,'uuid')).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+  it('uses the real Rust command for cancellation, process status, and launch', async () => {
+    mockedInvoke.mockResolvedValue(undefined);
+    const c = withFeature('game');
+    await operations.cancelInstall(c,'uuid');
+    await operations.gameStatus(c,'uuid');
+    await operations.launch(c,{instance_id:'uuid',profile_id:'profile'});
+    expect(mockedInvoke).toHaveBeenNthCalledWith(1,'game_cancel',{instanceId:'uuid'});
+    expect(mockedInvoke).toHaveBeenNthCalledWith(2,'game_status',{instanceId:'uuid'});
+    expect(mockedInvoke).toHaveBeenNthCalledWith(3,'game_launch',{request:{instance_id:'uuid',profile_id:'profile'}});
+  });
+});
