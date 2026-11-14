@@ -1,0 +1,24 @@
+[package]
+name = "tlauchcraft-desktop"
+version = "0.1.0"
+description = "tlauchcraft offline LAN desktop shell"
+edition = "2021"
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "=2.11.6", features = [] }
+tauri-runtime = "=2.11.3"
+tauri-runtime-wry = "=2.11.4"
+tauri-utils = "=2.9.3"
+tauri-plugin-dialog = "2"
+tl-core = { path = "../../../crates/tl-core" }
+tl-storage = { path = "../../../crates/tl-storage" }
+tl-pack = { path = "../../../crates/tl-pack" }
+
+# Desktop is independently locked; root workspace belongs to Chat 1.
+[workspace]
+resolver = "2"

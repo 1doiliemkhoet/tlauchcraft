@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tl-core", "crates/tl-storage", "crates/tl-game"]
+members = ["crates/tl-core", "crates/tl-storage", "crates/tl-game", "crates/tl-loader", "crates/tl-lan", "crates/tl-skin", "crates/tl-pack"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
@@ -14,5 +14,4 @@ chrono = { version = "=0.4.40", features = ["serde", "clock"] }
 thiserror = "=2.0.12"
 rusqlite = { version = "=0.34.0", features = ["bundled", "backup"] }
 tempfile = "=3.19.1"
-
 md5 = "=0.7.0"
