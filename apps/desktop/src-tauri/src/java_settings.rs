@@ -34,7 +34,7 @@ fn memory_info() -> Result<MemoryInfo, String> {
             .map_err(|_|"Windows RAM response invalid")?;
         if vals.len()!=2 { return Err("Windows RAM response incomplete".into()); }
         let total=vals[0]/1024; let available=vals[1]/1024;
-        if total<1024 || available>total { return Err("Invalid system RAM metrics".into()); }
+        if total<1024 || available>total || available<768 { return Err("Insufficient or invalid available system RAM".into()); }
         Ok(MemoryInfo{total_mb:total,available_mb:available,reserved_mb:1024})
     }
 }
