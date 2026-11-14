@@ -31,7 +31,7 @@ try {
     $total = [long]0
     $entryMap = @{}
     foreach ($entry in $zip.Entries) {
-        if ($entry.FullName.Contains('..') -or $entry.FullName.StartsWith('/') -or $entry.FullName.Contains('\\') -or $entry.FullName.Contains(':')) {
+        if ($entry.FullName.Contains('..') -or $entry.FullName.StartsWith('/') -or $entry.FullName.Contains([char]92) -or $entry.FullName.Contains(':')) {
             Fail "Archive contains unsafe path: $($entry.FullName)"
         }
         $total += $entry.Length
