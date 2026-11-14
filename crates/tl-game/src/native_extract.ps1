@@ -99,6 +99,7 @@ try {
     if ($files -eq 0) {
         throw 'No Windows DLL natives found'
     }
+    Write-Output "native_dll_count=$files total_uncompressed_bytes=$total"
 } finally {
     foreach ($zip in $zipFiles) { $zip.Dispose() }
 }
