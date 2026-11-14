@@ -322,7 +322,10 @@ pub fn install_vanilla(
     if native_count == 0 {
         return Err(GameError::InvalidInput(format!(
             "no matching Windows native archives in version {} download plan for {}",
-            version.get("id").and_then(Value::as_str).unwrap_or("unknown"),
+            version
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
             env.arch
         )));
     }
