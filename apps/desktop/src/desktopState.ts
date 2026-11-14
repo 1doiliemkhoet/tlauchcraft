@@ -34,3 +34,16 @@ export function validateJavaForm(prefs: JavaSettings | null, mem: MemoryInfo | n
     return 'Xmx exceeds currently available memory after 512 MB reserve.';
   return undefined;
 }
+
+/** Snapshot from Rust, never an optimistic "request accepted" completion. */
+export function backendStatusLine(status: GameStatus): string {
+  const message = status.last_error ? ` · error: ${status.last_error}` : '';
+  const job = status.installing ? ' · worker running' : '';
+  return `instance ${status.instance_id}: ${status.install_state}${job}${message}`;
+}
+export function backendStatusSignature(status: GameStatus): string {
+  return [status.install_state, status.installing, status.process_state, status.last_error ?? ''].join('|');
+}
+export function isInstallPending(status: GameStatus): boolean {
+  return status.installing || ['planned', 'downloading', 'verifying'].includes(status.install_state);
+}
