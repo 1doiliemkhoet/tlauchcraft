@@ -6,11 +6,11 @@ This branch adds a **library-level** install and launch orchestrator. It does no
 
 - `resolve_official_version(version_id)`: resolve official Mojang *release* metadata via HTTPS and verify version JSON SHA-1 against its manifest entry. Versions with inheritance are deliberately rejected.
 - `install_vanilla(version, root, cancelled)`: fetch and SHA-1-verify official client JAR, allowed libraries, native archives, logging configuration, asset index and asset objects. Existing divergent files are **not overwritten**; manual repair is required.
-- `extract_natives(archives, destination)`: Windows `tar.exe` extraction of previously verified official native archives, rejecting traversal paths and refusing an occupied extraction directory. Extraction is experimental, not yet security-reviewed for symlink entries and file collision.
+- `extract_natives(archives, destination)`: Windows PowerShell/.NET `ZipArchive` reads previously verified official archives; inspects every entry, rejects unsafe paths, links and device entries, prevents duplicate DLL names, limits file count/uncompressed sizes, extracts only DLLs into a new directory with `CreateNew`, and cleans up a failed run. Windows CI adds real ZIP fixture tests for valid DLL, traversal and cross-archive duplicate rejection.
 - `build_vanilla_launch(version, paths, identity, min_ram_mb, max_ram_mb)`: use explicitly selected compatible Java, derive classpath, environment-filtered arguments and Mojang placeholders, preserve native library path. Game UUID is separate from persisted `tl-core` local profile ID. Access token must come from an authorized caller, never included in evidence files.
 - `write_launch_evidence(path, version, java, pid, stdout, stderr)`: record nonsecret runtime facts, **always** set menu/world verification to false. A PID alone does not prove G3.
 
-Not yet complete: trusted Windows Java auto-provisioning, old native handling and collisions, secure extraction review, executable GUI integration and end-to-end Singleplayer tests. This code does **not** establish that launch of real Minecraft works; no game runtime is available in this assistant's execution environment.
+Not yet complete: trusted Windows Java auto-provisioning, old native layout compatibility, third-party security review of the hardened extractor, executable GUI integration and end-to-end Singleplayer tests. This code does **not** establish that launch of real Minecraft works; no game runtime is available in this assistant's execution environment.
 
 
 ## Run on a real Windows desktop (manual G2/G3/G4)
@@ -28,7 +28,7 @@ Replace the Java path and game UUID with test-machine values. In offline/local m
 
 When the game exits, run the same `cargo run` command again to reopen the saved Singleplayer world. Every invocation creates a distinct natives directory, stdout/stderr logs and launch JSON evidence; the same `instance/saves` directory is reused. The harness does **not** automatically detect a displayed main menu, create a world, or verify world re-opening: a tester must collect observable screenshots and precise evidence, then update the PR. Launching the Java process alone is not G3.
 
-**Known constraints:** `tar.exe` extraction has not been security-reviewed for symlinks/hardlinks and duplicate entries; do not feed untrusted modpack/native archives to this tool. It operates on hash-verified official Vanilla archives only. A future hardened ZIP extractor and integration tests are needed before declaring installer production-ready.
+**Native archive safety:** The bundled `native_extract.ps1` performs bounded two-phase ZIP validation and copies only DLL streams into a flat, empty, launcher-owned directory. This avoids invoking `tar.exe` on archive paths. It rejects traversal/link entries, duplicate DLL basenames and size/count excesses. Real Windows ZIP-fixture tests are required and have passed in CI, but that is not a security audit or real Mojang native compatibility test. Use only official SHA-1-verified archives in isolated test roots; never treat this as a general-purpose untrusted modpack extractor.
 
 ## Windows CI
 
@@ -50,7 +50,7 @@ cargo test --locked --workspace --all-targets
 
 ### Gate state
 
-- G1: already accepted by Control for PR #12; **new branch CI still required**.
+- G1: accepted by Control for PR #12; new PR #19 Windows Rust fmt/Clippy/tests PASS, 84/84 at run #43583681258.
 - G2: NOT_TESTED.
 - G3: NOT_TESTED.
 - G4: NOT_TESTED.
