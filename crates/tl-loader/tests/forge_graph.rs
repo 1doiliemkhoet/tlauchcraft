@@ -49,10 +49,10 @@ fn setup() -> (PathBuf, ForgeBindings) {
     data.insert("PATCHED".into(), BoundValue::Staged("generated/patched.jar".into()));
     data.insert("MC_SLIM".into(), BoundValue::Staged("generated/slim.jar".into()));
     data.insert("MC_EXTRA".into(), BoundValue::Staged("generated/extra.jar".into()));
-    data.insert("MINECRAFT_JAR".into(), BoundValue::Literal("cached-client.jar".into()));
+    data.insert("MINECRAFT_JAR".into(), BoundValue::Literal("verified-client-placeholder".into()));
     data.insert(
         "[net.minecraftforge:mcp_config:1.16.5-20210115.111550@zip]".into(),
-        BoundValue::Literal("trusted-cached-mcp.zip".into()),
+        BoundValue::Literal("trusted-cached-mcp".into()),
     );
     (
         root.clone(),
