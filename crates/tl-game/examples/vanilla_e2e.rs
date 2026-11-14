@@ -60,7 +60,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dll_count = fs::read_dir(&natives_dir)?
         .filter_map(Result::ok)
         .filter(|entry| {
-            entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
         })
         .count();
     eprintln!("[vanilla-native] extracted_dll_count={dll_count}");
