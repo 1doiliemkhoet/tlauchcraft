@@ -72,7 +72,17 @@ jobs:
         if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
-      - name: Tauri cargo check (Windows MSVC, locked)
+      - name: Integrate tl-game with real Windows Cargo and emit genuine lockfile
         if: steps.scope.outputs.desktop_source == 'true'
         working-directory: apps/desktop/src-tauri
-        run: cargo +stable check --locked
+        shell: pwsh
+        run: |
+          cargo +stable check
+          $code = $LASTEXITCODE
+          if (!(Test-Path Cargo.lock)) { throw "Cargo failed to generate lockfile" }
+          Write-Host "CARGO_LOCK_BASE64_BEGIN"
+          Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path Cargo.lock))))
+          Write-Host "CARGO_LOCK_BASE64_END"
+          if ($code -ne 0) { exit $code }
+          cargo +stable test --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
