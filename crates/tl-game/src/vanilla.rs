@@ -283,6 +283,38 @@ pub struct VanillaIdentity {
     pub xuid: String,
 }
 
+impl VanillaIdentity {
+    /// Use the authoritative tl-core offline UUID contract; internal profile IDs are distinct.
+    /// Username case matters, and renames may change server-side player data.
+    pub fn from_offline_profile(profile: &tl_core::OfflineProfile) -> Result<Self, GameError> {
+        let identity = tl_core::derive_vanilla_offline_identity(profile)
+            .map_err(|e| GameError::InvalidInput(e.to_string()))?;
+        Ok(Self {
+            game_uuid: identity.effective_game_uuid.simple().to_string(),
+            username: identity.username,
+            access_token: "0".to_owned(),
+            user_type: "legacy".to_owned(),
+            client_id: String::new(),
+            xuid: String::new(),
+        })
+    }
+
+    /// CLI test helper. The product launcher should use from_offline_profile
+    /// with its persisted SQLite profile rather than creating a new profile ID.
+    pub fn from_offline_username(username: &str) -> Result<Self, GameError> {
+        let uuid = tl_core::vanilla_offline_server_uuid(username)
+            .map_err(|e| GameError::InvalidInput(e.to_string()))?;
+        Ok(Self {
+            game_uuid: uuid.simple().to_string(),
+            username: username.to_owned(),
+            access_token: "0".to_owned(),
+            user_type: "legacy".to_owned(),
+            client_id: String::new(),
+            xuid: String::new(),
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VanillaPaths {
     pub root: PathBuf,
@@ -484,6 +516,37 @@ pub fn write_launch_evidence(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn offline_uuid_uses_tl_core_contract_not_profile_id() {
+        let profile = tl_core::OfflineProfile::new("Notch").unwrap();
+        let player = VanillaIdentity::from_offline_profile(&profile).unwrap();
+        assert_eq!(player.username, "Notch");
+        assert_eq!(player.game_uuid, "b50ad385829d3141a2167e7d7539ba7f");
+        assert_ne!(player.game_uuid, profile.id.simple().to_string());
+        assert_eq!(
+            VanillaIdentity::from_offline_username("Notch")
+                .unwrap()
+                .game_uuid,
+            player.game_uuid
+        );
+    }
+
+    #[test]
+    fn offline_uuid_rename_and_case_have_explicit_impact() {
+        let first = VanillaIdentity::from_offline_username("PlayerOne").unwrap();
+        let second = VanillaIdentity::from_offline_username("PlayerTwo").unwrap();
+        assert_ne!(first.game_uuid, second.game_uuid);
+        assert_ne!(
+            VanillaIdentity::from_offline_username("CaseName")
+                .unwrap()
+                .game_uuid,
+            VanillaIdentity::from_offline_username("casename")
+                .unwrap()
+                .game_uuid
+        );
+        assert!(VanillaIdentity::from_offline_username("bad name").is_err());
+    }
 
     #[test]
     fn native_extractor_has_strict_zip_gate() {

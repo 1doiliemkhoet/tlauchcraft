@@ -15,7 +15,7 @@ Not yet complete: trusted Windows Java auto-provisioning, old native layout comp
 
 ## Run on a real Windows desktop (manual G2/G3/G4)
 
-Use an isolated, fresh root directory that does not contain personal worlds. Install a compatible Java runtime separately; Minecraft 1.21.1 expects Java 21. Use a local offline username and its **game/server UUID**, not the `tl-core` stored profile ID.
+Use an isolated, fresh root directory that does not contain personal worlds. Install a compatible Java runtime separately; Minecraft 1.21.1 expects Java 21. Use a local offline username. The harness derives the **game/server UUID** via `tl_core::vanilla_offline_server_uuid` (case-sensitive MD5 v3), rather than trusting a manually supplied UUID or the internal persisted profile ID.
 
 From PowerShell in the repository worktree on this branch:
 
@@ -24,7 +24,7 @@ git switch feat/tl-02-game-e2e
 cargo run --locked --release -p tl-game --example vanilla_e2e -- 1.21.1 'C:\TLaunchCraft\E2E' 'C:\Program Files\Java\jdk-21\bin\java.exe' TestPlayer 00000000000000000000000000000001
 ```
 
-Replace the Java path and game UUID with test-machine values. In offline/local mode the harness uses a local placeholder token and `legacy` user type by default; it does **not** authenticate a Microsoft account, bypass an online-mode server or establish a Minecraft entitlement. To use an authorized online session instead, set `TLAUCHCRAFT_ACCESS_TOKEN`, `TLAUCHCRAFT_USER_TYPE`, and optionally `TLAUCHCRAFT_XUID` / `TLAUCHCRAFT_CLIENT_ID` in the environment without saving the token in scripts or logs.
+Replace the Java path with the installed Java executable. Use the **same username** when relaunching; changing name or capitalization changes the offline UUID and can change LAN inventory/playerdata. In the desktop product use `VanillaIdentity::from_offline_profile` with the **persisted** SQLite `OfflineProfile` from PR #18; never substitute `profile.id` for the server UUID. In offline/local mode the harness uses a local placeholder token and `legacy` user type by default; it does **not** authenticate a Microsoft account, bypass an online-mode server or establish a Minecraft entitlement. To use an authorized online session instead, set `TLAUCHCRAFT_ACCESS_TOKEN`, `TLAUCHCRAFT_USER_TYPE`, and optionally `TLAUCHCRAFT_XUID` / `TLAUCHCRAFT_CLIENT_ID` in the environment without saving the token in scripts or logs.
 
 When the game exits, run the same `cargo run` command again to reopen the saved Singleplayer world. Every invocation creates a distinct natives directory, stdout/stderr logs and launch JSON evidence; the same `instance/saves` directory is reused. The harness does **not** automatically detect a displayed main menu, create a world, or verify world re-opening: a tester must collect observable screenshots and precise evidence, then update the PR. Launching the Java process alone is not G3.
 

@@ -14,11 +14,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("Windows-only E2E harness".into());
     }
     let args: Vec<String> = env::args().collect();
-    if args.len() != 6 {
+    if args.len() != 5 {
         eprintln!(
-            "Usage: vanilla_e2e <official-release-id> <fresh-launcher-root> <java.exe> <username> <game-uuid>"
+            "Usage: vanilla_e2e <official-release-id> <fresh-launcher-root> <java.exe> <offline-username>"
         );
-        return Err("expected five CLI arguments".into());
+        return Err("expected four CLI arguments".into());
     }
     // Do not accept access tokens in CLI arguments or log files.
     // Local offline profiles do not require a Microsoft login. Do not log tokens.
@@ -28,7 +28,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let root = PathBuf::from(&args[2]);
     let java = PathBuf::from(&args[3]);
     let username = &args[4];
-    let uuid = &args[5];
 
     if !root.is_absolute() {
         return Err("use an absolute launcher-owned test root".into());
@@ -59,15 +58,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         natives_dir,
         java,
     };
-    let player = VanillaIdentity {
-        game_uuid: uuid.clone(),
-        username: username.clone(),
-        access_token: token,
-        user_type: env::var("TLAUCHCRAFT_USER_TYPE")
-            .unwrap_or_else(|_| default_user_type.to_owned()),
-        client_id: env::var("TLAUCHCRAFT_CLIENT_ID").unwrap_or_default(),
-        xuid: env::var("TLAUCHCRAFT_XUID").unwrap_or_default(),
-    };
+    let mut player = VanillaIdentity::from_offline_username(username)?;
+    // The game UUID always follows tl-core's offline contract, never a CLI supplied
+    // arbitrary UUID or the persisted internal profile UUID.
+    player.access_token = token;
+    player.user_type =
+        env::var("TLAUCHCRAFT_USER_TYPE").unwrap_or_else(|_| default_user_type.to_owned());
+    player.client_id = env::var("TLAUCHCRAFT_CLIENT_ID").unwrap_or_default();
+    player.xuid = env::var("TLAUCHCRAFT_XUID").unwrap_or_default();
     let launch_config = build_vanilla_launch(&version, &paths, &player, 512, 4096)?;
     let stdout = evidence.join(format!("client-{native_nonce}-stdout.log"));
     let stderr = evidence.join(format!("client-{native_nonce}-stderr.log"));
