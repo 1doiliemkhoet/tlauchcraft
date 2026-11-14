@@ -200,8 +200,11 @@ pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core:
     tl_game::foundation::validate_launch_context(&i,&profile,&request).map_err(|e|e.to_string())?;
     let dir=root(&i)?;
     let prefs=java_settings::read(&i.id.to_string())?;
-    let selected_xms=request.min_ram_mb.unwrap_or(prefs.xms_mb);
-    let selected_xmx=request.max_ram_mb.unwrap_or(prefs.xmx_mb);
+    if request.min_ram_mb.is_some_and(|v|v!=prefs.xms_mb) || request.max_ram_mb.is_some_and(|v|v!=prefs.xmx_mb) {
+        return Err("RAM overrides must be saved per instance with revision/CAS first".into())
+    }
+    let selected_xms=prefs.xms_mb;
+    let selected_xmx=prefs.xmx_mb;
     // Prevent requests from circumventing persisted Java safety constraints.
     java_settings::validate(selected_xms,selected_xmx,&prefs.java_path,&java_settings::system_memory()?)?;
     if request.java_path.as_ref().is_some_and(|path|path!=&prefs.java_path){
@@ -244,7 +247,7 @@ pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core:
         log_path:stdout.to_string_lossy().into_owned(),termination_state:"running"})
 }
 #[tauri::command]
-pub fn game_stop(state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),String>{
+pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),String>{
     let uuid=id(&instance_id)?;
     let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
     let mut child=children.remove(&uuid).ok_or("No launcher-owned Minecraft process")?;
@@ -252,6 +255,12 @@ pub fn game_stop(state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),S
         child.kill().map_err(|e|e.to_string())?;
         child.wait().map_err(|e|e.to_string())?;
     }
+    let _=app.emit("game.exited",json!({
+      "contract_version":1,"operation_id":instance_id,
+      "instance_id":uuid.to_string(),"timestamp":chrono::Utc::now().to_rfc3339(),
+      "phase":"stopped","message_key":"Launcher-owned Java process terminated",
+      "details":{},"percent":null
+    }));
     Ok(())
 }
 
