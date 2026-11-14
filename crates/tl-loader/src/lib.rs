@@ -7,6 +7,7 @@ pub use tl_core::{GameInstance, LoaderKind, LoaderSpec};
 pub mod fabric;
 pub mod installer;
 pub mod maven;
+pub mod runtime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artifact {
