@@ -195,3 +195,41 @@ fn existing_stage_is_rejected_without_mutation() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn resolves_profile_maven_reference_from_verified_artifact_map() {
+    let (root, mut bindings) = setup();
+    let coordinate = "net.minecraftforge:mcp_config:1.16.5-20210115.111550@zip";
+    let key = format!("[{coordinate}]");
+    let external = match bindings.data.remove(&key).unwrap() {
+        BoundValue::VerifiedExternal(value) => value,
+        _ => panic!("fixture must pin Maven ZIP input"),
+    };
+    bindings.artifacts.insert(coordinate.into(), external);
+    let result = prepare_forge_1165(PROFILE, &version(), &bindings);
+    assert_eq!(result.state, PrepareState::Verified, "{:?}", result.error);
+    let graph = result.request.unwrap();
+    let path = root.join("mcp-config.zip");
+    assert!(graph.processors[0].arguments.iter().any(|arg| arg == path.to_str().unwrap()));
+    assert!(!bindings.stage_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rejects_maven_reference_to_wrong_artifact_hash() {
+    let (root, mut bindings) = setup();
+    let coordinate = "net.minecraftforge:mcp_config:1.16.5-20210115.111550@zip";
+    let key = format!("[{coordinate}]");
+    let external = match bindings.data.remove(&key).unwrap() {
+        BoundValue::VerifiedExternal(mut value) => {
+            value.sha1 = "0000000000000000000000000000000000000000".into();
+            value
+        }
+        _ => panic!("fixture must pin Maven ZIP input"),
+    };
+    bindings.artifacts.insert(coordinate.into(), external);
+    let result = prepare_forge_1165(PROFILE, &version(), &bindings);
+    assert_eq!(result.state, PrepareState::Failed);
+    assert!(result.request.is_none());
+    fs::remove_dir_all(root).unwrap();
+}
