@@ -31,6 +31,14 @@ jobs:
           toolchain: '1.88.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      # Temporary Chat 3 diagnostic, removed before Control review.
+      - name: Generate Cargo lock via Windows Cargo
+        shell: pwsh
+        run: |
+          cargo generate-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $blob = [Convert]::ToBase64String([IO.File]::ReadAllBytes("Cargo.lock"))
+          Write-Output "TL03_FORGE_LOCK_BEGIN$blob"+"TL03_FORGE_LOCK_END"
       - name: Ensure every Rust crate is tested by the workspace
         shell: pwsh
         run: |
