@@ -45,6 +45,25 @@ pub struct CurseForgeFile {
     pub expected_size: Option<u64>,
     pub availability: FileAvailability,
     pub reason: String,
+    /// Relation metadata supplied by the official API. No inferred file IDs.
+    #[serde(default)]
+    pub dependencies: Vec<CurseForgeDependency>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CurseForgeDependency {
+    pub project_id: u64,
+    pub required: bool,
+    pub relation_type: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DependencyAction {
+    pub parent_project_id: u64,
+    pub parent_file_id: u64,
+    pub project_id: u64,
+    pub required: bool,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +72,8 @@ pub struct CurseForgeResolveReport {
     /// This stage only checks API resolution, not local hashes, loader or game readiness.
     pub resolved_count: usize,
     pub needs_action_count: usize,
+    #[serde(default)]
+    pub dependency_actions: Vec<DependencyAction>,
     pub ready: bool,
 }
 
@@ -70,6 +91,14 @@ struct ApiFile {
     download_url: Option<String>,
     #[serde(default)]
     hashes: Vec<ApiHash>,
+    #[serde(default)]
+    dependencies: Vec<ApiDependency>,
+}
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiDependency {
+    mod_id: u64,
+    relation_type: u8,
 }
 #[derive(Debug, Deserialize)]
 struct ApiHash {
@@ -182,6 +211,7 @@ fn make_blocked(
         expected_size: None,
         availability,
         reason: reason.into(),
+        dependencies: Vec::new(),
     }
 }
 
@@ -255,6 +285,13 @@ fn resolve_one(
             "File identity, name or size rejected",
         );
     }
+    let dependencies = data.dependencies.into_iter()
+        .filter(|dep| matches!(dep.relation_type, 2 | 3))
+        .map(|dep| CurseForgeDependency {
+            project_id: dep.mod_id,
+            required: dep.relation_type == 3,
+            relation_type: dep.relation_type,
+        }).collect::<Vec<_>>();
     let sha1 = data
         .hashes
         .into_iter()
@@ -293,6 +330,7 @@ fn resolve_one(
         expected_size: Some(data.file_length),
         availability,
         reason: reason.into(),
+        dependencies,
     }
 }
 
@@ -326,12 +364,52 @@ pub fn resolve_curseforge_files(
         .iter()
         .filter(|f| f.availability == FileAvailability::Available)
         .count();
-    let needs_action_count = files.len() - resolved_count;
+    let declared_projects = files.iter().map(|f| f.project_id).collect::<HashSet<_>>();
+    let mut dependency_actions = Vec::new();
+    let mut relations = std::collections::HashMap::<u64, Vec<u64>>::new();
+    for file in &files {
+        for dep in &file.dependencies {
+            if dep.project_id == 0 || dep.project_id == file.project_id {
+                dependency_actions.push(DependencyAction {
+                    parent_project_id: file.project_id, parent_file_id: file.file_id,
+                    project_id: dep.project_id, required: true,
+                    reason: "invalid/self-referencing dependency".into(),
+                });
+            } else if declared_projects.contains(&dep.project_id) {
+                relations.entry(file.project_id).or_default().push(dep.project_id);
+            } else {
+                dependency_actions.push(DependencyAction {
+                    parent_project_id: file.project_id, parent_file_id: file.file_id,
+                    project_id: dep.project_id, required: dep.required,
+                    reason: if dep.required {
+                        "required dependency needs an authorized compatible fileID; do not guess latest".into()
+                    } else {
+                        "optional dependency is not selected in this manifest".into()
+                    },
+                });
+            }
+        }
+    }
+    fn visit(id:u64, edges:&std::collections::HashMap<u64,Vec<u64>>,
+        seen:&mut std::collections::HashMap<u64,u8>) -> bool {
+        if seen.get(&id)==Some(&1) { return true; }
+        if seen.get(&id)==Some(&2) { return false; }
+        seen.insert(id,1);
+        let has_cycle=edges.get(&id).is_some_and(|children| children.iter().any(|dep| visit(*dep,edges,seen)));
+        seen.insert(id,2);
+        has_cycle
+    }
+    let mut visited=std::collections::HashMap::new();
+    if files.iter().any(|f|visit(f.project_id,&relations,&mut visited)) {
+        dependency_actions.push(DependencyAction {
+            parent_project_id:0,parent_file_id:0,project_id:0,required:true,
+            reason:"dependency cycle in CurseForge project graph".into(),
+        });
+    }
+    let needs_action_count = files.len() - resolved_count
+        + dependency_actions.iter().filter(|d|d.required).count();
     Ok(CurseForgeResolveReport {
-        files,
-        resolved_count,
-        needs_action_count,
-        ready: false,
+        files, resolved_count, needs_action_count, dependency_actions, ready: false,
     })
 }
 
@@ -463,6 +541,22 @@ mod tests {
             report.files[0].availability,
             FileAvailability::NetworkFailure
         );
+        assert!(!report.ready);
+    }
+
+    #[test]
+    fn required_unknown_dependency_is_actionable_not_silently_skipped() {
+        let api = MockApi {
+            file_status: 200,
+            body: r#"{"data":{"id":200,"modId":100,"fileName":"a.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/a.jar","hashes":[{"algo":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"dependencies":[{"modId":999,"relationType":3},{"modId":888,"relationType":2}]}}"#,
+            fallback: "",
+        };
+        let report=resolve_curseforge_files(&metadata(),&api,"fake").unwrap();
+        assert_eq!(report.resolved_count,1);
+        assert_eq!(report.needs_action_count,1);
+        assert_eq!(report.dependency_actions.len(),2);
+        assert!(report.dependency_actions.iter().any(|x|x.project_id==999 && x.required));
+        assert!(report.dependency_actions.iter().any(|x|x.project_id==888 && !x.required));
         assert!(!report.ready);
     }
 
