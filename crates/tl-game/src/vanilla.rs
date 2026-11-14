@@ -213,9 +213,7 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
     }
     for archive in archives {
         if !archive.is_file() {
-            return Err(GameError::InvalidInput(
-                "native archive is missing".into(),
-            ));
+            return Err(GameError::InvalidInput("native archive is missing".into()));
         }
     }
     let parent = destination
@@ -224,10 +222,7 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
     fs::create_dir_all(parent)?;
     // Keep this bundled script outside the empty destination, and never execute
     // scripts supplied by downloaded metadata.
-    let script = parent.join(format!(
-        ".tl-native-extract-{}.ps1",
-        std::process::id()
-    ));
+    let script = parent.join(format!(".tl-native-extract-{}.ps1", std::process::id()));
     let mut temp = fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -238,10 +233,7 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
         let _ = fs::remove_file(&script);
         return Err(GameError::Io(err));
     }
-    let list = parent.join(format!(
-        ".tl-native-archives-{}.json",
-        std::process::id()
-    ));
+    let list = parent.join(format!(".tl-native-archives-{}.json", std::process::id()));
     let work = (|| -> Result<(), GameError> {
         let manifest = fs::OpenOptions::new()
             .write(true)
