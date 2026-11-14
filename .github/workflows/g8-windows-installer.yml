@@ -1,0 +1,73 @@
+name: G8 Windows NSIS installer validation
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'apps/desktop/src/**'
+      - 'apps/desktop/src-tauri/**'
+      - 'apps/desktop/index.html'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/package-lock.json'
+      - 'apps/desktop/tsconfig.json'
+      - 'apps/desktop/vite.config.ts'
+      - '.github/workflows/g8-windows-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tl-g8-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install Rust stable for Tauri
+        shell: pwsh
+        run: rustup toolchain install stable --profile minimal
+      - name: Verify committed dependency locks
+        shell: pwsh
+        run: |
+          if (!(Test-Path apps/desktop/package-lock.json)) { throw "Missing npm lockfile" }
+          if (!(Test-Path apps/desktop/src-tauri/Cargo.lock)) { throw "Missing Tauri Cargo.lock" }
+      - name: Install and test frontend
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build actual Windows NSIS installer (not just cargo check)
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          npm run tauri build -- --bundles nsis --ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Inspect installer, WebView2 and execute isolated installation smoke
+        shell: pwsh
+        run: ./apps/desktop/scripts/g8-installer-smoke.ps1
+      - name: Upload installer and evidence, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g8-windows-nsis-${{ github.run_id }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop/g8-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
