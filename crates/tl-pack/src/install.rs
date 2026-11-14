@@ -94,12 +94,26 @@ fn copy_verify<R: Read>(
     Ok((format!("{:x}", sha256.finalize()), total))
 }
 
+/// Construct a completely anonymous CDN request. The key is deliberately
+/// absent from this API so a future caller cannot accidentally leak it.
+fn build_cdn_request(
+    client: &reqwest::blocking::Client,
+    url: &str,
+) -> Result<reqwest::blocking::Request, String> {
+    if !approved_download_url(url) {
+        return Err("unapproved download origin".into());
+    }
+    client
+        .get(url)
+        .build()
+        .map_err(|_| "invalid CDN request".into())
+}
+
 /// Download a CurseForge file only through an exact officially approved HTTPS host.
 /// Redirects disabled: no SSRF escape or leaking the key to redirect destinations.
 fn download_file(
     entry: &CurseForgeFile,
     stage: &Path,
-    api_key: &str,
     cancelled: &AtomicBool,
 ) -> Result<InstalledMod, String> {
     if cancelled.load(Ordering::Relaxed) {
@@ -135,10 +149,11 @@ fn download_file(
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|_| "network client initialization failed")?;
+    // Do not attach API credentials, Authorization, cookies, or user-configured headers
+    // to third-party download origins, regardless of transport security.
+    let request = build_cdn_request(&client, url)?;
     let response = client
-        .get(url)
-        .header("x-api-key", api_key)
-        .send()
+        .execute(request)
         .map_err(|_| "mod download network failure")?;
     if !response.status().is_success() {
         return Err(format!("mod CDN HTTP {}", response.status().as_u16()));
@@ -185,14 +200,10 @@ pub fn stage_curseforge_downloads(
     metadata: &PackMetadata,
     resolved: &CurseForgeResolveReport,
     new_staging: &Path,
-    api_key: &str,
     cancelled: &AtomicBool,
 ) -> Result<StageReport, PackError> {
     if metadata.source != crate::PackSource::CurseforgeZip {
         return Err(PackError::Unsupported("not a CurseForge export".into()));
-    }
-    if api_key.trim().is_empty() {
-        return Err(PackError::Metadata("API key required".into()));
     }
     if resolved.files.len() != metadata.files.len() {
         return Err(PackError::Metadata(
@@ -234,7 +245,7 @@ pub fn stage_curseforge_downloads(
             ));
             continue;
         }
-        match download_file(file, new_staging, api_key, cancelled) {
+        match download_file(file, new_staging, cancelled) {
             Ok(item) => installed.push(item),
             Err(e) if e == "cancelled" => {
                 return Ok(StageReport {
@@ -267,6 +278,45 @@ pub fn stage_curseforge_downloads(
 mod tests {
     use super::*;
     use std::io::Cursor;
+    #[test]
+    fn cdn_request_is_anonymous_even_when_api_key_is_configured() {
+        // Fake HTTP request: does not send network traffic or need a real secret.
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let secret = "fake-api-key-DO-NOT-TRANSMIT";
+        let _ = secret; // Intentionally no credential argument to the request builder.
+        let request = build_cdn_request(
+            &client,
+            "https://edge.forgecdn.net/files/100/200/example.jar",
+        )
+        .unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert!(request.headers().is_empty(), "CDN request must have zero custom headers");
+        for name in ["x-api-key", "authorization", "proxy-authorization", "cookie"] {
+            assert!(!request.headers().contains_key(name), "leaked {name}");
+        }
+        assert_eq!(request.url().host_str(), Some("edge.forgecdn.net"));
+    }
+
+    #[test]
+    fn cdn_request_rejects_redirect_target_and_credentials() {
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        for url in [
+            "https://127.0.0.1/x.jar",
+            "https://edge.forgecdn.net.evil.test/x.jar",
+            "https://user:pass@edge.forgecdn.net/x.jar",
+            "http://edge.forgecdn.net/x.jar",
+            "https://edge.forgecdn.net:8443/x.jar",
+        ] {
+            assert!(build_cdn_request(&client, url).is_err(), "{url}");
+        }
+    }
+
     #[test]
     fn verified_fixture_requires_matching_sha1_and_size() {
         let sample = b"sample mod binary fixture";
