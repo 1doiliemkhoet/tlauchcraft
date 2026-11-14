@@ -57,7 +57,9 @@ pub struct CurseForgeResolveReport {
 }
 
 #[derive(Debug, Deserialize)]
-struct FileEnvelope { data: ApiFile }
+struct FileEnvelope {
+    data: ApiFile,
+}
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApiFile {
@@ -70,9 +72,14 @@ struct ApiFile {
     hashes: Vec<ApiHash>,
 }
 #[derive(Debug, Deserialize)]
-struct ApiHash { value: String, algo: u8 }
+struct ApiHash {
+    value: String,
+    algo: u8,
+}
 #[derive(Debug, Deserialize)]
-struct UrlEnvelope { data: Option<String> }
+struct UrlEnvelope {
+    data: Option<String>,
+}
 
 /// Fetches only the fixed CurseForge API origin. Implementations must not
 /// follow redirects or send API credentials to other hosts.
@@ -86,7 +93,9 @@ pub struct OfficialApiClient;
 impl CurseForgeApi for OfficialApiClient {
     fn get(&self, path: &str, api_key: &str) -> Result<(u16, String), ResolveError> {
         if !path.starts_with("/mods/")
-            || !path.bytes().all(|c| c.is_ascii_digit() || c == b'/' || c.is_ascii_lowercase() || c == b'-')
+            || !path
+                .bytes()
+                .all(|c| c.is_ascii_digit() || c == b'/' || c.is_ascii_lowercase() || c == b'-')
         {
             return Err(ResolveError::InvalidResponse("invalid API path".into()));
         }
@@ -95,7 +104,8 @@ impl CurseForgeApi for OfficialApiClient {
             .timeout(std::time::Duration::from_secs(25))
             .build()
             .map_err(|_| ResolveError::NetworkFailure)?;
-        let response = client.get(format!("{API_BASE}{path}"))
+        let response = client
+            .get(format!("{API_BASE}{path}"))
             .header("x-api-key", api_key)
             .header("Accept", "application/json")
             .send()
@@ -103,7 +113,9 @@ impl CurseForgeApi for OfficialApiClient {
         let status = response.status().as_u16();
         let body = response.text().map_err(|_| ResolveError::NetworkFailure)?;
         if body.len() > 1024 * 1024 {
-            return Err(ResolveError::InvalidResponse("API response too large".into()));
+            return Err(ResolveError::InvalidResponse(
+                "API response too large".into(),
+            ));
         }
         Ok((status, body))
     }
@@ -124,88 +136,171 @@ pub fn safe_mod_file_name(name: &str) -> bool {
 }
 
 pub fn approved_download_url(url: &str) -> bool {
-    let Ok(parsed) = reqwest::Url::parse(url) else { return false };
-    if parsed.scheme() != "https" || parsed.port().is_some()
-        || parsed.username() != "" || parsed.password().is_some()
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https"
+        || parsed.port().is_some()
+        || parsed.username() != ""
+        || parsed.password().is_some()
         || parsed.fragment().is_some()
-    { return false; }
-    let Some(host) = parsed.host_str() else { return false };
+    {
+        return false;
+    }
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
     // Fixed official CurseForge delivery hosts, not user-controlled subdomains.
-    matches!(host.to_ascii_lowercase().as_str(),
-        "edge.forgecdn.net" | "mediafilez.forgecdn.net" | "media.forgecdn.net")
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "edge.forgecdn.net" | "mediafilez.forgecdn.net" | "media.forgecdn.net"
+    )
 }
 
-fn make_blocked(project_id: u64, file_id: u64, required: bool,
-    availability: FileAvailability, reason: &str) -> CurseForgeFile {
+fn make_blocked(
+    project_id: u64,
+    file_id: u64,
+    required: bool,
+    availability: FileAvailability,
+    reason: &str,
+) -> CurseForgeFile {
     CurseForgeFile {
-        project_id, file_id, required, file_name: None,
-        download_url: None, sha1: None, expected_size: None,
-        availability, reason: reason.into(),
+        project_id,
+        file_id,
+        required,
+        file_name: None,
+        download_url: None,
+        sha1: None,
+        expected_size: None,
+        availability,
+        reason: reason.into(),
     }
 }
 
-fn resolve_one(api: &impl CurseForgeApi, key: &str,
-    project_id: u64, file_id: u64, required: bool) -> CurseForgeFile {
+fn resolve_one(
+    api: &impl CurseForgeApi,
+    key: &str,
+    project_id: u64,
+    file_id: u64,
+    required: bool,
+) -> CurseForgeFile {
     let path = format!("/mods/{project_id}/files/{file_id}");
     let (status, body) = match api.get(&path, key) {
         Ok(reply) => reply,
-        Err(_) => return make_blocked(project_id, file_id, required,
-            FileAvailability::NetworkFailure, "Core API request failed"),
+        Err(_) => {
+            return make_blocked(
+                project_id,
+                file_id,
+                required,
+                FileAvailability::NetworkFailure,
+                "Core API request failed",
+            )
+        }
     };
     if status == 401 || status == 403 {
-        return make_blocked(project_id, file_id, required,
-            FileAvailability::PermissionDenied, "API authorization denied");
+        return make_blocked(
+            project_id,
+            file_id,
+            required,
+            FileAvailability::PermissionDenied,
+            "API authorization denied",
+        );
     }
     if status == 404 {
-        return make_blocked(project_id, file_id, required,
-            FileAvailability::NotFound, "File not found in approved API");
+        return make_blocked(
+            project_id,
+            file_id,
+            required,
+            FileAvailability::NotFound,
+            "File not found in approved API",
+        );
     }
     if status != 200 {
-        return make_blocked(project_id, file_id, required,
-            FileAvailability::NetworkFailure, "Core API returned unsuccessful response");
+        return make_blocked(
+            project_id,
+            file_id,
+            required,
+            FileAvailability::NetworkFailure,
+            "Core API returned unsuccessful response",
+        );
     }
     let Ok(FileEnvelope { data }) = serde_json::from_str::<FileEnvelope>(&body) else {
-        return make_blocked(project_id, file_id, required,
-            FileAvailability::InvalidMetadata, "Malformed file metadata");
+        return make_blocked(
+            project_id,
+            file_id,
+            required,
+            FileAvailability::InvalidMetadata,
+            "Malformed file metadata",
+        );
     };
-    if data.id != file_id || data.mod_id != project_id
-        || !safe_mod_file_name(&data.file_name) || data.file_length == 0
-        || data.file_length > MAX_FILE_BYTES {
-        return make_blocked(project_id, file_id, required,
-            FileAvailability::InvalidMetadata, "File identity, name or size rejected");
+    if data.id != file_id
+        || data.mod_id != project_id
+        || !safe_mod_file_name(&data.file_name)
+        || data.file_length == 0
+        || data.file_length > MAX_FILE_BYTES
+    {
+        return make_blocked(
+            project_id,
+            file_id,
+            required,
+            FileAvailability::InvalidMetadata,
+            "File identity, name or size rejected",
+        );
     }
-    let sha1 = data.hashes.into_iter().find(|h| h.algo == 1)
+    let sha1 = data
+        .hashes
+        .into_iter()
+        .find(|h| h.algo == 1)
         .map(|h| h.value.to_ascii_lowercase())
         .filter(|h| h.len() == 40 && h.bytes().all(|c| c.is_ascii_hexdigit()));
     let mut url = data.download_url.filter(|u| approved_download_url(u));
     if url.is_none() {
         let endpoint = format!("{path}/download-url");
         if let Ok((200, body)) = api.get(&endpoint, key) {
-            if let Ok(UrlEnvelope { data: candidate }) = serde_json::from_str::<UrlEnvelope>(&body) {
+            if let Ok(UrlEnvelope { data: candidate }) = serde_json::from_str::<UrlEnvelope>(&body)
+            {
                 url = candidate.filter(|u| approved_download_url(u));
             }
         }
     }
-    let availability = if url.is_some() { FileAvailability::Available }
-        else { FileAvailability::NeedsManualDownload };
-    let reason = if url.is_some() { "Approved download URL resolved" }
-        else { "No permitted download URL; authorized manual download required" };
+    let availability = if url.is_some() {
+        FileAvailability::Available
+    } else {
+        FileAvailability::NeedsManualDownload
+    };
+    let reason = if url.is_some() {
+        "Approved download URL resolved"
+    } else {
+        "No permitted download URL; authorized manual download required"
+    };
     CurseForgeFile {
-        project_id, file_id, required, file_name: Some(data.file_name),
-        download_url: url, sha1, expected_size: Some(data.file_length),
-        availability, reason: reason.into(),
+        project_id,
+        file_id,
+        required,
+        file_name: Some(data.file_name),
+        download_url: url,
+        sha1,
+        expected_size: Some(data.file_length),
+        availability,
+        reason: reason.into(),
     }
 }
 
 /// Resolve every declared CurseForge manifest file. Never mark READY from a
 /// successful API response: installation, loader and JVM must still be verified.
 pub fn resolve_curseforge_files(
-    metadata: &super::PackMetadata, api: &impl CurseForgeApi, api_key: &str,
+    metadata: &super::PackMetadata,
+    api: &impl CurseForgeApi,
+    api_key: &str,
 ) -> Result<CurseForgeResolveReport, ResolveError> {
     if metadata.source != super::PackSource::CurseforgeZip {
-        return Err(ResolveError::InvalidResponse("not a CurseForge pack".into()));
+        return Err(ResolveError::InvalidResponse(
+            "not a CurseForge pack".into(),
+        ));
     }
-    if api_key.trim().is_empty() { return Err(ResolveError::MissingApiKey); }
+    if api_key.trim().is_empty() {
+        return Err(ResolveError::MissingApiKey);
+    }
     let mut unique = HashSet::new();
     let mut files = Vec::with_capacity(metadata.files.len());
     for item in &metadata.files {
@@ -217,54 +312,92 @@ pub fn resolve_curseforge_files(
         }
         files.push(resolve_one(api, api_key, project, file, item.required));
     }
-    let resolved_count = files.iter().filter(|f| f.availability == FileAvailability::Available).count();
+    let resolved_count = files
+        .iter()
+        .filter(|f| f.availability == FileAvailability::Available)
+        .count();
     let needs_action_count = files.len() - resolved_count;
-    Ok(CurseForgeResolveReport { files, resolved_count, needs_action_count, ready: false })
+    Ok(CurseForgeResolveReport {
+        files,
+        resolved_count,
+        needs_action_count,
+        ready: false,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct MockApi { file_status: u16, body: &'static str, fallback: &'static str }
+    struct MockApi {
+        file_status: u16,
+        body: &'static str,
+        fallback: &'static str,
+    }
     impl CurseForgeApi for MockApi {
         fn get(&self, path: &str, _key: &str) -> Result<(u16, String), ResolveError> {
-            if path.ends_with("download-url") { Ok((200, self.fallback.into())) }
-            else { Ok((self.file_status, self.body.into())) }
+            if path.ends_with("download-url") {
+                Ok((200, self.fallback.into()))
+            } else {
+                Ok((self.file_status, self.body.into()))
+            }
         }
     }
     fn metadata() -> super::super::PackMetadata {
         super::super::PackMetadata {
-            name: "fixture".into(), source: super::super::PackSource::CurseforgeZip,
+            name: "fixture".into(),
+            source: super::super::PackSource::CurseforgeZip,
             game_version: "1.16.5".into(),
-            loader: super::super::Loader { kind: "forge".into(), version: Some("36.2.34".into()) },
-            archive_sha256: "sample".into(), archive_entries: 2, uncompressed_bytes: 1024,
+            loader: super::super::Loader {
+                kind: "forge".into(),
+                version: Some("36.2.34".into()),
+            },
+            archive_sha256: "sample".into(),
+            archive_entries: 2,
+            uncompressed_bytes: 1024,
             files: vec![super::super::PlannedFile {
-                path: "mods/placeholder.jar".into(), provider: "curseforge".into(),
-                project_id: Some(100), file_id: Some(200), urls: vec![],
-                sha1: None, sha512: None, required: true, side: "both".into(),
+                path: "mods/placeholder.jar".into(),
+                provider: "curseforge".into(),
+                project_id: Some(100),
+                file_id: Some(200),
+                urls: vec![],
+                sha1: None,
+                sha512: None,
+                required: true,
+                side: "both".into(),
             }],
-            overrides: vec![], warnings: vec![],
+            overrides: vec![],
+            warnings: vec![],
         }
     }
     #[test]
     fn resolved_url_does_not_mean_installed_or_ready() {
-        let api = MockApi { file_status: 200,
+        let api = MockApi {
+            file_status: 200,
             body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/actual.jar","hashes":[{"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","algo":1}]}}"#,
-            fallback: "" };
+            fallback: "",
+        };
         let result = resolve_curseforge_files(&metadata(), &api, "test-key").unwrap();
         assert_eq!(result.resolved_count, 1);
-        assert_eq!(result.files[0].sha1.as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        assert_eq!(
+            result.files[0].sha1.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
         assert!(!result.ready);
     }
     #[test]
     fn blocked_file_is_reported_not_dropped() {
-        let api = MockApi { file_status: 200,
+        let api = MockApi {
+            file_status: 200,
             body: r#"{"data":{"id":200,"modId":100,"fileName":"actual.jar","fileLength":100,"downloadUrl":null,"hashes":[]}}"#,
-            fallback: r#"{"data":null}"# };
+            fallback: r#"{"data":null}"#,
+        };
         let result = resolve_curseforge_files(&metadata(), &api, "key").unwrap();
         assert_eq!(result.files.len(), 1);
         assert_eq!(result.needs_action_count, 1);
-        assert_eq!(result.files[0].availability, FileAvailability::NeedsManualDownload);
+        assert_eq!(
+            result.files[0].availability,
+            FileAvailability::NeedsManualDownload
+        );
         assert!(!result.ready);
     }
     #[test]
@@ -274,21 +407,35 @@ mod tests {
             "https://127.0.0.1/file",
             "https://edge.forgecdn.net.evil.test/file",
             "https://user@edge.forgecdn.net/file",
-            "https://edge.forgecdn.net:8443/file"
-        ] { assert!(!approved_download_url(url), "{url}"); }
+            "https://edge.forgecdn.net:8443/file",
+        ] {
+            assert!(!approved_download_url(url), "{url}");
+        }
     }
     #[test]
     fn id_mismatch_and_unsafe_name_fail_closed() {
-        let api = MockApi { file_status: 200,
+        let api = MockApi {
+            file_status: 200,
             body: r#"{"data":{"id":201,"modId":100,"fileName":"../evil.jar","fileLength":100,"downloadUrl":null,"hashes":[]}}"#,
-            fallback: "" };
+            fallback: "",
+        };
         let result = resolve_curseforge_files(&metadata(), &api, "key").unwrap();
-        assert_eq!(result.files[0].availability, FileAvailability::InvalidMetadata);
+        assert_eq!(
+            result.files[0].availability,
+            FileAvailability::InvalidMetadata
+        );
     }
     #[test]
     fn permission_denied_is_explicit() {
-        let api = MockApi { file_status: 403, body: "denied", fallback: "" };
+        let api = MockApi {
+            file_status: 403,
+            body: "denied",
+            fallback: "",
+        };
         let result = resolve_curseforge_files(&metadata(), &api, "key").unwrap();
-        assert_eq!(result.files[0].availability, FileAvailability::PermissionDenied);
+        assert_eq!(
+            result.files[0].availability,
+            FileAvailability::PermissionDenied
+        );
     }
 }
