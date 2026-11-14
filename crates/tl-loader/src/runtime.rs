@@ -247,16 +247,32 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
 pub(crate) fn validate_verified_artifact(
     file: &VerifiedProcessorJar,
 ) -> Result<(), LoaderError> {
-    let relative = maven::artifact_path(&file.coordinate)?;
-    let trusted_bases = [
-        "https://maven.minecraftforge.net",
-        "https://repo.maven.apache.org/maven2",
-        "https://libraries.minecraft.net",
-    ];
-    if !trusted_bases
+    let origin_ok = if file.coordinate == "net.minecraft:client:1.16.5" {
+        // Mojang object storage names the object by its expected digest.
+        file.source == format!(
+            "https://piston-data.mojang.com/v1/objects/{}/client.jar",
+            file.sha1.to_ascii_lowercase()
+        )
+    } else {
+        let relative = if let Some((coordinate, ext)) = file.coordinate.split_once('@') {
+            if !matches!(ext, "zip" | "txt") {
+                return Err(LoaderError::InvalidInput);
+            }
+            let jar = maven::artifact_path(coordinate)?;
+            let stem = jar.strip_suffix(".jar").ok_or(LoaderError::InvalidInput)?;
+            format!("{stem}.{ext}")
+        } else {
+            maven::artifact_path(&file.coordinate)?
+        };
+        [
+            "https://maven.minecraftforge.net",
+            "https://repo.maven.apache.org/maven2",
+            "https://libraries.minecraft.net",
+        ]
         .iter()
         .any(|base| file.source == format!("{base}/{relative}"))
-    {
+    };
+    if !origin_ok {
         return Err(LoaderError::InvalidMetadata(
             "unapproved processor artifact source".into(),
         ));
