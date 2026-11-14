@@ -95,12 +95,15 @@ fn read_error(uuid:Uuid)->Option<String>{
     fs::read_to_string(path).ok()
 }
 fn event(app:&AppHandle,instance:Uuid,phase:&str,key:&str){
-    // Progress percentage is null until tl-game supports trustworthy byte counters.
+    event_detail(app,instance,phase,key,json!({}));
+}
+fn event_detail(app:&AppHandle,instance:Uuid,phase:&str,key:&str,details:Value){
+    // Only actual values reported by tl-game; bytes/percentage stay unknown.
     let _=app.emit("download.progress",json!({
         "contract_version":1,"operation_id":instance.to_string(),
         "instance_id":instance.to_string(),
         "timestamp":chrono::Utc::now().to_rfc3339(),
-        "phase":phase,"message_key":key,"details":{},"percent":null
+        "phase":phase,"message_key":key,"details":details,"percent":null
     }));
 }
 #[tauri::command]
@@ -141,6 +144,8 @@ fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),Strin
     update_state(uuid,InstanceState::Downloading)?;
     event(&app,uuid,"downloading","Downloading and verifying official Mojang files");
     let installed=tl_game::vanilla::install_vanilla(&version,&dir,&cancel).map_err(|e|e.to_string())?;
+    event_detail(&app,uuid,"downloading","Official Mojang files downloaded with SHA-1 verification",
+        json!({"downloaded_files":installed.downloaded_files,"native_archives":installed.native_archives.len()}));
     if cancel.load(Ordering::Relaxed){return Err("Install cancelled".into())}
     update_state(uuid,InstanceState::Verifying)?;
     event(&app,uuid,"verifying","Extracting verified native DLLs");
@@ -158,6 +163,8 @@ fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),Strin
     if verified_files != installed.downloaded_files {
         return Err(format!("Verified-file count mismatch: expected {}, got {}",installed.downloaded_files,verified_files))
     }
+    event_detail(&app,uuid,"verifying","Independent SHA-1 file attestation complete",
+        json!({"verified_files":verified_files,"native_dll_count":native_dll_count}));
     if cancel.load(Ordering::Relaxed){return Err("Install cancelled".into())}
     // Never remove or reinitialize the game directory; it owns persistent saves.
     fs::create_dir_all(game_dir_for(&dir)).map_err(|e|e.to_string())?;
