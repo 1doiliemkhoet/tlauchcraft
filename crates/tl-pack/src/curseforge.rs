@@ -285,13 +285,16 @@ fn resolve_one(
             "File identity, name or size rejected",
         );
     }
-    let dependencies = data.dependencies.into_iter()
+    let dependencies = data
+        .dependencies
+        .into_iter()
         .filter(|dep| matches!(dep.relation_type, 2 | 3))
         .map(|dep| CurseForgeDependency {
             project_id: dep.mod_id,
             required: dep.relation_type == 3,
             relation_type: dep.relation_type,
-        }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
     let sha1 = data
         .hashes
         .into_iter()
@@ -371,12 +374,17 @@ pub fn resolve_curseforge_files(
         for dep in &file.dependencies {
             if dep.project_id == 0 || dep.project_id == file.project_id {
                 dependency_actions.push(DependencyAction {
-                    parent_project_id: file.project_id, parent_file_id: file.file_id,
-                    project_id: dep.project_id, required: true,
+                    parent_project_id: file.project_id,
+                    parent_file_id: file.file_id,
+                    project_id: dep.project_id,
+                    required: true,
                     reason: "invalid/self-referencing dependency".into(),
                 });
             } else if declared_projects.contains(&dep.project_id) {
-                relations.entry(file.project_id).or_default().push(dep.project_id);
+                relations
+                    .entry(file.project_id)
+                    .or_default()
+                    .push(dep.project_id);
             } else {
                 dependency_actions.push(DependencyAction {
                     parent_project_id: file.project_id, parent_file_id: file.file_id,
@@ -390,26 +398,45 @@ pub fn resolve_curseforge_files(
             }
         }
     }
-    fn visit(id:u64, edges:&std::collections::HashMap<u64,Vec<u64>>,
-        seen:&mut std::collections::HashMap<u64,u8>) -> bool {
-        if seen.get(&id)==Some(&1) { return true; }
-        if seen.get(&id)==Some(&2) { return false; }
-        seen.insert(id,1);
-        let has_cycle=edges.get(&id).is_some_and(|children| children.iter().any(|dep| visit(*dep,edges,seen)));
-        seen.insert(id,2);
+    fn visit(
+        id: u64,
+        edges: &std::collections::HashMap<u64, Vec<u64>>,
+        seen: &mut std::collections::HashMap<u64, u8>,
+    ) -> bool {
+        if seen.get(&id) == Some(&1) {
+            return true;
+        }
+        if seen.get(&id) == Some(&2) {
+            return false;
+        }
+        seen.insert(id, 1);
+        let has_cycle = edges
+            .get(&id)
+            .is_some_and(|children| children.iter().any(|dep| visit(*dep, edges, seen)));
+        seen.insert(id, 2);
         has_cycle
     }
-    let mut visited=std::collections::HashMap::new();
-    if files.iter().any(|f|visit(f.project_id,&relations,&mut visited)) {
+    let mut visited = std::collections::HashMap::new();
+    if files
+        .iter()
+        .any(|f| visit(f.project_id, &relations, &mut visited))
+    {
         dependency_actions.push(DependencyAction {
-            parent_project_id:0,parent_file_id:0,project_id:0,required:true,
-            reason:"dependency cycle in CurseForge project graph".into(),
+            parent_project_id: 0,
+            parent_file_id: 0,
+            project_id: 0,
+            required: true,
+            reason: "dependency cycle in CurseForge project graph".into(),
         });
     }
-    let needs_action_count = files.len() - resolved_count
-        + dependency_actions.iter().filter(|d|d.required).count();
+    let needs_action_count =
+        files.len() - resolved_count + dependency_actions.iter().filter(|d| d.required).count();
     Ok(CurseForgeResolveReport {
-        files, resolved_count, needs_action_count, dependency_actions, ready: false,
+        files,
+        resolved_count,
+        needs_action_count,
+        dependency_actions,
+        ready: false,
     })
 }
 
@@ -551,12 +578,18 @@ mod tests {
             body: r#"{"data":{"id":200,"modId":100,"fileName":"a.jar","fileLength":100,"downloadUrl":"https://edge.forgecdn.net/files/1/2/a.jar","hashes":[{"algo":1,"value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"dependencies":[{"modId":999,"relationType":3},{"modId":888,"relationType":2}]}}"#,
             fallback: "",
         };
-        let report=resolve_curseforge_files(&metadata(),&api,"fake").unwrap();
-        assert_eq!(report.resolved_count,1);
-        assert_eq!(report.needs_action_count,1);
-        assert_eq!(report.dependency_actions.len(),2);
-        assert!(report.dependency_actions.iter().any(|x|x.project_id==999 && x.required));
-        assert!(report.dependency_actions.iter().any(|x|x.project_id==888 && !x.required));
+        let report = resolve_curseforge_files(&metadata(), &api, "fake").unwrap();
+        assert_eq!(report.resolved_count, 1);
+        assert_eq!(report.needs_action_count, 1);
+        assert_eq!(report.dependency_actions.len(), 2);
+        assert!(report
+            .dependency_actions
+            .iter()
+            .any(|x| x.project_id == 999 && x.required));
+        assert!(report
+            .dependency_actions
+            .iter()
+            .any(|x| x.project_id == 888 && !x.required));
         assert!(!report.ready);
     }
 
