@@ -76,7 +76,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         String::from_utf8_lossy(&java_version.stdout)
     );
     let windows_version = Command::new("cmd.exe").args(["/C", "ver"]).output()?;
-    let windows_detail = String::from_utf8_lossy(&windows_version.stdout).trim().to_owned();
+    let windows_detail = String::from_utf8_lossy(&windows_version.stdout)
+        .trim()
+        .to_owned();
     let mut child = launch(&launch_config, &stdout, &stderr)?;
     let pid = child.id();
     write_launch_evidence(
