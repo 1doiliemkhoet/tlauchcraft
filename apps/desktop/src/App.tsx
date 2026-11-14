@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
-import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm } from './desktopState';
+import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending } from './desktopState';
 import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
@@ -40,10 +40,11 @@ export default function App() {
   const [javaSettings, setJavaSettings] = useState<JavaSettings | null>(null);
   const [memoryInfo, setMemoryInfo] = useState<MemoryInfo | null>(null);
   const [gameStatusById, setGameStatusById] = useState<Record<string, GameStatus>>({});
+  const statusSignatures = useRef<Record<string,string>>({});
   const log = useCallback((line: string) => setLogs(old => [`${new Date().toLocaleTimeString()} · ${line}`, ...old].slice(0, 250)), []);
   const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true); setError(undefined);
-    try { await fn(); log(`${label}: request accepted (not E2E verified)`); }
+    try { await fn(); log(`${label}: backend responded; verify status below (not a completed install)`); }
     catch (e) { const message = backendError(e); setError(message); log(`${label} failed: ${message}`); }
     finally { setBusy(false); }
   }, [log]);
@@ -59,14 +60,32 @@ export default function App() {
     } });
   }, [log]);
   useEffect(() => {
-    let active = true; let unsubscribe: (() => void) | undefined;
-    negotiate().then(c => { if (!active) return; setCaps(c); void refresh(c); log(`Backend provider: ${c.provider}`); });
-    subscribeProgress(event => { if (active) { setEvents(old => [event, ...old].slice(0, 100));
-        const failure = installFailure(event);
-        if (failure) setError(failure);
-        log(`${event.phase}: ${event.message_key}`); } })
-      .then(fn => { if (active) unsubscribe = fn; else fn(); })
-      .catch(() => log('Event channel unavailable outside Tauri or before backend installation.'));
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    const onEvent = (event: ProgressEvent) => {
+      if (!active) return;
+      setEvents(old => [event, ...old].slice(0, 100));
+      const failure = installFailure(event);
+      if (failure) setError(failure);
+      log(`backend event ${event.phase}: ${event.message_key}`);
+    };
+    // Install event listeners BEFORE exposing the backend as ready to the UI.
+    // StrictMode may unmount during async registration: dispose even late listeners.
+    const initialise = async () => {
+      try {
+        const stop = await subscribeProgress(onEvent);
+        if (!active) stop(); else unsubscribe = stop;
+      } catch (e) {
+        if (active) log('Event subscription failed (' + backendError(e) + '); game status polling remains available.');
+      }
+      if (!active) return;
+      const negotiated = await negotiate();
+      if (!active) return;
+      setCaps(negotiated);
+      await refresh(negotiated);
+      if (active) log(`Backend provider: ${negotiated.provider}`);
+    };
+    void initialise();
     return () => { active = false; unsubscribe?.(); };
   }, [refresh, log]);
   const importFile = async (path?: string) => {
@@ -100,23 +119,50 @@ export default function App() {
       }).catch(e => setError(backendError(e)));
     }
   }, [events, caps, refresh]);
+  const instanceIds = instances.filter(i=>i.loader.kind==='vanilla').map(i=>i.id).join('|');
   useEffect(() => {
+    if (!caps.features.game || !instanceIds) return;
     let active = true;
-    if (!caps.features.game || !instances.length) return;
-    Promise.allSettled(instances.filter(i=>i.loader.kind==='vanilla').map(i =>
-      operations.gameStatus(caps,i.id).then(status => ({id:i.id,status}))
-    )).then(results => {
-      if (!active) return;
-      const updated: Record<string,GameStatus> = {};
-      for (const item of results) if (item.status==='fulfilled') updated[item.value.id]=item.value.status;
-      setGameStatusById(old=>({...old,...updated}));
-      const errors=Object.entries(updated).filter(([,status])=>status.last_error);
-      if (errors.length) setError(errors.map(([id,status])=>`${id}: ${status.last_error}`).join('; '));
-      // Actual status might reconcile a crashed/interrupted install on restart.
-      if (Object.values(updated).some(status=>status.install_state==='failed')) void refresh(caps);
-    });
-    return () => { active=false; };
-  }, [caps,refresh,instances.length]);
+    let fetching = false;
+    const ids = instanceIds.split('|');
+    const poll = async () => {
+      if (!active || fetching) return;
+      fetching = true;
+      try {
+        const results = await Promise.allSettled(ids.map(async id => ({
+          id, status: await operations.gameStatus(caps,id)
+        })));
+        if (!active) return;
+        const updated: Record<string,GameStatus> = {};
+        let changedInstallState = false;
+        for (const result of results) {
+          if (result.status !== 'fulfilled') continue;
+          const {id,status} = result.value;
+          updated[id] = status;
+          const signature = backendStatusSignature(status);
+          if (statusSignatures.current[id] !== signature) {
+            statusSignatures.current[id] = signature;
+            log(backendStatusLine(status));
+            if (status.last_error) setError(status.last_error);
+            changedInstallState = true;
+          }
+        }
+        setGameStatusById(old => {
+          const changed = Object.entries(updated).some(([id,status]) =>
+            backendStatusSignature(old[id] ?? status) !== backendStatusSignature(status));
+          return changed ? {...old,...updated} : old;
+        });
+        // State is read from Rust/SQLite, not guessed from a timer.
+        if (changedInstallState) void refresh(caps);
+      } catch (e) {
+        if (active) log('Backend status query failed: ' + backendError(e));
+      } finally { fetching = false; }
+    };
+    void poll();
+    // Poll is a read-only fallback if an event is missed or late; no fake progress.
+    const timer = window.setInterval(() => { void poll(); }, 1600);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [caps, instanceIds, refresh, log]);
   useEffect(() => {
     let active=true;
     setPlayReady(null); setPlayReadinessError(null);
@@ -173,7 +219,9 @@ export default function App() {
             {gameStatusById[i.id]?.process_state === 'running' && <span>PID {gameStatusById[i.id]?.pid}</span>}
             {i.loader.kind === 'vanilla' && <>
               <button disabled={!caps.features.game || busy || !['empty','failed','cancelled','needs_action'].includes(i.state)} onClick={() => void run('Install Vanilla', async () => {
-                await operations.installVanilla(caps, i.id); await refresh(caps);
+                await operations.installVanilla(caps, i.id);
+                log('Install command queued for ' + i.display_name + '; awaiting backend downloading/verifying/ready or failed.');
+                await refresh(caps);
                 const status = await operations.gameStatus(caps,i.id);
                 setGameStatusById(old => ({...old,[i.id]:status}));
                 if (status.last_error) setError(status.last_error);
@@ -185,7 +233,9 @@ export default function App() {
                 await refresh(caps);
               })}>Status</button>
               <button disabled={!caps.features.game || busy || !canCancelInstall(gameStatusById[i.id])} onClick={() => void run('Cancel install', async () => {
-                await operations.cancelInstall(caps,i.id); await refresh(caps);
+                await operations.cancelInstall(caps,i.id);
+                log('Cancellation requested for ' + i.display_name + '; worker has not confirmed cancelled yet.');
+                await refresh(caps);
               })}>Cancel install</button>
               <button disabled={!caps.features.game || busy || gameStatusById[i.id]?.process_state !== 'running'} onClick={() => void run('Stop Minecraft', async () => {
                 await operations.stopGame(caps,i.id);
@@ -195,7 +245,7 @@ export default function App() {
             </>}
           </div>)}
           {!instances.length && <Empty title="No instances" description="Create a real Vanilla instance linked to your offline profile."/>}
-          <Notice>No fake install progress: use Status to query SQLite state. Download events come only from actual Rust install workers.</Notice>
+          <Notice>Install is asynchronous. Current status is read from Rust/SQLite; stage events are not completion confirmations. Exact download percentage is unavailable until tl-game reports verified byte counts.</Notice>
           {instances.filter(i=>gameStatusById[i.id]?.last_error).map(i=><Notice key={i.id}>
             {i.display_name}: {gameStatusById[i.id]?.last_error}
           </Notice>)}
@@ -204,7 +254,7 @@ export default function App() {
         {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation is unavailable until a real verified backend is integrated.</Notice>}</div>}
         {page === 'skins' && <div className="panel"><h3>Skin studio</h3><p className="muted">Classic / Slim · PNG library · pixel editor · 3D preview · cape compatibility</p><div className="placeholder-grid"><div className="skin-silhouette"><Palette size={44}/><span>3D render waiting for SkinService</span></div><div><h3>Visibility matters</h3><p>Launcher preview, your in-game appearance and skins visible to LAN peers are separate verification states.</p><div className="item">Launcher preview <span>Unverified</span></div><div className="item">Singleplayer provider <span>Unverified</span></div><div className="item">LAN peer visibility <span>Unverified</span></div></div></div><Unavailable feature="skins"/></div>}
         {page === 'lan' && <div className="panel"><h3>Trusted LAN multiplayer</h3><p className="muted">Host / Join will require modpack and loader compatibility checks, stable offline identity and trusted LAN binding.</p><Notice>Never expose an offline-mode dedicated server to the public Internet. Verify world and inventory persistence on two physical machines.</Notice><div className="form-row"><button disabled={!caps.features.lan || busy} onClick={() => void run('LAN status', async () => { const value = await operations.lanStatus(caps); log(JSON.stringify(value)); })}>Check LAN status</button><button disabled>Host server · awaiting contract</button><button disabled>Join server · awaiting contract</button></div>{!caps.features.lan && <Unavailable feature="lan"/>}</div>}
-        {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Incoming typed events only; no artificial timers or fake percentages.</p>{events.length ? events.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small></div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !['resolving','downloading','verifying'].includes(event.phase)}
+        {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Live backend phases and polled SQLite state. No artificial percentages: the downloader has no verified byte-count callback yet.</p>{Object.values(gameStatusById).map(status => <div className="item" key={status.instance_id}><strong>{status.install_state}</strong><span>{status.instance_id}</span><span>{isInstallPending(status) ? 'Worker active / pending' : status.process_state}</span>{status.last_error && <span role="alert">{status.last_error}</span>}</div>)}{events.length ? events.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small></div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !canCancelInstall(gameStatusById[event.instance_id])}
           onClick={() => void run('Cancel actual Vanilla install', () => operations.cancelInstall(caps, event.instance_id!))}>Cancel Vanilla install</button></div>) : <Empty title="No events received" description="Download and install progress will appear here when the backend publishes events."/>}{!caps.features.downloads && <Unavailable feature="downloads"/>}</div>}
         {page === 'settings' && <div className="panel">
           <h3>Java & Memory · per instance</h3>
@@ -247,7 +297,7 @@ export default function App() {
           <div className="item"><Activity size={18}/> Core provider <span>{caps.provider}</span></div>
           <div className="item"><ShieldAlert size={18}/> Update policy <span>Manual, no silent updates</span></div>
         </div>}
-        {page === 'logs' && <div className="panel"><h3>Session diagnostics</h3><p className="muted">Local UI errors and received backend messages. This is not a substitute for Minecraft crash logs.</p><pre className="logbox" aria-label="Activity logs">{logs.length ? logs.join('\n') : 'No session activity yet.'}</pre><button onClick={() => setLogs([])}>Clear displayed session log</button></div>}
+        {page === 'logs' && <div className="panel"><h3>Session diagnostics</h3><p className="muted">Local UI errors and received backend messages. This is not a substitute for Minecraft crash logs.</p><div>{Object.values(gameStatusById).map(status=><div className="item" key={status.instance_id}><strong>Rust / SQLite: {status.install_state}</strong><span>{status.instance_id}</span><span>{status.last_error || status.process_state}</span></div>)}</div><pre className="logbox" aria-label="Activity logs">{logs.length ? logs.join('\n') : 'No session activity yet.'}</pre><button onClick={() => setLogs([])}>Clear displayed session log</button></div>}
         <footer><CircleHelp size={14}/> UI scaffold · No game files or credentials included · GitHub Control Room owns verification</footer>
       </div>
     </main>
