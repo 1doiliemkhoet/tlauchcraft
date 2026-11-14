@@ -262,16 +262,31 @@ pub fn validate_staged_instance(
     let mut findings = audit.findings.clone();
     let mut verified_required = 0;
     let mut verified_optional = 0;
-    let mut blocked = resolved.dependency_actions.iter().filter(|x|x.required).count();
+    let mut blocked = resolved
+        .dependency_actions
+        .iter()
+        .filter(|x| x.required)
+        .count();
     let mut failed = 0;
     for dep in &resolved.dependency_actions {
         findings.push(issue(
-            if dep.required { DependencyIssue::MissingRequired } else { DependencyIssue::MissingOptional },
-            Some((dep.project_id,0)), dep.required, dep.reason.clone()
+            if dep.required {
+                DependencyIssue::MissingRequired
+            } else {
+                DependencyIssue::MissingOptional
+            },
+            Some((dep.project_id, 0)),
+            dep.required,
+            dep.reason.clone(),
         ));
     }
     if manifest.source != PackSource::CurseforgeZip || manifest.archive_sha256.len() != 64 {
-        findings.push(issue(DependencyIssue::MissingManifest, None, true, "verified pack manifest/archive hash required"));
+        findings.push(issue(
+            DependencyIssue::MissingManifest,
+            None,
+            true,
+            "verified pack manifest/archive hash required",
+        ));
     }
     let mut installed_by_id = HashMap::new();
     for file in installed {
@@ -560,17 +575,49 @@ mod tests {
     }
     #[test]
     fn forge_proof_is_mandatory_even_with_all_mods() {
-        let pack=PackMetadata{name:"fixture".into(),source:PackSource::CurseforgeZip,
-            game_version:"1.16.5".into(),loader:crate::Loader{kind:"forge".into(),version:Some("36.2.34".into())},
-            archive_sha256:"a".repeat(64),archive_entries:1,uncompressed_bytes:1,
-            files:vec![crate::PlannedFile{path:"mods/fixture.jar".into(),provider:"curseforge".into(),
-                project_id:Some(1),file_id:Some(2),urls:vec![],sha1:None,sha512:None,required:true,side:"both".into()}],
-            overrides:vec![],warnings:vec![]};
-        let report=CurseForgeResolveReport{files:vec![],resolved_count:0,needs_action_count:0,dependency_actions:vec![],ready:false};
-        let audit=audit_dependencies(&[],"1.16.5");
-        let result=validate_staged_instance(Path::new("nonexistent"),&pack,&report,&[],&audit,None);
+        let pack = PackMetadata {
+            name: "fixture".into(),
+            source: PackSource::CurseforgeZip,
+            game_version: "1.16.5".into(),
+            loader: crate::Loader {
+                kind: "forge".into(),
+                version: Some("36.2.34".into()),
+            },
+            archive_sha256: "a".repeat(64),
+            archive_entries: 1,
+            uncompressed_bytes: 1,
+            files: vec![crate::PlannedFile {
+                path: "mods/fixture.jar".into(),
+                provider: "curseforge".into(),
+                project_id: Some(1),
+                file_id: Some(2),
+                urls: vec![],
+                sha1: None,
+                sha512: None,
+                required: true,
+                side: "both".into(),
+            }],
+            overrides: vec![],
+            warnings: vec![],
+        };
+        let report = CurseForgeResolveReport {
+            files: vec![],
+            resolved_count: 0,
+            needs_action_count: 0,
+            dependency_actions: vec![],
+            ready: false,
+        };
+        let audit = audit_dependencies(&[], "1.16.5");
+        let result =
+            validate_staged_instance(Path::new("nonexistent"), &pack, &report, &[], &audit, None);
         assert!(!result.ready);
-        assert!(result.findings.iter().any(|f| f.issue==DependencyIssue::UnverifiedLoader));
-        assert!(result.findings.iter().any(|f| f.issue==DependencyIssue::MissingManifest));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.issue == DependencyIssue::UnverifiedLoader));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.issue == DependencyIssue::MissingManifest));
     }
 }
