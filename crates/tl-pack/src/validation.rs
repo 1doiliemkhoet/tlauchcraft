@@ -193,18 +193,18 @@ pub fn audit_dependencies(nodes: &[DependencyNode], minecraft: &str) -> Dependen
 /// Receipt to be constructed ONLY from a successfully verified tl_loader::runtime
 /// installation, never from Modpack ZIP metadata or a preliminary loader plan.
 /// The adapter lives in Chat 3 once its runtime API is merged into develop.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ForgeRuntimeReceipt {
-    pub minecraft_version: String,
-    pub loader_kind: String,
-    pub loader_version: String,
-    pub required_java_major: u32,
-    pub processor_execution_verified: bool,
-    pub libraries_verified: bool,
-    pub outputs_verified: bool,
-    pub java_major_verified: bool,
-    pub minecraft_files_verified: bool,
-    pub instance_manifest_verified: bool,
+    minecraft_version: String,
+    loader_kind: String,
+    loader_version: String,
+    required_java_major: u32,
+    processor_execution_verified: bool,
+    libraries_verified: bool,
+    outputs_verified: bool,
+    java_major_verified: bool,
+    minecraft_files_verified: bool,
+    instance_manifest_verified: bool,
 }
 
 /// Typed hand-off for Chat 3's `tl_loader::runtime` executor.
@@ -492,11 +492,16 @@ pub fn validate_staged_instance(
             "Forge processors, libraries, Java, Minecraft and instance manifest must be verified",
         )),
     }
-    let ready = audit.complete
-        && findings.iter().all(|f| !f.required)
-        && verified_required == expected_required
-        && !manifest.files.is_empty()
-        && forge.is_some();
+    // A record of booleans is not a cryptographic/loader-origin proof.
+    // Chat 3 runtime is still a draft: there is no trusted, non-UI
+    // attestation constructor yet. Fail closed even for matching fixture flags.
+    findings.push(issue(
+        DependencyIssue::UnverifiedLoader,
+        None,
+        true,
+        "trusted tl-loader runtime attestation and atomic instance publication unavailable",
+    ));
+    let ready = false;
     FinalValidation {
         ready,
         expected_required,
@@ -694,7 +699,8 @@ mod tests {
             &audit,
             Some(&receipt),
         );
-        assert!(valid.ready);
+        // Matching flags in a fixture cannot mint an authoritative Forge proof.
+        assert!(!valid.ready);
         assert_eq!(valid.expected_required, 1);
         assert_eq!(valid.verified_required, 1);
         assert_eq!(valid.blocked, 0);
