@@ -615,6 +615,114 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn test_client() -> Client {
+        Client::builder()
+            .connect_timeout(Duration::from_millis(120))
+            .timeout(Duration::from_millis(250))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+    }
+
+    fn local_http<F>(handler: F) -> (reqwest::Url, std::thread::JoinHandle<()>)
+    where
+        F: FnOnce(std::net::TcpStream) + Send + 'static,
+    {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handler(stream);
+        });
+        (format!("http://{addr}/metadata").parse().unwrap(), handle)
+    }
+
+    #[test]
+    fn metadata_headers_stall_is_bounded() {
+        let (url, server) = local_http(|_stream| {
+            std::thread::sleep(Duration::from_millis(600));
+        });
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("send_headers"), "{error}");
+        assert!(error.contains("endpoint=loopback"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_body_stall_is_bounded() {
+        let (url, server) = local_http(|mut stream| {
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 200\r\nConnection: close\r\n\r\n{\"id\":")
+                .unwrap();
+            stream.flush().unwrap();
+            std::thread::sleep(Duration::from_millis(600));
+        });
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("phase=body"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_connection_refused_fails_with_stage() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url: reqwest::Url = format!("http://{}/", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        drop(listener);
+        let start = Instant::now();
+        let error = fetch_json_transport(&test_client(), url, None, "test", "loopback")
+            .unwrap_err()
+            .to_string();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("phase=send_headers"), "{error}");
+    }
+
+    #[test]
+    fn metadata_checksum_mismatch_has_precise_error() {
+        let (url, server) = local_http(|mut stream| {
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                )
+                .unwrap();
+        });
+        let error = fetch_json_transport(
+            &test_client(),
+            url,
+            Some("0000000000000000000000000000000000000000"),
+            "version",
+            "loopback",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("SHA1 mismatch"), "{error}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn metadata_endpoint_is_strictly_allowlisted() {
+        for url in [
+            "http://piston-meta.mojang.com/manifest",
+            "https://example.com/metadata",
+            "https://piston-meta.mojang.com:8443/a",
+            "https://user:pass@piston-meta.mojang.com/a",
+            "https://piston-meta.mojang.com/a?secret=x",
+            "https://piston-meta.mojang.com/a#secret",
+            "file:///C:/something",
+        ] {
+            assert!(approved_metadata_endpoint(url).is_err(), "{url}");
+        }
+        assert!(approved_metadata_endpoint(MANIFEST).is_ok());
+    }
+
     #[test]
     fn offline_uuid_uses_tl_core_contract_not_profile_id() {
         let profile = tl_core::OfflineProfile::new("Notch").unwrap();
