@@ -5,6 +5,7 @@ use thiserror::Error;
 
 pub use tl_core::{GameInstance, LoaderKind, LoaderSpec};
 pub mod fabric;
+pub mod forge_1165;
 pub mod installer;
 pub mod maven;
 pub mod runtime;
