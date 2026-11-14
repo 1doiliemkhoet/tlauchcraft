@@ -178,7 +178,52 @@ fn fetch_json(
     fetch_json_transport(client, verified, sha, stage, endpoint)
 }
 
+const RESOLVER_DEADLINE: Duration = Duration::from_secs(65);
+
+/// A caller-side deadline covers client construction and operating-system
+/// resolver behavior as well as the request-level timeouts. If the OS blocks
+/// a worker in DNS or system proxy discovery, std cannot forcibly cancel it:
+/// the caller still receives a bounded, explicit failure.
+fn with_metadata_deadline<F>(limit: Duration, operation: F) -> Result<Value, GameError>
+where
+    F: FnOnce() -> Result<Value, GameError> + Send + 'static,
+{
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("vanilla-metadata".into())
+        .spawn(move || {
+            let _ = sender.send(operation());
+        })
+        .map_err(|e| GameError::NetworkFailure(format!("metadata worker startup: {e}")))?;
+    match receiver.recv_timeout(limit) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err(GameError::NetworkFailure(format!(
+                "metadata stage=resolver endpoint=official phase=overall_deadline timeout_ms={}",
+                limit.as_millis()
+            )))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
+            GameError::NetworkFailure("metadata worker disconnected unexpectedly".into()),
+        ),
+    }
+}
+
 pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
+    // Reject malformed input without starting a thread.
+    if version_id.is_empty()
+        || version_id.len() > 128
+        || !version_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b))
+    {
+        return Err(GameError::InvalidInput("invalid version id".into()));
+    }
+    let id = version_id.to_owned();
+    with_metadata_deadline(RESOLVER_DEADLINE, move || resolve_official_version_inner(&id))
+}
+
+fn resolve_official_version_inner(version_id: &str) -> Result<Value, GameError> {
     if version_id.is_empty()
         || version_id.len() > 128
         || !version_id
@@ -656,6 +701,19 @@ mod tests {
             handler(stream);
         });
         (format!("http://{addr}/metadata").parse().unwrap(), handle)
+    }
+
+    #[test]
+    fn metadata_overall_watchdog_bounds_blocked_worker() {
+        let start = Instant::now();
+        let error = with_metadata_deadline(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_millis(300));
+            Ok(serde_json::json!({}))
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(error.contains("overall_deadline"), "{error}");
     }
 
     #[test]
