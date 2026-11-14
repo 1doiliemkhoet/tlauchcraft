@@ -254,3 +254,40 @@ pub fn game_stop(state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),S
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn generated_command_contains_configured_real_jvm_heap_flags() {
+        // Exercise exact tl-game executable command builder, not a mocked UI string.
+        let config=tl_game::LaunchConfig{
+            java:PathBuf::from("java.exe"),
+            classpath:vec![PathBuf::from("client.jar")],
+            natives_dir:PathBuf::from("natives"),
+            game_dir:PathBuf::from("game"),
+            main_class:"net.minecraft.client.main.Main".to_owned(),
+            jvm_args:vec![],
+            game_args:vec![],
+            min_ram_mb:768,
+            max_ram_mb:3072,
+        };
+        let command=tl_game::build_command(&config).expect("valid launch");
+        let args:Vec<String>=command.get_args().map(|a|a.to_string_lossy().into_owned()).collect();
+        assert!(args.contains(&"-Xms768M".to_owned()));
+        assert!(args.contains(&"-Xmx3072M".to_owned()));
+    }
+    #[test]
+    fn rejects_jvm_memory_inversion_before_process_spawn() {
+        let config=tl_game::LaunchConfig{
+            java:PathBuf::from("java.exe"),
+            classpath:vec![PathBuf::from("client.jar")],
+            natives_dir:PathBuf::from("natives"),
+            game_dir:PathBuf::from("game"),
+            main_class:"Example".into(),
+            jvm_args:vec![],game_args:vec![],
+            min_ram_mb:4096,max_ram_mb:512
+        };
+        assert!(tl_game::build_command(&config).is_err());
+    }
+}
