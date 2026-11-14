@@ -443,16 +443,26 @@ mod tests {
             fallback: "",
         };
         let report = resolve_curseforge_files(&metadata(), &api, "fake-key").unwrap();
-        assert_eq!(report.files[0].availability, FileAvailability::NeedsManualDownload);
+        assert_eq!(
+            report.files[0].availability,
+            FileAvailability::NeedsManualDownload
+        );
         assert_eq!(report.needs_action_count, 1);
         assert!(!report.ready);
     }
 
     #[test]
     fn redirect_response_is_not_followed() {
-        let api = MockApi { file_status: 302, body: "https://evil.test/", fallback: "" };
+        let api = MockApi {
+            file_status: 302,
+            body: "https://evil.test/",
+            fallback: "",
+        };
         let report = resolve_curseforge_files(&metadata(), &api, "fake-key").unwrap();
-        assert_eq!(report.files[0].availability, FileAvailability::NetworkFailure);
+        assert_eq!(
+            report.files[0].availability,
+            FileAvailability::NetworkFailure
+        );
         assert!(!report.ready);
     }
 

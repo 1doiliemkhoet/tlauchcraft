@@ -353,6 +353,64 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_staging_does_not_touch_disk_or_return_ready() {
+        let cancelled = AtomicBool::new(true);
+        let temp = tempfile::tempdir().unwrap();
+        let archive = temp.path().join("unused.zip");
+        let stage = temp.path().join("unused-stage");
+        let metadata = PackMetadata {
+            name: "fixture".into(),
+            source: crate::PackSource::CurseforgeZip,
+            game_version: "1.16.5".into(),
+            loader: crate::Loader {
+                kind: "forge".into(),
+                version: Some("36.2.34".into()),
+            },
+            archive_sha256: String::new(),
+            archive_entries: 0,
+            uncompressed_bytes: 0,
+            files: Vec::new(),
+            overrides: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let resolved = CurseForgeResolveReport {
+            files: Vec::new(),
+            resolved_count: 0,
+            needs_action_count: 0,
+            ready: false,
+        };
+        let outcome = stage_curseforge_downloads(
+            &archive,
+            &metadata,
+            &resolved,
+            &stage,
+            &cancelled,
+        )
+        .unwrap();
+        assert_eq!(outcome.status, InstallStatus::Cancelled);
+        assert!(!outcome.ready);
+        assert!(!stage.exists());
+    }
+
+    #[test]
+    fn untrusted_hash_is_rejected_before_any_network_request() {
+        let item = CurseForgeFile {
+            project_id: 100,
+            file_id: 200,
+            required: true,
+            file_name: Some("fixture.jar".into()),
+            download_url: Some("https://edge.forgecdn.net/files/100/200/fixture.jar".into()),
+            sha1: None,
+            expected_size: Some(12),
+            availability: FileAvailability::Available,
+            reason: String::new(),
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let outcome = download_file(&item, temp.path(), &AtomicBool::new(false));
+        assert_eq!(outcome.unwrap_err(), "missing trusted SHA-1; manual verification required");
+    }
+
+    #[test]
     fn verified_fixture_requires_matching_sha1_and_size() {
         let sample = b"sample mod binary fixture";
         let mut out = tempfile::tempfile().unwrap();
