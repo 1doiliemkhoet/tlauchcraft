@@ -5,7 +5,7 @@ use crate::{maven, LoaderError};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -269,8 +269,23 @@ fn valid_sha1(sha1: &str) -> Result<(), LoaderError> {
 fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
     valid_sha1(sha1)?;
     reject_symlink_ancestors(path)?;
-    tl_game::check_sha1(path, sha1, None)
-        .map_err(|e| LoaderError::InvalidMetadata(format!("integrity check failed: {e}")))
+    use sha1::{Digest, Sha1};
+    let mut file = File::open(path)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("artifact missing: {e}")))?;
+    let mut hash = Sha1::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buffer)
+            .map_err(|e| LoaderError::InvalidMetadata(format!("artifact read failed: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buffer[..n]);
+    }
+    if format!("{:x}", hash.finalize()) != sha1.to_ascii_lowercase() {
+        return Err(LoaderError::InvalidMetadata("artifact checksum mismatch".into()));
+    }
+    Ok(())
 }
 
 fn reject_symlink_ancestors(path: &Path) -> Result<(), LoaderError> {
