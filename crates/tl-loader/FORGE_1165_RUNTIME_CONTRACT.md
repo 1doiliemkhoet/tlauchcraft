@@ -60,3 +60,27 @@ match result.state {
 ### Chat 2/4 dependency contract
 
 Chat 2's official verified downloader must provide read-only immutable artifacts from an explicit Forge/Mojang Maven allowlist with expected upstream checksums (never arbitrary mirrors); Chat 3 remains loader-only and does not modify `tl-game`. Chat 4 must extract the **already checksum-verified** official installer (including `data/*.lzma`) safely, bind client-only data references, satisfy all processor dependencies, and commit a complete staged instance transactionally only after output verification. All compatibility with Rustic Waters II must be chosen from that pack's manifest. G2/G3/G5 remain NOT_VERIFIED.
+
+## P0 real-installer read-only inspection (Control handoff)
+
+The official Forge downloads page pins the **1.16.5-36.2.34 installer SHA-1** to `ab306b654c44d659ce69da5d4f87590b66dc91e8`:
+<https://files.minecraftforge.net/net/minecraftforge/forge/index_1.16.5.html>.
+
+**Windows PowerShell, at the repository root, three commands:**
+
+```powershell
+$installer = "$PWD\\forge-1.16.5-36.2.34-installer.jar"; Invoke-WebRequest -Uri 'https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.34/forge-1.16.5-36.2.34-installer.jar' -OutFile $installer
+(Get-FileHash -LiteralPath $installer -Algorithm SHA1).Hash.ToLowerInvariant()
+& .\\crates\\tl-loader\\scripts\\inspect-forge-1165.ps1 -Installer $installer -MetadataDir "$PWD\\forge-1165-metadata" -ReportPath "$PWD\\forge-1165-readonly-report.json"
+```
+
+The SHA-1 printed in command 2 **must match** the pinned value. The script **re-verifies** SHA-1 before inspecting any ZIP entries, refuses unsafe/duplicate names, bounds uncompressed ZIP bytes and manifest sizes, reads only two JSON entries, and optionally extracts **only these two metadata JSON files** into a newly created metadata directory. No executable JAR or archive contents are extracted, no Java is launched, no game files are modified. Existing destinations are refused.
+
+The JSON report contains installer filename, verified SHA-1, size, actual `install_profile.version`, derived runtime version, all/client processor counts, processor JAR/classpath/arguments, output references, library counts, and data-token keys. Control must attach that JSON plus the two manifests as evidence and compare them against the `forge_1165` parser before authorizing any processor execution. This is **inspection evidence only**, not G2 or G5.
+
+### Explicit safety and integration gaps
+
+- The new `forge_graph::prepare_forge_1165` resolves `[MavenCoordinate]` from either a `BoundValue::VerifiedExternal` override or an entry in `ForgeBindings.artifacts`. Both must have a canonical source and valid local checksum. Absent artifacts produce `NeedsAction`; wrong hash produces `Failed`.
+- The current Forge processor runner should **not** be enabled to run third-party JARs until Control approves executable hashes/versions, OS isolation, a complete graph and the full input/output manifest. The staging directory alone is not an OS sandbox.
+- The existing hand-authored representative JSON fixture is **synthetic**, not copied from the 36.2.34 JAR. Control must provide the read-only report/metadata before we can report real processor counts or claim real installer-profile support.
+- `tl-game` downloader changes and Chat 4 transactional modpack installation remain owned by those chats. No unauthorized module changes in this PR.
