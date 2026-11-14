@@ -112,8 +112,11 @@ fn execute(
         validate_processor(processor)?;
     }
     // Verify Java 8 using Chat 2's existing runtime probe, never silently use PATH Java.
-    tl_game::probe_java(&request.java, 8)
+    let java_major = tl_game::probe_java(&request.java, 8)
         .map_err(|e| LoaderError::InvalidMetadata(format!("Java 8 required: {e}")))?;
+    if java_major != 8 {
+        return Err(LoaderError::JavaIncompatible { required: 8, actual: java_major });
+    }
     fs::create_dir(&request.stage_root)
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage create: {e}")))?;
     let mut marker = File::create(request.stage_root.join(".tl-loader-stage"))
