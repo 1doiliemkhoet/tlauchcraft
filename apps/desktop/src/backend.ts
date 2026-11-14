@@ -66,17 +66,21 @@ export const operations = {
 };
 export const EVENT_NAMES = ['profile.changed','instance.changed','download.progress','download.verified','pack.inspect','pack.needs_action','pack.ready','loader.installed','java.resolved','game.started','game.exited','lan.server_started','lan.peer_joined','skin.selected','skin.local_verified','skin.peer_verified'] as const;
 export async function subscribeProgress(handler: (event: ProgressEvent) => void): Promise<() => void> {
-  const cleanups: UnlistenFn[] = [];
-  try {
-    for (const name of EVENT_NAMES) {
-      cleanups.push(await listen<ProgressEvent>(name, e => {
-        const data = e.payload;
-        if (data && data.contract_version === 1 && typeof data.operation_id === 'string' && typeof data.phase === 'string' && typeof data.message_key === 'string') handler(data);
-      }));
-    }
-  } catch (error) {
+  // Subscribe concurrently: sequential registrations made the initial "resolving" event
+  // easy to miss. All listeners are installed before the UI negotiates/starts work.
+  const subscriptions = await Promise.allSettled(EVENT_NAMES.map(name =>
+    listen<ProgressEvent>(name, e => {
+      const data = e.payload;
+      if (data && data.contract_version === 1 && typeof data.operation_id === 'string' &&
+          typeof data.phase === 'string' && typeof data.message_key === 'string') handler(data);
+    })
+  ));
+  const cleanups: UnlistenFn[] = subscriptions.flatMap(result =>
+    result.status === 'fulfilled' ? [result.value] : []);
+  const rejected = subscriptions.find(result => result.status === 'rejected');
+  if (rejected && rejected.status === 'rejected') {
     cleanups.forEach(fn => fn());
-    throw error;
+    throw rejected.reason;
   }
   return () => cleanups.forEach(fn => fn());
 }
