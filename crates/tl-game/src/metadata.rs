@@ -302,7 +302,11 @@ mod tests {
                 "sha1":"0123456789abcdef0123456789abcdef01234567"
             }}}),
         ];
-        for suffix in ["natives-windows", "natives-windows-x86", "natives-windows-arm64"] {
+        for suffix in [
+            "natives-windows",
+            "natives-windows-x86",
+            "natives-windows-arm64",
+        ] {
             libraries.push(lwjgl_native(
                 &format!("org.lwjgl:lwjgl-freetype:3.3.3:{suffix}"),
                 suffix,
@@ -310,20 +314,27 @@ mod tests {
         }
         let version = json!({"id":"1.21.1","libraries":libraries});
         for (arch, classifier) in [
-            ("x86_64","natives-windows"),
-            ("x86","natives-windows-x86"),
-            ("arm64","natives-windows-arm64"),
+            ("x86_64", "natives-windows"),
+            ("x86", "natives-windows-x86"),
+            ("arm64", "natives-windows-arm64"),
         ] {
             let mut host = env();
             host.arch = arch.into();
             let plan = plan_version(&version, Path::new("C:/Game"), &host).unwrap();
-            let libs: Vec<_> = plan.iter().filter(|v| v.role == FileRole::Library).collect();
-            let natives: Vec<_> = plan.iter().filter(|v| v.role == FileRole::NativeArchive).collect();
+            let libs: Vec<_> = plan
+                .iter()
+                .filter(|v| v.role == FileRole::Library)
+                .collect();
+            let natives: Vec<_> = plan
+                .iter()
+                .filter(|v| v.role == FileRole::NativeArchive)
+                .collect();
             assert_eq!(libs.len(), 1, "{arch} normal classpath library");
             assert_eq!(natives.len(), 1, "{arch} only matching native jar");
-            assert!(natives[0].target.to_string_lossy().ends_with(
-                &format!("lwjgl-freetype-3.3.3-{classifier}.jar")
-            ));
+            assert!(natives[0]
+                .target
+                .to_string_lossy()
+                .ends_with(&format!("lwjgl-freetype-3.3.3-{classifier}.jar")));
         }
     }
 
@@ -339,9 +350,9 @@ mod tests {
                 "path":"org/lwjgl/lwjgl-glfw/3.3.3/lwjgl-glfw-3.3.3-natives-windows.jar"
              }}}
         ]});
-        let plan = plan_version(&version,Path::new("C:/Game"),&env()).unwrap();
-        assert_eq!(plan.len(),1);
-        assert_eq!(plan[0].role,FileRole::NativeArchive);
+        let plan = plan_version(&version, Path::new("C:/Game"), &env()).unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].role, FileRole::NativeArchive);
     }
 
     #[test]
@@ -358,9 +369,17 @@ mod tests {
                 }}
             }
         }]});
-        let plan = plan_version(&version,Path::new("C:/Game"),&env()).unwrap();
-        assert_eq!(plan.iter().filter(|p|p.role==FileRole::Library).count(),1);
-        assert_eq!(plan.iter().filter(|p|p.role==FileRole::NativeArchive).count(),1);
+        let plan = plan_version(&version, Path::new("C:/Game"), &env()).unwrap();
+        assert_eq!(
+            plan.iter().filter(|p| p.role == FileRole::Library).count(),
+            1
+        );
+        assert_eq!(
+            plan.iter()
+                .filter(|p| p.role == FileRole::NativeArchive)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -371,7 +390,7 @@ mod tests {
                 "url":"https://libraries.minecraft.net/a",
                 "sha1":"0123456789abcdef0123456789abcdef01234567"}}
         }]});
-        assert!(plan_version(&version,Path::new("C:/Game"),&env()).is_err());
+        assert!(plan_version(&version, Path::new("C:/Game"), &env()).is_err());
     }
 
     #[test]
