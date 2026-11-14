@@ -644,7 +644,15 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+            // Read the client's request before responding/closing. Closing a TCP
+            // socket with unread request bytes causes Windows to send RST and
+            // turns a body/checksum test into a spurious send_headers error.
+            stream
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
             handler(stream);
         });
         (format!("http://{addr}/metadata").parse().unwrap(), handle)
