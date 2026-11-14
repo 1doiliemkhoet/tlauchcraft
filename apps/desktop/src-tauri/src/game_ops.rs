@@ -55,7 +55,13 @@ fn root(i:&GameInstance)->Result<PathBuf,String>{
     if !matches!(&i.loader.kind,LoaderKind::Vanilla){
         return Err("Forge/Fabric/modpack installation is not supported by the Vanilla bridge".into())
     }
-    Ok(base.join(&i.root_path))
+    let root=base.join(&i.root_path);
+    for part in root.ancestors().take_while(|p|p.starts_with(&base)) {
+        if part.exists() && fs::symlink_metadata(part).map_err(|e|e.to_string())?.file_type().is_symlink(){
+            return Err("Refusing symlinked instance directory".into())
+        }
+    }
+    Ok(root)
 }
 fn update_state(uuid:Uuid,next:InstanceState)->Result<(),String>{
     let mut store=db()?;
@@ -120,7 +126,7 @@ pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:Str
     let uuid=id(&instance_id)?;
     let i=find_instance(uuid)?;
     root(&i)?;
-    if !matches!(i.state,InstanceState::Empty|InstanceState::Failed|InstanceState::Cancelled|InstanceState::NeedsAction){
+    if !matches!(&i.state,InstanceState::Empty|InstanceState::Failed|InstanceState::Cancelled|InstanceState::NeedsAction){
         return Err(format!("Cannot install instance in state {:?}",i.state))
     }
     let mut installs=state.installs.lock().map_err(|_|"Install lock poisoned")?;
@@ -136,7 +142,7 @@ pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:Str
             let status=if cancelled.load(Ordering::Relaxed) || e=="Install cancelled"{
                 InstanceState::Cancelled
             }else{InstanceState::Failed};
-            let is_cancelled=matches!(status,InstanceState::Cancelled);
+            let is_cancelled=matches!(&status,InstanceState::Cancelled);
             let _=update_state(uuid,status);
             event(&app,uuid,if is_cancelled{"cancelled"}else{"failed"},e);
         }
@@ -188,7 +194,7 @@ fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
 #[tauri::command]
 pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
     let i=find_instance(request.instance_id)?;
-    if i.state!=InstanceState::Ready{return Err("Instance not READY; complete verified Vanilla install".into())}
+    if !matches!(&i.state,InstanceState::Ready){return Err("Instance not READY; complete verified Vanilla install".into())}
     let profile:OfflineProfile=db()?.get_profile(request.profile_id).map_err(|e|e.to_string())?
         .ok_or("Persisted profile missing")?;
     tl_game::foundation::validate_launch_context(&i,&profile,&request).map_err(|e|e.to_string())?;
@@ -222,8 +228,9 @@ pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core:
     }
     let log_dir=dir.join("logs");
     fs::create_dir_all(&log_dir).map_err(|e|e.to_string())?;
-    let stdout=log_dir.join("minecraft-stdout.log");
-    let stderr=log_dir.join("minecraft-stderr.log");
+    let launch_id=Uuid::new_v4();
+    let stdout=log_dir.join(format!("minecraft-{launch_id}-stdout.log"));
+    let stderr=log_dir.join(format!("minecraft-{launch_id}-stderr.log"));
     let child=tl_game::launch(&launch,&stdout,&stderr).map_err(|e|e.to_string())?;
     let pid=child.id();
     children.insert(i.id,child);
