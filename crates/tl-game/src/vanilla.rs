@@ -15,58 +15,160 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
 
-fn fetch_json(client: &Client, url: &str, sha: Option<&str>) -> Result<Value, GameError> {
-    let u = reqwest::Url::parse(url).map_err(|e| GameError::InvalidInput(e.to_string()))?;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// Each HTTP stage emits a duration and a fixed approved endpoint label only.
+/// Request URLs (queries, credentials) and response bodies are never logged.
+fn metadata_trace(stage: &str, endpoint: &str, event: &str, since: Instant) {
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} event={event} elapsed_ms={}",
+        since.elapsed().as_millis()
+    );
+}
+
+fn approved_metadata_endpoint(url: &str) -> Result<reqwest::Url, GameError> {
+    let u = reqwest::Url::parse(url)
+        .map_err(|e| GameError::InvalidInput(format!("invalid metadata URL: {e}")))?;
     if u.scheme() != "https"
         || u.port().is_some()
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.query().is_some()
+        || u.fragment().is_some()
         || !matches!(
             u.host_str(),
             Some("piston-meta.mojang.com" | "launchermeta.mojang.com")
         )
     {
-        return Err(GameError::InvalidInput(
-            "untrusted metadata endpoint".into(),
-        ));
+        return Err(GameError::InvalidInput("untrusted metadata endpoint".into()));
     }
-    let mut response = client
-        .get(u)
-        .send()
-        .map_err(|e| GameError::NetworkFailure(e.to_string()))?;
+    Ok(u)
+}
+
+fn metadata_client() -> Result<Client, GameError> {
+    let start = Instant::now();
+    eprintln!("[vanilla-metadata] stage=client event=start");
+    let result = Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| GameError::NetworkFailure(format!("metadata client initialization: {e}")));
+    metadata_trace("client", "local", if result.is_ok() { "ok" } else { "error" }, start);
+    result
+}
+
+/// Transport is separately testable with a loopback HTTP server. Production
+/// callers MUST validate HTTPS and the official host before invoking it.
+fn fetch_json_transport(
+    client: &Client,
+    url: reqwest::Url,
+    expected_sha: Option<&str>,
+    stage: &str,
+    endpoint: &str,
+) -> Result<Value, GameError> {
+    let begin = Instant::now();
+    metadata_trace(stage, endpoint, "send_start", begin);
+    // reqwest's timeout bounds connect, TLS negotiation, response headers AND
+    // reading a stalled body. The connect timeout independently bounds TCP setup.
+    let mut response = client.get(url).send().map_err(|e| {
+        metadata_trace(stage, endpoint, "headers_error", begin);
+        GameError::NetworkFailure(format!(
+            "metadata stage={stage} endpoint={endpoint} phase=send_headers elapsed_ms={} timeout={} error={e}",
+            begin.elapsed().as_millis(),
+            e.is_timeout()
+        ))
+    })?;
+    metadata_trace(stage, endpoint, "headers_ok", begin);
     if response.status() != reqwest::StatusCode::OK {
         return Err(GameError::NetworkFailure(format!(
-            "metadata HTTP {}",
-            response.status()
+            "metadata stage={stage} endpoint={endpoint} phase=headers HTTP {} elapsed_ms={}",
+            response.status(),
+            begin.elapsed().as_millis()
         )));
     }
     if response
         .content_length()
         .is_some_and(|len| len > MAX_JSON_BYTES)
     {
-        return Err(GameError::InvalidInput("metadata too large".into()));
+        return Err(GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} body exceeds limit"
+        )));
     }
+    let body_start = Instant::now();
+    metadata_trace(stage, endpoint, "body_start", begin);
     let mut bytes = Vec::new();
     response
         .by_ref()
         .take(MAX_JSON_BYTES + 1)
-        .read_to_end(&mut bytes)?;
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            metadata_trace(stage, endpoint, "body_error", begin);
+            GameError::NetworkFailure(format!(
+                "metadata stage={stage} endpoint={endpoint} phase=body elapsed_ms={} error={e}",
+                begin.elapsed().as_millis()
+            ))
+        })?;
+    metadata_trace(stage, endpoint, "body_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} body_bytes={} body_ms={}",
+        bytes.len(),
+        body_start.elapsed().as_millis()
+    );
     if bytes.len() as u64 > MAX_JSON_BYTES {
-        return Err(GameError::InvalidInput("metadata too large".into()));
+        return Err(GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} body exceeds limit"
+        )));
     }
-    if let Some(expected) = sha {
+    let verify_start = Instant::now();
+    if let Some(expected) = expected_sha {
         if expected.len() != 40
             || !expected.bytes().all(|b| b.is_ascii_hexdigit())
             || format!("{:x}", Sha1::digest(&bytes)) != expected.to_ascii_lowercase()
         {
-            return Err(GameError::IntegrityMismatch("version metadata SHA1".into()));
+            metadata_trace(stage, endpoint, "sha1_mismatch", begin);
+            return Err(GameError::IntegrityMismatch(format!(
+                "metadata stage={stage} endpoint={endpoint} SHA1 mismatch elapsed_ms={}",
+                begin.elapsed().as_millis()
+            )));
         }
     }
-    Ok(serde_json::from_slice(&bytes)?)
+    metadata_trace(stage, endpoint, "sha1_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} sha1_ms={}",
+        verify_start.elapsed().as_millis()
+    );
+    let parse_start = Instant::now();
+    let value: Value = serde_json::from_slice(&bytes).map_err(|e| {
+        GameError::InvalidInput(format!(
+            "metadata stage={stage} endpoint={endpoint} phase=json_parse elapsed_ms={} error={e}",
+            begin.elapsed().as_millis()
+        ))
+    })?;
+    metadata_trace(stage, endpoint, "json_ok", begin);
+    eprintln!(
+        "[vanilla-metadata] stage={stage} endpoint={endpoint} parse_ms={}",
+        parse_start.elapsed().as_millis()
+    );
+    Ok(value)
+}
+
+fn fetch_json(
+    client: &Client,
+    url: &str,
+    sha: Option<&str>,
+    stage: &str,
+    endpoint: &str,
+) -> Result<Value, GameError> {
+    let verified = approved_metadata_endpoint(url)?;
+    fetch_json_transport(client, verified, sha, stage, endpoint)
 }
 
 pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
@@ -78,12 +180,8 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
     {
         return Err(GameError::InvalidInput("invalid version id".into()));
     }
-    let client = Client::builder()
-        .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| GameError::NetworkFailure(e.to_string()))?;
-    let manifest = fetch_json(&client, MANIFEST, None)?;
+    let client = metadata_client()?;
+    let manifest = fetch_json(&client, MANIFEST, None, "manifest", "piston-meta.mojang.com")?;
     let versions = manifest
         .get("versions")
         .and_then(Value::as_array)
@@ -105,7 +203,7 @@ pub fn resolve_official_version(version_id: &str) -> Result<Value, GameError> {
         .get("sha1")
         .and_then(Value::as_str)
         .ok_or_else(|| GameError::InvalidInput("version SHA1 missing".into()))?;
-    let version = fetch_json(&client, url, Some(sha))?;
+    let version = fetch_json(&client, url, Some(sha), "version", "piston-meta.mojang.com")?;
     if version.get("id").and_then(Value::as_str) != Some(version_id)
         || version.get("inheritsFrom").is_some()
     {
