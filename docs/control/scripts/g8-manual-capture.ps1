@@ -42,6 +42,8 @@ if ($record.sqlite_exists) {
 if ($ModpackFile -and (Test-Path -LiteralPath $ModpackFile)) {
  $record.archive_sha256=(Get-FileHash -LiteralPath $ModpackFile -Algorithm SHA256).Hash
 }
+Write-Host 'Refocus the actual installer/app/dialog window NOW; screenshot will be captured after 5 seconds.'
+Start-Sleep -Seconds 5
 try {
  Add-Type -AssemblyName System.Windows.Forms
  Add-Type -AssemblyName System.Drawing
