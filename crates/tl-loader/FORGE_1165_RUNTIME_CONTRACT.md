@@ -28,3 +28,35 @@ The public official page lists 1.16.5 Forge Recommended 36.2.34 and Latest 36.2.
 ## Handoff acceptance for Chat 4
 
 Integration must provide: `minecraft_version`, `loader.version`, official installer checksum/provenance, full verified dependency list, `ProcessorRunRequest`, raw `version.json` plus inherited parent, verified output list, staged instance destination and logs. Chat 4 should fail `NeedsAction` or `Failed` if any required input/hash/processor is unavailable, and never mark `Ready` on mere metadata or spawn success.
+
+## 2026-11-15 — Typed graph preparation API (new)
+
+```rust
+use tl_loader::forge_graph::{
+    prepare_forge_1165, ForgeBindings, BoundValue, PrepareReport, PrepareState
+};
+let result: PrepareReport =
+    prepare_forge_1165(verified_install_profile_json, &verified_version_json, &bindings);
+match result.state {
+    PrepareState::Verified => {
+        // result.request holds a *prepared*, non-executed ProcessorRunRequest.
+        // DO NOT execute until Control approves the full official source/checksum
+        // and the caller independently supplies a private OS-isolated run context.
+    }
+    PrepareState::NeedsAction => { /* resolve and verify result.unresolved */ }
+    PrepareState::Failed => { /* show result.error and abort without touching instance */ }
+}
+```
+
+- `ForgeBindings` is caller-owned. It supplies exact Minecraft/Forge version, explicit Java path, **new private staging root**, timeout, `artifacts` keyed by Maven coordinate (each as `VerifiedProcessorJar`), and explicit `data` bindings. No network download or Java spawning occurs during preparation.
+- `BoundValue::VerifiedExternal(VerifiedProcessorJar)` is subject to local SHA-1 validation **before** a request is created. Supported sources are canonical Forge Maven/Maven Central/Minecraft library paths, and Mojang's checksum-addressed client JAR. Maven references with `@zip`/`@txt` are recognized for input resolution.
+- `BoundValue::Staged(relative_path)` points inside `stage_root`; absolute, parent traversal, colon, and backslash are rejected. All processor output paths must bind to a staged path and supply a 40-hex output hash. Duplicate outputs are refused.
+- `BoundValue::Literal` is for scalar arguments only; not a file path or an unverified Maven reference. Unbound `{KEY}`, `[Maven]`, missing client data, unapproved processor coordinates, and missing output hashes cannot produce `Verified`.
+- The client graph respects upstream processor order and excludes server-only steps. It never trusts a `mainClass` field from installer metadata; the runtime maps approved tool coordinates to audited Java entrypoints. A missing artifact causes `NeedsAction`, not an auto-download.
+- **Current limits:** Full installer archive extraction and official 1.16.5 manifest byte-for-byte fixture are not available in this environment. The representative `tests/fixtures/forge_1165_representative.json` is **schema-based, synthetic**, not a claim of official extraction. No bundled Forge binaries; no actual processor execution.
+- **Official provenance checkpoint:** Forge's official version page publishes SHA-1 `ab306b654c44d659ce69da5d4f87590b66dc91e8` for `forge-1.16.5-36.2.34-installer.jar`. Treat this digest as a gate for archive inspection, **not** permission to execute. Official Maven path: `https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.34/forge-1.16.5-36.2.34-installer.jar`. Actual archive contents not inspected here because runtime networking to that host failed.
+- **Caution:** A private filesystem staging directory is not an OS sandbox. If Control approves execution, a separate restricted process/container/OS policy and safe file-write boundary are still needed. The `ProcessorRunReport::Verified` state applies only to validated processor outputs, never a complete Forge installation.
+
+### Chat 2/4 dependency contract
+
+Chat 2's official verified downloader must provide read-only immutable artifacts from an explicit Forge/Mojang Maven allowlist with expected upstream checksums (never arbitrary mirrors); Chat 3 remains loader-only and does not modify `tl-game`. Chat 4 must extract the **already checksum-verified** official installer (including `data/*.lzma`) safely, bind client-only data references, satisfy all processor dependencies, and commit a complete staged instance transactionally only after output verification. All compatibility with Rustic Waters II must be chosen from that pack's manifest. G2/G3/G5 remain NOT_VERIFIED.
