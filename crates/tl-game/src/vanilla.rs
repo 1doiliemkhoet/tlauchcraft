@@ -879,7 +879,10 @@ mod tests {
         let error = install_vanilla(&metadata, root.path(), &AtomicBool::new(false))
             .unwrap_err()
             .to_string();
-        assert!(error.contains("no matching Windows native archives"), "{error}");
+        assert!(
+            error.contains("no matching Windows native archives"),
+            "{error}"
+        );
     }
 
     #[test]
