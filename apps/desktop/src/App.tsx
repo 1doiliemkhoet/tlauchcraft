@@ -149,7 +149,7 @@ export default function App() {
         }
         setGameStatusById(old => {
           const changed = Object.entries(updated).some(([id,status]) =>
-            backendStatusSignature(old[id] ?? status) !== backendStatusSignature(status));
+            !old[id] || backendStatusSignature(old[id]) !== backendStatusSignature(status));
           return changed ? {...old,...updated} : old;
         });
         // State is read from Rust/SQLite, not guessed from a timer.
