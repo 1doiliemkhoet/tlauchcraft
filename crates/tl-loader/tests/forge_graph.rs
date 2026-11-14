@@ -49,11 +49,20 @@ fn setup() -> (PathBuf, ForgeBindings) {
     data.insert("PATCHED".into(), BoundValue::Staged("generated/patched.jar".into()));
     data.insert("MC_SLIM".into(), BoundValue::Staged("generated/slim.jar".into()));
     data.insert("MC_EXTRA".into(), BoundValue::Staged("generated/extra.jar".into()));
-    data.insert("MINECRAFT_JAR".into(), BoundValue::Literal("verified-client-placeholder".into()));
-    data.insert(
-        "[net.minecraftforge:mcp_config:1.16.5-20210115.111550@zip]".into(),
-        BoundValue::Literal("trusted-cached-mcp".into()),
-    );
+    let mut client = artifact(&root, "net.minecraft:client:1.16.5");
+    client.source = format!("https://piston-data.mojang.com/v1/objects/{SHA}/client.jar");
+    data.insert("MINECRAFT_JAR".into(), BoundValue::VerifiedExternal(client));
+    let mcp_coord = "net.minecraftforge:mcp_config:1.16.5-20210115.111550@zip";
+    let mcp_path = root.join("mcp-config.zip");
+    fs::write(&mcp_path, b"fixture").unwrap();
+    data.insert(format!("[{mcp_coord}]"), BoundValue::VerifiedExternal(
+        VerifiedProcessorJar {
+            coordinate: mcp_coord.into(),
+            path: mcp_path,
+            sha1: SHA.into(),
+            source: "https://maven.minecraftforge.net/net/minecraftforge/mcp_config/1.16.5-20210115.111550/mcp_config-1.16.5-20210115.111550.zip".into(),
+        },
+    ));
     (
         root.clone(),
         ForgeBindings {
