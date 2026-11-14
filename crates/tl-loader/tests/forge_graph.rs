@@ -210,7 +210,10 @@ fn resolves_profile_maven_reference_from_verified_artifact_map() {
     assert_eq!(result.state, PrepareState::Verified, "{:?}", result.error);
     let graph = result.request.unwrap();
     let path = root.join("mcp-config.zip");
-    assert!(graph.processors[0].arguments.iter().any(|arg| arg == path.to_str().unwrap()));
+    assert!(graph.processors[0]
+        .arguments
+        .iter()
+        .any(|arg| arg == path.to_str().unwrap()));
     assert!(!bindings.stage_root.exists());
     fs::remove_dir_all(root).unwrap();
 }

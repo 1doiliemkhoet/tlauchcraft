@@ -315,12 +315,7 @@ fn resolve_arg(
                     return Err(LoaderError::InvalidInput.into());
                 }
                 crate::runtime::validate_verified_artifact(artifact)?;
-                output.push_str(
-                    artifact
-                        .path
-                        .to_str()
-                        .ok_or(LoaderError::InvalidInput)?,
-                );
+                output.push_str(artifact.path.to_str().ok_or(LoaderError::InvalidInput)?);
             } else {
                 missing.insert(format!("maven:{key}"));
             }
