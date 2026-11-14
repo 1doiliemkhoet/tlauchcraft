@@ -52,7 +52,7 @@ fn find_instance(uuid:Uuid)->Result<GameInstance,String>{
 fn root(i:&GameInstance)->Result<PathBuf,String>{
     i.validate().map_err(|e|e.to_string())?;
     let base=default_data_dir().map_err(|e|e.to_string())?;
-    if !matches!(i.loader.kind,LoaderKind::Vanilla){
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
         return Err("Forge/Fabric/modpack installation is not supported by the Vanilla bridge".into())
     }
     Ok(base.join(&i.root_path))
