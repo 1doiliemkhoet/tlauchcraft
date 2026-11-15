@@ -1,5 +1,6 @@
 //! Standalone modpack archive inspector. No external downloads or executable hooks.
 //! This crate does not assert that an imported instance is runnable.
+pub mod artifact_audit;
 pub mod curseforge;
 pub mod install;
 pub mod modrinth;
