@@ -38,7 +38,7 @@ try {
     $target = [IO.Path]::Combine($targetRoot, 'client.lzma')
     $source = $entry.Open()
     try {
-        $dest = New-Object IO.FileStream($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $dest = [IO.File]::Open($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         try {
             $buffer = New-Object byte[] 65536
             [long]$bytes = 0
