@@ -599,6 +599,76 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn unapproved_run_is_fail_closed_even_with_well_formed_request() {
+        let (root, proc) = fixture();
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: root.join("stage"),
+            processors: vec![proc],
+            timeout_seconds: 10,
+        };
+        let report = run_verified_processors(&request);
+        assert_eq!(report.outcome, ProcessorOutcome::Failed);
+        assert!(report.error.unwrap().contains("explicit Control-approved"));
+        assert!(!request.stage_root.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn permit_rejects_unsafe_parent_and_unapproved_executable_without_java() {
+        let (root, proc) = fixture();
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: root.join("stage"),
+            processors: vec![proc],
+            timeout_seconds: 10,
+        };
+        let cancellation = AtomicBool::new(false);
+        let mut permit = ExecutionPermit {
+            approved_executable_sha1s: vec!["0000000000000000000000000000000000000000".into()],
+            restricted_environment_attested: true,
+            approved_stage_parent: root.clone(),
+        };
+        assert!(run_approved_processors(&request, &permit, &cancellation)
+            .error.unwrap().contains("not explicitly approved"));
+        permit.approved_executable_sha1s = vec!["51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa".into()];
+        permit.restricted_environment_attested = false;
+        assert!(run_approved_processors(&request, &permit, &cancellation)
+            .error.unwrap().contains("containment"));
+        permit.restricted_environment_attested = true;
+        permit.approved_stage_parent = root.join(".minecraft");
+        assert!(run_approved_processors(&request, &permit, &cancellation)
+            .error.unwrap().contains("containment"));
+        assert!(!request.stage_root.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cancellation_refuses_before_creating_stage() {
+        let (root, proc) = fixture();
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: root.join("stage"),
+            processors: vec![proc],
+            timeout_seconds: 10,
+        };
+        let cancellation = AtomicBool::new(true);
+        let permit = ExecutionPermit {
+            approved_executable_sha1s: vec!["51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa".into()],
+            restricted_environment_attested: true,
+            approved_stage_parent: root.clone(),
+        };
+        let r = run_approved_processors(&request, &permit, &cancellation);
+        assert_eq!(r.outcome, ProcessorOutcome::Failed);
+        assert!(r.error.unwrap().contains("cancelled"));
+        assert!(!request.stage_root.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn actual_output_bytes_must_match_declared_hash() {
         let root = scratch();
         fs::create_dir(&root).unwrap();
