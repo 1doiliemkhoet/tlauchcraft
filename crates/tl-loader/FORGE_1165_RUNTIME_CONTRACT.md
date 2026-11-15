@@ -144,3 +144,36 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scrip
 ```
 
 Run the last command only for this reviewed, trusted repository script. Process-scoped `-ExecutionPolicy Bypass` does not change machine/user policy persistently; it is not a recommendation to disable system-wide policy. Confirm printed SHA-1 `7d247279cf06eed6ffcf609f36d11e34c70350f3`. Existing metadata output directories must be renamed or moved before re-running because the inspector intentionally refuses overwrite.
+
+## Control P0 — REAL Forge 36.2.29 metadata regression, processor DAG and provenance
+
+Source **actual Control-uploaded `install_profile.json` + `version.json`**, from official installer `forge-1.16.5-36.2.29-installer.jar`, SHA-1 `7d247279cf06eed6ffcf609f36d11e34c70350f3`, 8,014,866 bytes / 355 ZIP entries. Sanitized fixtures in `tests/fixtures/forge_36229_official_{profile,version}.json` preserve **all** data keys, real processors, libraries, derived game launch arguments and SHA-1 metadata; only giant `icon` and unrelated UI fields were dropped. Do not relabel previous hand-authored fixture as official.
+
+| Step | Trusted processor | Classpath | Declared SHA-1 outputs | Tracked intermediate |
+| --- | --- | --- | --- | --- |
+| 0 | `net.minecraftforge:installertools:1.2.6` | 17 | none | `MAPPINGS` via `--output` |
+| 1 | `net.minecraftforge:jarsplitter:1.1.4` | 2 | `MC_SLIM`, `MC_EXTRA` | none |
+| 2 | `net.md-5:SpecialSource:1.8.5` | 7 | none | `MC_SRG` via `--out-jar` |
+| 3 | `net.minecraftforge:binarypatcher:1.0.12` | 11 | `PATCHED` | none |
+
+Outputs without official SHA-1 are **not** treated as checksum-verified: the runner checks regular nonempty files, no symlink ancestors, records locally observed SHA-1 + producer index + size, and verifies downstream ordering. Where an expected official SHA-1 exists it is mandatory and checked before continuing. Typed Chat 4 handoff **rechecks** declared output file bytes and intermediate evidence; `instance_ready` is always false. A plan or successful process exit is not evidence that the final Forge instance exists, is launchable or is ready.
+
+`SpecialSource:1.8.5` main class `net.md_5.specialsource.SpecialSource` is corroborated by the 1.8.5 published Maven POM and the exact official installer-profile SHA-1 `c670c493c436a885c872fa4810bc698628b95922`. The runtime accepts **only** that coordinate/main class/digest combination, not arbitrary main classes. **The executable JAR's MANIFEST.MF has not yet been byte-inspected on Control**, so Control must perform that final check before approving any execution. Main-class implementation allowlist is not process-execution authorization.
+
+All processor/classpath/[Maven] inputs, including `@zip`, must match the **official profile library URL and SHA-1** as well as the bytes on disk, not merely a caller-supplied digest. `MINECRAFT_JAR` is an explicit `VerifiedExternal` bound to checksum-addressed official Mojang 1.16.5 client metadata (legacy `launcher.mojang.com` or `piston-data.mojang.com`); absence = `NeedsAction`. Never use arbitrary `.minecraft` paths or touch saves.
+
+`BINPATCH.client=/data/client.lzma` has no Maven URL. The reviewed `scripts/extract-forge-binpatch.ps1` verifies the official installer SHA-1 **before ZIP access**, extracts exactly `data/client.lzma` into a **new evidence directory** (bounded size, refuses existing destinations and user world paths) and writes `binpatch-provenance.json`. A `BoundValue::VerifiedInstallerEntry(InstallerEntryEvidence)` requires matching installer SHA, on-disk BINPATCH SHA, file size and provenance report. **The caller must trust/approve the extraction procedure; the report itself is not cryptographically signed.** Without this evidence, `NeedsAction`. No JAR execution by this script.
+
+`forge_provenance::audit_official_forge_metadata` inspects the 39 profile libraries and 26 derived libraries, authenticates canonical URL+Maven coordinate+SHA and explicitly lists source gaps for **Forge Universal SHA-1 `b6cec9bf1744a52467bf62a30ae827b772af69b8`** and **derived Forge runtime SHA-1 `42333c69e94ce972b2f589cf3d816ba80672d373`**, because both official entries have **empty download URLs**. No URL is guessed and neither artifact is treated as installed; Chat 4 must supply verified installer/generated library evidence. Preserve `version.json` game arguments and use `tl_game::inherit` rather than manufacturing launch command.
+
+### Windows Control: max three PowerShell commands
+
+```powershell
+git fetch origin; git switch feat/tl-03-forge-runtime; git pull --ff-only origin feat/tl-03-forge-runtime
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\inspect-forge-1165.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -MetadataDir "$PWD\forge-36229-metadata-new" -ReportPath "$PWD\forge-36229-inspection-new.json"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\extract-forge-binpatch.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -DestinationDirectory "$PWD\forge-36229-binpatch-new"
+```
+
+Use fresh destination names on repeat runs. The `ExecutionPolicy Bypass` is **process-scoped** and applies only to reviewed repository scripts. The extracted material is never sent to a Java process by these commands. No existing world/profile is read or changed by the inspection/extraction scripts.
+
+**Remaining blockers:** official Java 8 tool JARs/classpath/MCP ZIP/Mojang client bytes are not present in this Chat 3 runtime; Forge Universal and derived Forge runtime JARs require vetted local generation/extraction; actual processor execution needs Control-approved binary hashes **and OS-level containment**. G2/G3/G5 are **NOT_VERIFIED**. The adapter framework is loader/version-aware but **only this Forge legacy family is currently implemented**; no claim of Fabric/Quilt/NeoForge processor runtime or Forge E2E support.
