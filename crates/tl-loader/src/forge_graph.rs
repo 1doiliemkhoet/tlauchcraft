@@ -175,12 +175,9 @@ fn prepare_step(
             classpath.push(x);
         }
     }
-    let mut args = Vec::new();
-    for token in &step.args {
-        if let Some(x) = resolve_arg(token, profile, bindings, produced, missing)? {
-            args.push(x);
-        }
-    }
+    // Collect known output bindings before expanding arguments. Two authentic
+    // Forge 36.2.29 tools generate intermediates without a declared SHA-1 map.
+    // The output is inspected after the producing process, never assumed verified.
     let mut outputs = Vec::new();
     let mut output_paths = Vec::new();
     for (raw_path, raw_hash) in &step.outputs {
@@ -193,10 +190,49 @@ fn prepare_step(
             None => continue,
         };
         output_paths.push(path.clone());
-        outputs.push(ExpectedOutput {
-            relative_path: path,
-            sha1: digest,
-        });
+        outputs.push(ExpectedOutput { relative_path: path, sha1: digest });
+    }
+    let mut intermediate_outputs = Vec::new();
+    if step.outputs.is_empty() {
+        let output_flag = match step.jar.as_str() {
+            "net.minecraftforge:installertools:1.2.6" => "--output",
+            "net.md-5:SpecialSource:1.8.5" => "--out-jar",
+            _ => return Err(LoaderError::InvalidMetadata("processor has no declared or approved inferred outputs".into()).into()),
+        };
+        let pos = step.args.iter().position(|arg| arg == output_flag)
+            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output flag missing".into()))?;
+        let raw_output = step.args.get(pos + 1)
+            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output token missing".into()))?;
+        let path = match resolve_output_path(raw_output, profile, bindings, missing)? {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        intermediate_outputs.push(path.clone());
+        output_paths.push(path);
+    }
+    let mut allowable = produced.clone();
+    allowable.extend(output_paths.iter().cloned());
+    // Input flags may only use already-produced staged outputs. A current-step
+    // output cannot retroactively satisfy an input dependency.
+    for (i, arg) in step.args.iter().enumerate() {
+        if matches!(arg.as_str(), "--input" | "--in-jar" | "--srg-in" | "--srg" | "--clean" | "--apply") {
+            if let Some(raw_input) = step.args.get(i + 1) {
+                if let Some(token) = raw_input.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+                    if let Some(BoundValue::Staged(relative)) = bindings.data.get(token) {
+                        safe_stage_relative(relative)?;
+                        if !produced.contains(relative) {
+                            return Err(LoaderError::InvalidMetadata(format!("processor consumes staged input before producer: {token}")).into());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut args = Vec::new();
+    for token in &step.args {
+        if let Some(x) = resolve_arg(token, profile, bindings, &allowable, missing)? {
+            args.push(x);
+        }
     }
     if !missing.is_empty() {
         return Ok(None);
@@ -204,10 +240,8 @@ fn prepare_step(
     let jar = jar.ok_or_else(|| {
         LoaderError::InvalidMetadata("processor executable missing after preflight".into())
     })?;
-    if outputs.is_empty() {
-        return Err(
-            LoaderError::InvalidMetadata("processor has no verifiable outputs".into()).into(),
-        );
+    if outputs.is_empty() && intermediate_outputs.is_empty() {
+        return Err(LoaderError::InvalidMetadata("processor output evidence missing".into()).into());
     }
     Ok(Some((
         ApprovedProcessor {
@@ -216,6 +250,7 @@ fn prepare_step(
             main_class: main.to_owned(),
             arguments: args,
             outputs,
+            intermediate_outputs,
         },
         output_paths,
     )))
@@ -230,6 +265,8 @@ fn approved_main(coordinate: &str) -> Result<&'static str, PrepareFailure> {
         "net.minecraftforge.fart.Main"
     } else if coordinate.starts_with("net.minecraftforge:binarypatcher:") {
         "net.minecraftforge.binarypatcher.ConsoleTool"
+    } else if coordinate == "net.md-5:SpecialSource:1.8.5" {
+        "net.md_5.specialsource.SpecialSource"
     } else {
         return Err(
             LoaderError::InvalidMetadata("unapproved Forge processor coordinate".into()).into(),
@@ -362,7 +399,13 @@ fn resolve_data(
         let result = resolve_arg(value, profile, bindings, produced, missing)?;
         return Ok(result);
     }
-    // Archive entries / paths are never implicitly interpreted without trusted binding.
+    // Forge BINPATCH is embedded inside the verified installer; require a
+    // separate extraction/provenance gate, never interpret it as a local path.
+    if value.starts_with('/') {
+        missing.insert(format!("verified-installer-entry:{key}:{value}"));
+        return Ok(None);
+    }
+    // Unknown archive paths are not interpreted as arbitrary local files.
     missing.insert(format!("binding:{key}"));
     Ok(None)
 }
@@ -401,7 +444,7 @@ fn bound_value(
         }
         BoundValue::Staged(rel) => {
             safe_stage_relative(rel)?;
-            if !produced.contains(rel) && key.starts_with("INPUT_") {
+            if !produced.contains(rel) {
                 return Err(LoaderError::InvalidMetadata(
                     "input depends on unavailable output".into(),
                 )
