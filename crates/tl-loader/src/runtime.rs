@@ -380,7 +380,7 @@ fn hash_file(path: &Path) -> Result<String, LoaderError> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
+pub(crate) fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
     valid_sha1(sha1)?;
     reject_symlink_ancestors(path)?;
     use sha1::{Digest, Sha1};
