@@ -555,9 +555,8 @@ mod tests {
         use crate::runtime::ProcessorRunRequest;
         let profile: Value = serde_json::from_str(PROFILE).unwrap();
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
-        let real = crate::forge_1165::forge_1165_client_blueprint(
-            PROFILE, &derived, "36.2.29"
-        ).unwrap();
+        let real =
+            crate::forge_1165::forge_1165_client_blueprint(PROFILE, &derived, "36.2.29").unwrap();
         let expected = [
             ("net.minecraftforge:installertools:1.2.6", 17, 0),
             ("net.minecraftforge:jarsplitter:1.1.4", 2, 2),
@@ -565,32 +564,48 @@ mod tests {
             ("net.minecraftforge:binarypatcher:1.0.12", 11, 1),
         ];
         assert_eq!(real.steps.len(), 4);
-        let processors = real.steps.iter().zip(expected).map(|(step, (coordinate, cp, hash_count))| {
-            assert_eq!(step.jar, coordinate);
-            assert_eq!(step.classpath.len(), cp);
-            assert_eq!(step.outputs.len(), hash_count);
-            crate::runtime::ApprovedProcessor {
-                executable: VerifiedProcessorJar {
-                    coordinate: step.jar.clone(),
-                    path: PathBuf::from("C:/evidence-cache").join(format!("tool-{}.jar", coordinate.len())),
-                    sha1: "0000000000000000000000000000000000000000".into(),
-                    source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE".into(),
-                },
-                classpath: step.classpath.iter().map(|name| VerifiedProcessorJar {
-                    coordinate: name.clone(),
-                    path: PathBuf::from("C:/evidence-cache").join(format!("dependency-{}.jar", name.len())),
-                    sha1: "0000000000000000000000000000000000000000".into(),
-                    source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE".into(),
-                }).collect(),
-                main_class: String::new(),
-                arguments: step.args.clone(),
-                outputs: step.outputs.iter().map(|(relative, hash)| crate::runtime::ExpectedOutput {
-                    relative_path: relative.clone(),
-                    sha1: hash.clone(),
-                }).collect(),
-                intermediate_outputs: Vec::new(),
-            }
-        }).collect();
+        let processors = real
+            .steps
+            .iter()
+            .zip(expected)
+            .map(|(step, (coordinate, cp, hash_count))| {
+                assert_eq!(step.jar, coordinate);
+                assert_eq!(step.classpath.len(), cp);
+                assert_eq!(step.outputs.len(), hash_count);
+                crate::runtime::ApprovedProcessor {
+                    executable: VerifiedProcessorJar {
+                        coordinate: step.jar.clone(),
+                        path: PathBuf::from("C:/evidence-cache")
+                            .join(format!("tool-{}.jar", coordinate.len())),
+                        sha1: "0000000000000000000000000000000000000000".into(),
+                        source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE".into(),
+                    },
+                    classpath: step
+                        .classpath
+                        .iter()
+                        .map(|name| VerifiedProcessorJar {
+                            coordinate: name.clone(),
+                            path: PathBuf::from("C:/evidence-cache")
+                                .join(format!("dependency-{}.jar", name.len())),
+                            sha1: "0000000000000000000000000000000000000000".into(),
+                            source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE"
+                                .into(),
+                        })
+                        .collect(),
+                    main_class: String::new(),
+                    arguments: step.args.clone(),
+                    outputs: step
+                        .outputs
+                        .iter()
+                        .map(|(relative, hash)| crate::runtime::ExpectedOutput {
+                            relative_path: relative.clone(),
+                            sha1: hash.clone(),
+                        })
+                        .collect(),
+                    intermediate_outputs: Vec::new(),
+                }
+            })
+            .collect();
         // This verifies 4 actual official processor metadata shapes flowing through
         // reconciliation. Fake paths are never read or passed to any executor.
         let inventory = CacheImportReport {
@@ -621,7 +636,9 @@ mod tests {
         };
         let result = reconcile_processor_preflight(&inventory, prepared);
         assert_eq!(result.state, PrepareState::Verified);
-        let request = result.request.expect("real four-step blueprint must survive reconciliation");
+        let request = result
+            .request
+            .expect("real four-step blueprint must survive reconciliation");
         assert_eq!(request.processors.len(), 4);
         assert_eq!(request.processors[0].classpath.len(), 17);
         assert_eq!(request.processors[1].classpath.len(), 2);
