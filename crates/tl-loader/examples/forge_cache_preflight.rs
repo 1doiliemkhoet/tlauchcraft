@@ -43,5 +43,10 @@ fn perform() -> Result<(), Box<dyn std::error::Error>> {
         .open(&args[4])?;
     report.write_all(json.as_bytes())?;
     println!("{json}");
+    if import.state == tl_loader::forge_evidence_cache::CacheImportState::Failed
+        || prepare.state == tl_loader::forge_graph::PrepareState::Failed
+    {
+        return Err("preflight FAILED; read the JSON report for precise errors".into());
+    }
     Ok(())
 }
