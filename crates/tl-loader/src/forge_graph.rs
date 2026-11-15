@@ -168,10 +168,7 @@ fn prepare_step(
 ) -> Result<Option<(ApprovedProcessor, Vec<String>)>, PrepareFailure> {
     // Reject unapproved processor classes before reporting missing dependencies.
     let main = approved_main(&step.jar)?;
-    let jar = match resolve_artifact(&step.jar, bindings, missing)? {
-        Some(x) => x,
-        None => return Ok(None),
-    };
+    let jar = resolve_artifact(&step.jar, bindings, missing)?;
     let mut classpath = Vec::new();
     for dep in &step.classpath {
         if let Some(x) = resolve_artifact(dep, bindings, missing)? {
@@ -204,6 +201,7 @@ fn prepare_step(
     if !missing.is_empty() {
         return Ok(None);
     }
+    let jar = jar.ok_or_else(|| LoaderError::InvalidMetadata("processor executable missing after preflight".into()))?;
     if outputs.is_empty() {
         return Err(
             LoaderError::InvalidMetadata("processor has no verifiable outputs".into()).into(),
