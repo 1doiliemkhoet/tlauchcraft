@@ -84,3 +84,27 @@ The JSON report contains installer filename, verified SHA-1, size, actual `insta
 - The current Forge processor runner should **not** be enabled to run third-party JARs until Control approves executable hashes/versions, OS isolation, a complete graph and the full input/output manifest. The staging directory alone is not an OS sandbox.
 - The existing hand-authored representative JSON fixture is **synthetic**, not copied from the 36.2.34 JAR. Control must provide the read-only report/metadata before we can report real processor counts or claim real installer-profile support.
 - `tl-game` downloader changes and Chat 4 transactional modpack installation remain owned by those chats. No unauthorized module changes in this PR.
+
+## Control P0, Forge 36.2.29 (2026-11-15)
+
+**Selected target is now 1.16.5–36.2.29**, NOT 36.2.34. The previous 36.2.34 instructions in this document are preserved as historical context only. Official Forge downloads independently lists installer SHA-1 `7d247279cf06eed6ffcf609f36d11e34c70350f3` for 36.2.29. The user-reported local evidence from Control is: `1.16.5-forge-36.2.29`, `inheritsFrom=1.16.5`, `mainClass=cpw.mods.modlauncher.Launcher`, **4/4 client processors**, **39 profile libraries**.
+
+The inspector at `crates/tl-loader/scripts/inspect-forge-1165.ps1` now pins this version and SHA-1, refuses mismatched checksums, checks the observed profile and processor/library counts, and exports a dependency + processor inventory. This script cannot execute any processor. It reads the two JSON manifest entries from the ZIP only after hash verification, optionally writing them into a new metadata directory.
+
+**Windows Control (up to 3 commands, PowerShell at repository root):**
+
+```powershell
+git fetch origin; git checkout feat/tl-03-forge-runtime; git pull --ff-only origin feat/tl-03-forge-runtime
+(Get-FileHash 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -Algorithm SHA1).Hash.ToLowerInvariant()
+& .\crates\tl-loader\scripts\inspect-forge-1165.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -MetadataDir "$PWD\forge-36229-metadata" -ReportPath "$PWD\forge-36229-inspection.json"
+```
+
+The printed SHA-1 **must equal** `7d247279cf06eed6ffcf609f36d11e34c70350f3`; command 3 verifies it independently. The third command creates the report and two exported manifests and refuses pre-existing destinations. Do **not** copy the JAR into the repository or commit evidence/artifacts containing private absolute paths without review.
+
+### Chat 4 acceptance boundaries
+
+- API: `forge_graph::prepare_forge_1165(&str, &serde_json::Value, &ForgeBindings) -> PrepareReport`. `PrepareState::NeedsAction` reports required artifact coordinates/data entries, and **never emits an executable request** when dependencies are missing. `PrepareState::Verified` means *request assembled and local input checks passed*, not Forge installed.
+- Only after Control approves every executable JAR's official source, checksum and restricted execution context, Chat 4 may submit `ProcessorRunRequest` to `runtime::run_verified_processors`. It then checks `ProcessorRunReport::outcome == ProcessorOutcome::Verified` and independently confirms final game version inheritance and generated library manifest before transactional commit. No user world path may be a staging root.
+- The 4-processor unit graph regression is **constructed using the Control-confirmed processor count**, *not* a dump of the official 36.2.29 processors, classpath coordinates or output hashes. Those individual values remain unknown until Control exports the verified `install_profile.json` and `version.json`. Do not substitute invented coordinates for real dependencies.
+- Forge Maven downloads remain Chat 2/Control-owned: only canonical official URLs and digest-pinned immutable local cache are acceptable. Any downloaded executable processor needs explicit authorization, and private staging **does not imply OS sandboxing**.
+- Real installer extraction on Control, real processor invocation, exact generated output hashes, Forge launch and Rustic Waters II gameplay remain **NOT_VERIFIED** in Chat 3 until produced evidence is attached.
