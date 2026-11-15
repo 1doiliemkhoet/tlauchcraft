@@ -60,6 +60,42 @@ pub struct ForgeBindings {
 struct DataProfile {
     #[serde(default)]
     data: BTreeMap<String, ClientData>,
+    #[serde(default)]
+    libraries: Vec<LibraryRecord>,
+}
+#[derive(Deserialize)]
+struct LibraryRecord {
+    name: String,
+    downloads: Option<DownloadRecord>,
+}
+#[derive(Deserialize)]
+struct DownloadRecord {
+    artifact: Option<LibraryArtifact>,
+}
+#[derive(Deserialize)]
+struct LibraryArtifact {
+    url: String,
+    sha1: String,
+}
+/// The profile's own upstream-pinned SHA-1 and URL are authoritative. A caller
+/// may not substitute a matching local SHA of *different* tool bytes.
+fn validate_profile_artifact(
+    coordinate: &str,
+    artifact: &VerifiedProcessorJar,
+    profile: &DataProfile,
+) -> Result<(), PrepareFailure> {
+    if profile.libraries.is_empty() { return Ok(()); } // legacy representative fixture
+    let record = profile.libraries.iter().find(|item| item.name == coordinate)
+        .ok_or_else(|| LoaderError::InvalidMetadata(format!("processor artifact absent from official profile: {coordinate}")))?;
+    let entry = record.downloads.as_ref().and_then(|d| d.artifact.as_ref())
+        .ok_or_else(|| LoaderError::InvalidMetadata("official artifact download descriptor missing".into()))?;
+    if entry.url.is_empty() {
+        return Err(LoaderError::InvalidMetadata("installer-generated library has no remote URL; requires verified installer evidence".into()).into());
+    }
+    if artifact.source != entry.url || !artifact.sha1.eq_ignore_ascii_case(&entry.sha1) {
+        return Err(LoaderError::InvalidMetadata(format!("artifact provenance/sha1 mismatch: {coordinate}")).into());
+    }
+    Ok(())
 }
 #[derive(Deserialize)]
 struct ClientData {
@@ -201,10 +237,10 @@ fn prepare_step(
 ) -> Result<Option<(ApprovedProcessor, Vec<String>)>, PrepareFailure> {
     // Reject unapproved processor classes before reporting missing dependencies.
     let main = approved_main(&step.jar)?;
-    let jar = resolve_artifact(&step.jar, bindings, missing)?;
+    let jar = resolve_artifact(&step.jar, profile, bindings, missing)?;
     let mut classpath = Vec::new();
     for dep in &step.classpath {
-        if let Some(x) = resolve_artifact(dep, bindings, missing)? {
+        if let Some(x) = resolve_artifact(dep, profile, bindings, missing)? {
             classpath.push(x);
         }
     }
@@ -326,6 +362,7 @@ fn approved_main(coordinate: &str) -> Result<&'static str, PrepareFailure> {
 
 fn resolve_artifact(
     coordinate: &str,
+    profile: &DataProfile,
     bindings: &ForgeBindings,
     missing: &mut BTreeSet<String>,
 ) -> Result<Option<VerifiedProcessorJar>, PrepareFailure> {
@@ -334,6 +371,7 @@ fn resolve_artifact(
         if artifact.coordinate != coordinate {
             return Err(LoaderError::InvalidMetadata("artifact coordinate mismatch".into()).into());
         }
+        validate_profile_artifact(coordinate, artifact, profile)?;
         crate::runtime::validate_verified_artifact(artifact)?;
         Ok(Some(artifact.clone()))
     } else {
@@ -395,11 +433,15 @@ fn resolve_arg(
             }
             let key = format!("[{token}]");
             if let Some(x) = bindings.data.get(&key) {
+                if let BoundValue::VerifiedExternal(artifact) = x {
+                    validate_profile_artifact(&token, artifact, profile)?;
+                }
                 output.push_str(&bound_value(&key, x, bindings, produced)?);
             } else if let Some(artifact) = bindings.artifacts.get(&token) {
                 if artifact.coordinate != token {
                     return Err(LoaderError::InvalidInput.into());
                 }
+                validate_profile_artifact(&token, artifact, profile)?;
                 crate::runtime::validate_verified_artifact(artifact)?;
                 output.push_str(artifact.path.to_str().ok_or(LoaderError::InvalidInput)?);
             } else {
