@@ -35,7 +35,70 @@ pub struct PrepareReport {
 pub enum BoundValue {
     Literal(String),
     VerifiedExternal(VerifiedProcessorJar),
+    /// Private copy of data/client.lzma extracted from an official installer
+    /// under a reviewed, checksum-gated inspector. Never an arbitrary path.
+    VerifiedInstallerEntry(InstallerEntryEvidence),
     Staged(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstallerEntryEvidence {
+    pub installer: PathBuf,
+    pub installer_sha1: String,
+    pub entry: String,
+    pub extracted: PathBuf,
+    pub extracted_sha1: String,
+    pub report: PathBuf,
+}
+
+fn verify_installer_entry(
+    key: &str,
+    data: &InstallerEntryEvidence,
+    bindings: &ForgeBindings,
+) -> Result<String, PrepareFailure> {
+    // The first Control-approved version digest is explicit. New loader versions
+    // require their own published checksum policy, not a guessed Maven URL.
+    let approved = match (bindings.minecraft.as_str(), bindings.forge_version.as_str()) {
+        ("1.16.5", "36.2.29") => "7d247279cf06eed6ffcf609f36d11e34c70350f3",
+        _ => return Err(PrepareFailure::Missing(vec!["approved-installer-sha1".into()])),
+    };
+    if key != "BINPATCH"
+        || data.entry != "data/client.lzma"
+        || !data.installer_sha1.eq_ignore_ascii_case(approved)
+        || data.installer.file_name().and_then(|s| s.to_str())
+            != Some("forge-1.16.5-36.2.29-installer.jar")
+        || !data.installer.is_absolute()
+        || !data.extracted.is_absolute()
+        || !data.report.is_absolute()
+        || data.extracted == data.installer
+        || data.extracted.parent() != data.report.parent()
+    {
+        return Err(LoaderError::InvalidMetadata("invalid verified installer-entry evidence".into()).into());
+    }
+    // The trusted extractor report links the file to an entry within the pinned
+    // official archive. Do not accept a bare caller-supplied extracted path.
+    let text = std::fs::read_to_string(&data.report)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("installer entry evidence missing: {e}")))?;
+    let report: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("installer entry evidence invalid: {e}")))?;
+    if report["status"] != "VERIFIED_INSTALLER_ENTRY_NOT_EXECUTED"
+        || report["entry"] != data.entry
+        || report["installer"] != data.installer.to_string_lossy().as_ref()
+        || report["extracted"] != data.extracted.to_string_lossy().as_ref()
+        || report["installer_sha1"].as_str().map(|v| v.eq_ignore_ascii_case(approved)) != Some(true)
+        || report["extracted_sha1"].as_str().map(|v| v.eq_ignore_ascii_case(&data.extracted_sha1)) != Some(true)
+        || report["bytes"].as_u64().unwrap_or(0) == 0
+    {
+        return Err(LoaderError::InvalidMetadata("installer-entry provenance report mismatch".into()).into());
+    }
+    crate::runtime::verify_sha1(&data.installer, approved)?;
+    crate::runtime::verify_sha1(&data.extracted, &data.extracted_sha1)?;
+    let info = std::fs::metadata(&data.extracted)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("installer-entry missing: {e}")))?;
+    if !info.is_file() || info.len() != report["bytes"].as_u64().unwrap_or(0) {
+        return Err(LoaderError::InvalidMetadata("installer-entry size differs from extraction evidence".into()).into());
+    }
+    Ok(data.extracted.to_string_lossy().into_owned())
 }
 
 /// Caller supplies preverified Maven artifact bindings, one per exact coordinate.
@@ -591,6 +654,9 @@ fn bound_value(
                 return Err(LoaderError::InvalidMetadata(format!("invalid literal {key}")).into());
             }
             Ok(x.clone())
+        }
+        BoundValue::VerifiedInstallerEntry(evidence) => {
+            verify_installer_entry(key, evidence, bindings)
         }
         BoundValue::VerifiedExternal(x) => {
             // Every referenced input is checked before any process can spawn.
