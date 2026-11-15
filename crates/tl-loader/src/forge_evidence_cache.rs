@@ -46,14 +46,25 @@ pub enum CacheImportState {
     NeedsAction,
     Failed,
 }
+/// Input readiness is independent of post-execution Forge/installer artifacts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForgeReadiness {
+    ProcessorInputsVerified,
+    NeedsAction,
+    Failed,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheImportReport {
     pub state: CacheImportState,
     pub verified_libraries: usize,
     pub generated_or_installer: usize,
+    /// Official URL-empty artifacts that are not required to construct a process plan.
+    #[serde(default)]
+    pub needs_generated_outputs: Vec<String>,
     pub missing: Vec<String>,
     pub error: Option<String>,
+    pub processor_input_readiness: ForgeReadiness,
     /// A successful import means only local preflight, NEVER instance ready.
     pub instance_ready: bool,
 }
@@ -106,6 +117,7 @@ pub fn import_official_forge_cache(
     let mut artifacts = BTreeMap::new();
     let mut verified = 0;
     let mut generated = 0;
+    let mut generated_outputs = Vec::new();
     let mut seen = BTreeMap::<String, (String, u64, String)>::new();
     for requirement in audit
         .profile_libraries
@@ -115,7 +127,7 @@ pub fn import_official_forge_cache(
         match &requirement.source {
             SourceRequirement::VerifiedInstallerOrGenerated => {
                 generated += 1;
-                missing.insert(format!("generated-or-installer:{}", requirement.coordinate));
+                generated_outputs.push(format!("generated-or-installer:{}", requirement.coordinate));
             }
             SourceRequirement::CanonicalMaven { url } => {
                 // The same Maven coordinate must never have inconsistent upstream
@@ -217,6 +229,12 @@ pub fn import_official_forge_cache(
             state,
             verified_libraries: verified,
             generated_or_installer: generated,
+            needs_generated_outputs: generated_outputs,
+            processor_input_readiness: if state == CacheImportState::Verified {
+                ForgeReadiness::ProcessorInputsVerified
+            } else {
+                ForgeReadiness::NeedsAction
+            },
             missing: missing.into_iter().collect(),
             error: None,
             instance_ready: false,
@@ -237,6 +255,8 @@ pub fn preflight_official_forge(
                 state: CacheImportState::Failed,
                 verified_libraries: 0,
                 generated_or_installer: 0,
+                needs_generated_outputs: vec![],
+                processor_input_readiness: ForgeReadiness::Failed,
                 missing: vec![],
                 error: Some(e.to_string()),
                 instance_ready: false,
@@ -469,6 +489,29 @@ mod tests {
         assert_eq!(cache.state, CacheImportState::Failed);
         assert_eq!(plan.state, PrepareState::Failed);
         assert!(!options.stage_root.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_libraries_are_not_processor_input_blockers() {
+        const PROFILE: &str = include_str!("../tests/fixtures/forge_36229_official_profile.json");
+        const DERIVED: &str = include_str!("../tests/fixtures/forge_36229_official_version.json");
+        let root = std::env::temp_dir().join(format!("tl03-generated-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let audit = audit_official_forge_metadata(PROFILE, &serde_json::from_str::<Value>(DERIVED).unwrap()).unwrap();
+        assert_eq!(audit.profile_libraries.len() + audit.derived_libraries.len(), 65);
+        let generated: Vec<_> = audit.profile_libraries.iter().chain(&audit.derived_libraries)
+            .filter(|x| matches!(x.source, SourceRequirement::VerifiedInstallerOrGenerated))
+            .collect();
+        assert_eq!(generated.len(), 2);
+        // Invalid/missing processor inputs are still NeedsAction; do not report
+        // a prepared graph from this deliberately empty cache.
+        let result = import_official_forge_cache(PROFILE, &serde_json::from_str::<Value>(DERIVED).unwrap(), &options(&root)).unwrap();
+        assert_eq!(result.report.generated_or_installer, 2);
+        assert_eq!(result.report.needs_generated_outputs.len(), 2);
+        assert!(result.report.missing.iter().all(|x| !x.starts_with("generated-or-installer:")));
+        assert_eq!(result.report.processor_input_readiness, ForgeReadiness::NeedsAction);
+        assert!(!result.report.instance_ready);
         std::fs::remove_dir_all(root).unwrap();
     }
 
