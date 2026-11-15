@@ -161,8 +161,8 @@ export default function App() {
     };
     void poll();
     // Active installs update frequently; idle status uses a low-cost read-only fallback.
-    const active = Object.values(gameStatusById).some(s => isInstallPending(s));
-    const timer = window.setInterval(() => { void poll(); }, active ? 2400 : 9000);
+    const hasActiveInstall = Object.values(gameStatusById).some(s => isInstallPending(s));
+    const timer = window.setInterval(() => { void poll(); }, hasActiveInstall ? 2400 : 9000);
     return () => { active = false; window.clearInterval(timer); };
   }, [caps, instanceIds, refresh, log, gameStatusById]);
   useEffect(() => {
