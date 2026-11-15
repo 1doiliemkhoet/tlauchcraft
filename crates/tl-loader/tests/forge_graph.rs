@@ -257,8 +257,14 @@ fn forge_36229_four_client_processor_graph_reports_missing_dependencies() {
     processors.push(extra1);
     processors.push(extra2);
     profile["processors"] = json!(processors);
-    bindings.data.insert("OUTPUT_THREE".into(), BoundValue::Staged("generated/third.jar".into()));
-    bindings.data.insert("OUTPUT_FOUR".into(), BoundValue::Staged("generated/fourth.jar".into()));
+    bindings.data.insert(
+        "OUTPUT_THREE".into(),
+        BoundValue::Staged("generated/third.jar".into()),
+    );
+    bindings.data.insert(
+        "OUTPUT_FOUR".into(),
+        BoundValue::Staged("generated/fourth.jar".into()),
+    );
     let derived = json!({
         "id": "1.16.5-forge-36.2.29",
         "inheritsFrom": "1.16.5",
@@ -266,8 +272,14 @@ fn forge_36229_four_client_processor_graph_reports_missing_dependencies() {
     });
     let result = prepare_forge_1165(&profile.to_string(), &derived, &bindings);
     assert_eq!(result.state, PrepareState::NeedsAction);
-    assert!(result.unresolved.iter().any(|x| x.contains("binarypatcher")));
-    assert!(result.unresolved.iter().any(|x| x.contains("ForgeAutoRenamingTool")));
+    assert!(result
+        .unresolved
+        .iter()
+        .any(|x| x.contains("binarypatcher")));
+    assert!(result
+        .unresolved
+        .iter()
+        .any(|x| x.contains("ForgeAutoRenamingTool")));
     assert!(result.request.is_none());
     assert!(!bindings.stage_root.exists());
     fs::remove_dir_all(root).unwrap();
