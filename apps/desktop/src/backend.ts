@@ -11,6 +11,11 @@ export type GameInstance = { id: string; display_name: string; root_path: string
 export type ProgressEvent = { contract_version: number; operation_id: string; instance_id: string | null; timestamp: string; phase: string; message_key: string; details: Record<string, unknown>; percent: number | null };
 export type LaunchRequest = { instance_id: string; profile_id: string; java_path?: string | null; min_ram_mb?: number | null; max_ram_mb?: number | null; extra_jvm_args?: string[] | null };
 export type LaunchProcess = { pid: number; started_at: string; log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
+export type JavaSettings = { instance_id: string; xms_mb: number; xmx_mb: number; java_path: string; revision: number };
+export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: number };
+export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
+export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
+export type NewVanillaInstance = { name: string; version: string; profile_id: string };
 export type PackMetadata = { name: string; source: 'curseforge_zip' | 'modrinth_mrpack' | 'prism_zip'; game_version: string; loader: { kind: string; version: string | null }; archive_sha256: string; archive_entries: number; uncompressed_bytes: number; warnings: string[]; files: unknown[]; overrides: string[] };
 export const FEATURE_NAMES: Feature[] = ['profiles', 'instances', 'versions', 'modpacks', 'pack_inspection', 'skins', 'lan', 'game', 'settings', 'downloads'];
 export const EMPTY_CAPABILITIES: Capabilities = { schema_version: 1, provider: 'unavailable', features: Object.fromEntries(FEATURE_NAMES.map(f => [f, false])) as Record<Feature, boolean> };
@@ -40,6 +45,17 @@ export const operations = {
   listProfiles: (c: Capabilities) => call<OfflineProfile[]>(c, 'profiles', 'profile_list'),
   createProfile: (c: Capabilities, username: string) => call<OfflineProfile>(c, 'profiles', 'profile_create', { username }),
   listInstances: (c: Capabilities) => call<GameInstance[]>(c, 'instances', 'instance_list'),
+  createVanillaInstance: (c: Capabilities, req: NewVanillaInstance) => call<GameInstance>(c, 'game', 'instance_create_vanilla', { req }),
+  installVanilla: (c: Capabilities, instanceId: string) => call<string>(c, 'game', 'game_install', { instanceId }),
+  gameStatus: (c: Capabilities, instanceId: string) => call<GameStatus>(c, 'game', 'game_status', { instanceId }),
+  gamePreflight: (c: Capabilities, instanceId: string, profileId: string) => call<LaunchPreflight>(c, 'game', 'game_preflight', { instanceId, profileId }),
+  stopGame: (c: Capabilities, instanceId: string) => call<void>(c, 'game', 'game_stop', { instanceId }),
+  cancelInstall: (c: Capabilities, instanceId: string) => call<void>(c, 'game', 'game_cancel', { instanceId }),
+  javaSettingsGet: (c: Capabilities, instanceId: string) => call<JavaSettings>(c, 'settings', 'java_settings_get', { instanceId }),
+  javaSettingsSave: (c: Capabilities, value: JavaSettings) => call<JavaSettings>(c, 'settings', 'java_settings_save', {
+    instanceId: value.instance_id, xmsMb: value.xms_mb, xmxMb: value.xmx_mb, javaPath: value.java_path, expectedRevision: value.revision
+  }),
+  javaMemoryInfo: (c: Capabilities) => call<MemoryInfo>(c, 'settings', 'java_memory_info'),
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
@@ -50,17 +66,21 @@ export const operations = {
 };
 export const EVENT_NAMES = ['profile.changed','instance.changed','download.progress','download.verified','pack.inspect','pack.needs_action','pack.ready','loader.installed','java.resolved','game.started','game.exited','lan.server_started','lan.peer_joined','skin.selected','skin.local_verified','skin.peer_verified'] as const;
 export async function subscribeProgress(handler: (event: ProgressEvent) => void): Promise<() => void> {
-  const cleanups: UnlistenFn[] = [];
-  try {
-    for (const name of EVENT_NAMES) {
-      cleanups.push(await listen<ProgressEvent>(name, e => {
-        const data = e.payload;
-        if (data && data.contract_version === 1 && typeof data.operation_id === 'string' && typeof data.phase === 'string' && typeof data.message_key === 'string') handler(data);
-      }));
-    }
-  } catch (error) {
+  // Subscribe concurrently: sequential registrations made the initial "resolving" event
+  // easy to miss. All listeners are installed before the UI negotiates/starts work.
+  const subscriptions = await Promise.allSettled(EVENT_NAMES.map(name =>
+    listen<ProgressEvent>(name, e => {
+      const data = e.payload;
+      if (data && data.contract_version === 1 && typeof data.operation_id === 'string' &&
+          typeof data.phase === 'string' && typeof data.message_key === 'string') handler(data);
+    })
+  ));
+  const cleanups: UnlistenFn[] = subscriptions.flatMap(result =>
+    result.status === 'fulfilled' ? [result.value] : []);
+  const rejected = subscriptions.find(result => result.status === 'rejected');
+  if (rejected && rejected.status === 'rejected') {
     cleanups.forEach(fn => fn());
-    throw error;
+    throw rejected.reason;
   }
   return () => cleanups.forEach(fn => fn());
 }

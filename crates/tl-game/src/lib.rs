@@ -422,8 +422,14 @@ pub fn parse_java_major(output: &str) -> Result<u32, GameError> {
         .map_err(|_| GameError::UnsupportedVersion(version.into()))
 }
 pub fn probe_java(java: &Path, required: u32) -> Result<u32, GameError> {
-    let result = Command::new(java)
-        .arg("-version")
+    let mut probe = Command::new(java);
+    probe.arg("-version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let result = probe
         .output()
         .map_err(|e| GameError::LaunchFailed(e.to_string()))?;
     if !result.status.success() {
@@ -493,6 +499,11 @@ pub fn launch(config: &LaunchConfig, stdout: &Path, stderr: &Path) -> Result<Chi
     command
         .stdout(Stdio::from(fs::File::create(stdout)?))
         .stderr(Stdio::from(fs::File::create(stderr)?));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW; keep PID, exit code & captured logs.
+    }
     command
         .spawn()
         .map_err(|e| GameError::LaunchFailed(e.to_string()))
