@@ -294,6 +294,28 @@ mod tests {
     }
 
     #[test]
+    fn real_forge_library_handoff_denies_publish_when_artifacts_missing() {
+        const PROFILE: &str = include_str!("../tests/fixtures/forge_36229_official_profile.json");
+        const VERSION: &str = include_str!("../tests/fixtures/forge_36229_official_version.json");
+        let derived: serde_json::Value = serde_json::from_str(VERSION).unwrap();
+        let audit = crate::forge_provenance::audit_official_forge_metadata(PROFILE, &derived)
+            .unwrap();
+        let plan = PrepareReport {
+            state: PrepareState::Verified,
+            request: Some(request()),
+            unresolved: vec![],
+            error: None,
+        };
+        let runtime = verification_from_prepare(LoaderKind::Forge, "1.16.5", "36.2.29", &plan);
+        let handoff = installation_handoff(runtime, &audit, &[], None);
+        assert_eq!(handoff.required_java_major, 8);
+        assert!(!handoff.can_publish_instance);
+        assert!(handoff.missing_dependencies.iter().any(|x| x.contains("verified-library:")));
+        assert!(handoff.missing_dependencies.iter().any(|x| x.contains("verified-mojang-client")));
+        assert_eq!(handoff.verified_artifacts.len(), 0);
+    }
+
+    #[test]
     fn planning_never_proves_runtime() {
         let plan = PrepareReport {
             state: PrepareState::Verified,
