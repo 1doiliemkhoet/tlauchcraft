@@ -24,10 +24,12 @@ fn memory_info() -> Result<MemoryInfo, String> {
     { return Err("Windows memory detection only".into()); }
     #[cfg(windows)]
     {
-        let out=Command::new("powershell.exe")
-            .args(["-NoProfile","-NonInteractive","-Command",
-                "$m=Get-CimInstance Win32_OperatingSystem; Write-Output ($m.TotalVisibleMemorySize.ToString()+' '+$m.FreePhysicalMemory.ToString())"])
-            .output().map_err(|e|format!("Windows RAM probe failed: {e}"))?;
+        let mut probe=Command::new("powershell.exe");
+        probe.args(["-NoProfile","-NonInteractive","-Command",
+            "$m=Get-CimInstance Win32_OperatingSystem; Write-Output ($m.TotalVisibleMemorySize.ToString()+' '+$m.FreePhysicalMemory.ToString())"]);
+        use std::os::windows::process::CommandExt;
+        probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        let out=probe.output().map_err(|e|format!("Windows RAM probe failed: {e}"))?;
         if !out.status.success() { return Err("Windows memory probe failed".into()); }
         let raw=String::from_utf8_lossy(&out.stdout);
         let vals: Vec<u64>=raw.split_whitespace().map(str::parse::<u64>).collect::<Result<_,_>>()
@@ -106,8 +108,14 @@ pub fn validate(xms:u32,xmx:u32,java:&str,mem:&MemoryInfo)->Result<(),String>{
         if !path.extension().and_then(|x|x.to_str()).is_some_and(|x|x.eq_ignore_ascii_case("exe")) {
             return Err("Java executable must be a Windows .exe file".into());
         }
-        let output=Command::new(path).arg("-version").output()
-            .map_err(|e|format!("Java probe failed: {e}"))?;
+        let mut probe=Command::new(path);
+        probe.arg("-version");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let output=probe.output().map_err(|e|format!("Java probe failed: {e}"))?;
         if !output.status.success() {return Err("Selected Java executable failed -version".into())}
         let s=format!("{}{}",String::from_utf8_lossy(&output.stderr),String::from_utf8_lossy(&output.stdout));
         tl_game::parse_java_major(&s).map_err(|e|format!("Invalid Java version: {e}"))?;
