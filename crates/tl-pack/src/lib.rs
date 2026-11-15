@@ -3,6 +3,7 @@
 pub mod curseforge;
 pub mod install;
 pub mod normalized;
+pub mod publisher;
 pub mod transaction;
 pub mod validation;
 use serde::{Deserialize, Serialize};
