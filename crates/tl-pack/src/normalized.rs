@@ -199,7 +199,7 @@ pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String>
     };
     Ok(NormalizedPack {
         name: metadata.name.clone(),
-        source: metadata.source.clone(),
+        source: metadata.source,
         archive_sha256: metadata.archive_sha256.clone(),
         minecraft_version: metadata.game_version.clone(),
         loader,
