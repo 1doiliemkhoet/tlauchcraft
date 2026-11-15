@@ -236,3 +236,39 @@ fn rejects_maven_reference_to_wrong_artifact_hash() {
     assert!(result.request.is_none());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn forge_36229_four_client_processor_graph_reports_missing_dependencies() {
+    // Control-verified counts only; synthetic structure, NOT an extracted official profile.
+    let (root, mut bindings) = setup();
+    bindings.forge_version = "36.2.29".into();
+    let mut profile: serde_json::Value = serde_json::from_str(PROFILE).unwrap();
+    profile["version"] = json!("1.16.5-forge-36.2.29");
+    let original = profile["processors"].as_array().unwrap().clone();
+    let mut processors = original[..2].to_vec();
+    let mut extra1 = original[0].clone();
+    extra1["jar"] = json!("net.minecraftforge:binarypatcher:1.1.1");
+    extra1["outputs"] = json!({"{OUTPUT_THREE}": "{PATCHED_SHA}"});
+    extra1["args"] = json!(["--input", "{MINECRAFT_JAR}", "--output", "{OUTPUT_THREE}"]);
+    let mut extra2 = original[1].clone();
+    extra2["jar"] = json!("net.minecraftforge:ForgeAutoRenamingTool:0.1.0");
+    extra2["outputs"] = json!({"{OUTPUT_FOUR}": "{PATCHED_SHA}"});
+    extra2["args"] = json!(["--input", "{OUTPUT_THREE}", "--output", "{OUTPUT_FOUR}"]);
+    processors.push(extra1);
+    processors.push(extra2);
+    profile["processors"] = json!(processors);
+    bindings.data.insert("OUTPUT_THREE".into(), BoundValue::Staged("generated/third.jar".into()));
+    bindings.data.insert("OUTPUT_FOUR".into(), BoundValue::Staged("generated/fourth.jar".into()));
+    let derived = json!({
+        "id": "1.16.5-forge-36.2.29",
+        "inheritsFrom": "1.16.5",
+        "mainClass": "cpw.mods.modlauncher.Launcher"
+    });
+    let result = prepare_forge_1165(&profile.to_string(), &derived, &bindings);
+    assert_eq!(result.state, PrepareState::NeedsAction);
+    assert!(result.unresolved.iter().any(|x| x.contains("binarypatcher")));
+    assert!(result.unresolved.iter().any(|x| x.contains("ForgeAutoRenamingTool")));
+    assert!(result.request.is_none());
+    assert!(!bindings.stage_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
