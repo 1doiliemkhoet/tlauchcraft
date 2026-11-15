@@ -220,6 +220,11 @@ fn find_verified_file(
 }
 
 fn verified_mojang(client: &VerifiedMojangClient) -> Result<bool, LoaderError> {
+    // Control-verified Mojang 1.16.5 release metadata. A caller cannot
+    // substitute a self-consistent but unrelated SHA-1 / digest-addressed URL.
+    if !client.sha1.eq_ignore_ascii_case("37fd3c903861eeff3bc24b71eed48f828b5269c8")
+        || client.size_bytes != 17_547_153
+    { return Err(LoaderError::InvalidMetadata("unapproved Minecraft 1.16.5 client SHA-1/size".into())); }
     if client.sha1.len() != 40 || !client.sha1.bytes().all(|x| x.is_ascii_hexdigit())
         || client.size_bytes == 0
     { return Err(LoaderError::InvalidInput); }
