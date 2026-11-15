@@ -23,7 +23,7 @@ if ((Get-FileHash -LiteralPath $inputPath -Algorithm SHA1).Hash.ToLowerInvariant
 $targetRoot = [IO.Path]::GetFullPath($DestinationDirectory)
 if ([IO.Directory]::Exists($targetRoot) -or [IO.File]::Exists($targetRoot)) { Fail 'Destination must not exist' }
 if ([IO.Path]::GetPathRoot($targetRoot) -eq $targetRoot) { Fail 'Destination cannot be filesystem root' }
-$segments = @($targetRoot.Split([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar))
+$segments = @($targetRoot.Split([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)))
 if ($segments | Where-Object { $_ -match '^(?i:\.minecraft|saves|worlds)$' }) { Fail 'Destination may not be inside user Minecraft data' }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
