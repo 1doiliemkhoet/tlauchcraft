@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backendError, canCancelInstall, canPlayInstance, installFailure, terminalInstallEvent, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending } from './desktopState';
+import { backendError, canCancelInstall, canPlayInstance, installFailure, terminalInstallEvent, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
 import type { GameInstance, GameStatus, JavaSettings, MemoryInfo, ProgressEvent } from './backend';
 
 const instance: GameInstance = {
@@ -92,5 +92,19 @@ describe('backend-driven Activity state and asynchronous acceptance', () => {
     expect(actual.percent).toBeNull();
     expect(terminalInstallEvent(actual)).toBe(false);
     expect(terminalInstallEvent(event('verifying','Independent SHA-1 file attestation complete'))).toBe(false);
+  });
+});
+
+describe('Downloads tab bounded rendering and idle IPC cadence', () => {
+  it('renders only 24 of 100 accumulated backend events unless explicitly expanded', () => {
+    const history=Array.from({length:100},(_,i)=>event('downloading','verified file '+i));
+    expect(downloadEventsForView(history,false)).toHaveLength(24);
+    expect(downloadEventsForView(history,true)).toHaveLength(100);
+    expect(downloadEventsForView(history,false)[0].message_key).toBe('verified file 0');
+  });
+  it('polls less often when Minecraft is idle, without hiding running install state', () => {
+    expect(statusPollInterval([status])).toBe(9000);
+    expect(statusPollInterval([{...status,installing:true,install_state:'downloading'}])).toBe(2400);
+    expect(statusPollInterval([{...status,installing:false,install_state:'verifying'}])).toBe(2400);
   });
 });

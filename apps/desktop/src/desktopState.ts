@@ -47,3 +47,10 @@ export function backendStatusSignature(status: GameStatus): string {
 export function isInstallPending(status: GameStatus): boolean {
   return status.installing || ['planned', 'downloading', 'verifying'].includes(status.install_state);
 }
+
+export function downloadEventsForView(events: ProgressEvent[], showAll: boolean): ProgressEvent[] {
+  return showAll ? events : events.slice(0, 24);
+}
+export function statusPollInterval(statuses: GameStatus[]): number {
+  return statuses.some(isInstallPending) ? 2400 : 9000;
+}

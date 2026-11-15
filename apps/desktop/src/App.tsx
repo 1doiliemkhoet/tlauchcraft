@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
-import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending } from './desktopState';
+import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
 import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
@@ -161,8 +161,7 @@ export default function App() {
     };
     void poll();
     // Active installs update frequently; idle status uses a low-cost read-only fallback.
-    const hasActiveInstall = Object.values(gameStatusById).some(s => isInstallPending(s));
-    const timer = window.setInterval(() => { void poll(); }, hasActiveInstall ? 2400 : 9000);
+    const timer = window.setInterval(() => { void poll(); }, statusPollInterval(Object.values(gameStatusById)));
     return () => { active = false; window.clearInterval(timer); };
   }, [caps, instanceIds, refresh, log, gameStatusById]);
   useEffect(() => {
@@ -184,7 +183,7 @@ export default function App() {
       log(`UI navigation ${next}: ${(performance.now() - before).toFixed(1)}ms (two animation frames, device measurement)`);
     }));
   }, [log]);
-  const visibleEvents = showAllEvents ? events : events.slice(0, 24);
+  const visibleEvents = downloadEventsForView(events, showAllEvents);
   const current = navigation.find(n => n.id === page)!;
   const selected = instances.find(i => i.id === selectedInstance);
   return <div className="shell" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => {
