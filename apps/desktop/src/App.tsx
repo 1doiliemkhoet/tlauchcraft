@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending } from './desktopState';
@@ -29,6 +29,7 @@ export default function App() {
   const [selectedProfile, setSelectedProfile] = useState('');
   const [selectedInstance, setSelectedInstance] = useState('');
   const [events, setEvents] = useState<ProgressEvent[]>([]);
+  const [showAllEvents, setShowAllEvents] = useState(false);
   const [packPreview, setPackPreview] = useState<PackMetadata | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -119,7 +120,7 @@ export default function App() {
       }).catch(e => setError(backendError(e)));
     }
   }, [events, caps, refresh]);
-  const instanceIds = instances.filter(i=>i.loader.kind==='vanilla').map(i=>i.id).join('|');
+  const instanceIds = useMemo(() => instances.filter(i=>i.loader.kind==='vanilla').map(i=>i.id).join('|'), [instances]);
   useEffect(() => {
     if (!caps.features.game || !instanceIds) return;
     let active = true;
@@ -144,7 +145,7 @@ export default function App() {
             statusSignatures.current[id] = signature;
             log(backendStatusLine(status));
             if (status.last_error) setError(status.last_error);
-            changedInstallState = true;
+            if (status.install_state !== instances.find(x => x.id === id)?.state) changedInstallState = true;
           }
         }
         setGameStatusById(old => {
@@ -159,10 +160,11 @@ export default function App() {
       } finally { fetching = false; }
     };
     void poll();
-    // Poll is a read-only fallback if an event is missed or late; no fake progress.
-    const timer = window.setInterval(() => { void poll(); }, 1600);
+    // Active installs update frequently; idle status uses a low-cost read-only fallback.
+    const active = Object.values(gameStatusById).some(s => isInstallPending(s));
+    const timer = window.setInterval(() => { void poll(); }, active ? 2400 : 9000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [caps, instanceIds, refresh, log]);
+  }, [caps, instanceIds, refresh, log, gameStatusById]);
   useEffect(() => {
     let active=true;
     setPlayReady(null); setPlayReadinessError(null);
@@ -174,6 +176,15 @@ export default function App() {
     }
     return ()=>{active=false;};
   }, [caps,instances,selectedInstance,selectedProfile,javaSettings?.revision]);
+  const navigate = useCallback((next: Page) => {
+    const before = performance.now();
+    startTransition(() => setPage(next));
+    setError(undefined);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      log(`UI navigation ${next}: ${(performance.now() - before).toFixed(1)}ms (two animation frames, device measurement)`);
+    }));
+  }, [log]);
+  const visibleEvents = showAllEvents ? events : events.slice(0, 24);
   const current = navigation.find(n => n.id === page)!;
   const selected = instances.find(i => i.id === selectedInstance);
   return <div className="shell" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => {
@@ -183,7 +194,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-icon"><Gamepad2 size={24}/></div><div><b>tlauchcraft</b><small>OFFLINE / LAN LAUNCHER</small></div></div>
       <div className="side-heading">WORKSPACE</div>
-      <nav aria-label="Main navigation">{navigation.map(item => <button type="button" key={item.id} className={page === item.id ? 'nav active' : 'nav'} onClick={() => { setPage(item.id); setError(undefined); }}><item.icon size={18}/>{item.label}{featurePage[item.id as Page] && caps.features[featurePage[item.id as Page]!] && <span className="ready-dot"/>}</button>)}</nav>
+      <nav aria-label="Main navigation">{navigation.map(item => <button type="button" key={item.id} className={page === item.id ? 'nav active' : 'nav'} onClick={() => navigate(item.id)}><item.icon size={18}/>{item.label}{featurePage[item.id as Page] && caps.features[featurePage[item.id as Page]!] && <span className="ready-dot"/>}</button>)}</nav>
       <div className="sidebar-foot"><div className="tiny-status"><span className={Object.values(caps.features).some(Boolean) ? 'status-dot green' : 'status-dot'}/> {caps.provider === 'unavailable' ? 'Core not connected' : caps.provider}</div><small>Build 0.1.0 · Development preview</small></div>
     </aside>
     <main className="main">
@@ -254,8 +265,8 @@ export default function App() {
         {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation is unavailable until a real verified backend is integrated.</Notice>}</div>}
         {page === 'skins' && <div className="panel"><h3>Skin studio</h3><p className="muted">Classic / Slim · PNG library · pixel editor · 3D preview · cape compatibility</p><div className="placeholder-grid"><div className="skin-silhouette"><Palette size={44}/><span>3D render waiting for SkinService</span></div><div><h3>Visibility matters</h3><p>Launcher preview, your in-game appearance and skins visible to LAN peers are separate verification states.</p><div className="item">Launcher preview <span>Unverified</span></div><div className="item">Singleplayer provider <span>Unverified</span></div><div className="item">LAN peer visibility <span>Unverified</span></div></div></div><Unavailable feature="skins"/></div>}
         {page === 'lan' && <div className="panel"><h3>Trusted LAN multiplayer</h3><p className="muted">Host / Join will require modpack and loader compatibility checks, stable offline identity and trusted LAN binding.</p><Notice>Never expose an offline-mode dedicated server to the public Internet. Verify world and inventory persistence on two physical machines.</Notice><div className="form-row"><button disabled={!caps.features.lan || busy} onClick={() => void run('LAN status', async () => { const value = await operations.lanStatus(caps); log(JSON.stringify(value)); })}>Check LAN status</button><button disabled>Host server · awaiting contract</button><button disabled>Join server · awaiting contract</button></div>{!caps.features.lan && <Unavailable feature="lan"/>}</div>}
-        {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Live backend phases and polled SQLite state. No artificial percentages: the downloader has no verified byte-count callback yet.</p>{Object.values(gameStatusById).map(status => <div className="item" key={status.instance_id}><strong>{status.install_state}</strong><span>{status.instance_id}</span><span>{isInstallPending(status) ? 'Worker active / pending' : status.process_state}</span>{status.last_error && <span role="alert">{status.last_error}</span>}</div>)}{events.length ? events.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small>{typeof event.details.downloaded_files === 'number' && <small>Verified downloads: {event.details.downloaded_files}</small>}{typeof event.details.verified_files === 'number' && <small>SHA-1 verified files: {event.details.verified_files}</small>}{typeof event.details.native_dll_count === 'number' && <small>Extracted DLLs: {event.details.native_dll_count}</small>}</div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !canCancelInstall(gameStatusById[event.instance_id])}
-          onClick={() => void run('Cancel actual Vanilla install', () => operations.cancelInstall(caps, event.instance_id!))}>Cancel Vanilla install</button></div>) : <Empty title="No events received" description="Download and install progress will appear here when the backend publishes events."/>}{!caps.features.downloads && <Unavailable feature="downloads"/>}</div>}
+        {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Live backend phases and polled SQLite state. No artificial percentages: the downloader has no verified byte-count callback yet.</p>{Object.values(gameStatusById).map(status => <div className="item" key={status.instance_id}><strong>{status.install_state}</strong><span>{status.instance_id}</span><span>{isInstallPending(status) ? 'Worker active / pending' : status.process_state}</span>{status.last_error && <span role="alert">{status.last_error}</span>}</div>)}{events.length ? visibleEvents.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small>{typeof event.details.downloaded_files === 'number' && <small>Verified downloads: {event.details.downloaded_files}</small>}{typeof event.details.verified_files === 'number' && <small>SHA-1 verified files: {event.details.verified_files}</small>}{typeof event.details.native_dll_count === 'number' && <small>Extracted DLLs: {event.details.native_dll_count}</small>}</div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !canCancelInstall(gameStatusById[event.instance_id])}
+          onClick={() => void run('Cancel actual Vanilla install', () => operations.cancelInstall(caps, event.instance_id!))}>Cancel Vanilla install</button></div>) : <Empty title="No events received" description="Download and install progress will appear here when the backend publishes events."/>}{events.length > 24 && <button onClick={() => setShowAllEvents(old => !old)}>{showAllEvents ? 'Show latest 24' : `Show all ${events.length} events`}</button>}{!caps.features.downloads && <Unavailable feature="downloads"/>}</div>}
         {page === 'settings' && <div className="panel">
           <h3>Java & Memory · per instance</h3>
           <p className="muted">Saved locally in SQLite with revision protection. JVM receives these values as actual -Xms/-Xmx on launch.</p>
