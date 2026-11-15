@@ -3,6 +3,7 @@
 pub mod artifact_audit;
 pub mod curseforge;
 pub mod install;
+pub mod instance_manifest;
 pub mod modrinth;
 pub mod normalized;
 pub mod publisher;
