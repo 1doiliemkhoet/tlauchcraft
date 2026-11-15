@@ -455,10 +455,15 @@ mod tests {
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
         let (cache, plan) = preflight_official_forge(PROFILE, &derived, &opt);
         assert_eq!(cache.state, CacheImportState::NeedsAction);
+        assert_eq!(cache.needs_generated_outputs.len(), 2);
+        assert!(cache
+            .needs_generated_outputs
+            .iter()
+            .all(|x| x.starts_with("generated-or-installer:")));
         assert!(cache
             .missing
             .iter()
-            .any(|x| x.contains("generated-or-installer:")));
+            .all(|x| !x.starts_with("generated-or-installer:")));
         assert!(cache
             .missing
             .iter()
@@ -548,23 +553,67 @@ mod tests {
     #[test]
     fn future_generated_outputs_never_discard_a_valid_four_step_plan() {
         use crate::runtime::ProcessorRunRequest;
+        let profile: Value = serde_json::from_str(PROFILE).unwrap();
+        let derived: Value = serde_json::from_str(DERIVED).unwrap();
+        let real = crate::forge_1165::forge_1165_client_blueprint(
+            PROFILE, &derived, "36.2.29"
+        ).unwrap();
+        let expected = [
+            ("net.minecraftforge:installertools:1.2.6", 17, 0),
+            ("net.minecraftforge:jarsplitter:1.1.4", 2, 2),
+            ("net.md-5:SpecialSource:1.8.5", 7, 0),
+            ("net.minecraftforge:binarypatcher:1.0.12", 11, 1),
+        ];
+        assert_eq!(real.steps.len(), 4);
+        let processors = real.steps.iter().zip(expected).map(|(step, (coordinate, cp, hash_count))| {
+            assert_eq!(step.jar, coordinate);
+            assert_eq!(step.classpath.len(), cp);
+            assert_eq!(step.outputs.len(), hash_count);
+            crate::runtime::ApprovedProcessor {
+                executable: VerifiedProcessorJar {
+                    coordinate: step.jar.clone(),
+                    path: PathBuf::from("C:/evidence-cache").join(format!("tool-{}.jar", coordinate.len())),
+                    sha1: "0000000000000000000000000000000000000000".into(),
+                    source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE".into(),
+                },
+                classpath: step.classpath.iter().map(|name| VerifiedProcessorJar {
+                    coordinate: name.clone(),
+                    path: PathBuf::from("C:/evidence-cache").join(format!("dependency-{}.jar", name.len())),
+                    sha1: "0000000000000000000000000000000000000000".into(),
+                    source: "https://maven.minecraftforge.net/TEST_ONLY_NEVER_EXECUTE".into(),
+                }).collect(),
+                main_class: String::new(),
+                arguments: step.args.clone(),
+                outputs: step.outputs.iter().map(|(relative, hash)| crate::runtime::ExpectedOutput {
+                    relative_path: relative.clone(),
+                    sha1: hash.clone(),
+                }).collect(),
+                intermediate_outputs: Vec::new(),
+            }
+        }).collect();
+        // This verifies 4 actual official processor metadata shapes flowing through
+        // reconciliation. Fake paths are never read or passed to any executor.
         let inventory = CacheImportReport {
             state: CacheImportState::Verified,
             verified_libraries: 63,
             generated_or_installer: 2,
-            needs_generated_outputs: vec!["generated-or-installer:forge-universal".into(), "generated-or-installer:forge-derived".into()],
+            needs_generated_outputs: vec![
+                "generated-or-installer:forge-universal".into(),
+                "generated-or-installer:forge-derived".into(),
+            ],
             missing: vec![],
             error: None,
             processor_input_readiness: ForgeReadiness::ProcessorInputsVerified,
             instance_ready: false,
         };
+        assert_eq!(profile["processors"].as_array().unwrap().len(), 4);
         let prepared = PrepareReport {
             state: PrepareState::Verified,
             request: Some(ProcessorRunRequest {
                 minecraft_version: "1.16.5".into(),
                 java: PathBuf::from("C:/verified-java8/bin/java.exe"),
                 stage_root: PathBuf::from("C:/private-fresh-stage"),
-                processors: Vec::new(),
+                processors,
                 timeout_seconds: 120,
             }),
             unresolved: vec![],
@@ -572,7 +621,12 @@ mod tests {
         };
         let result = reconcile_processor_preflight(&inventory, prepared);
         assert_eq!(result.state, PrepareState::Verified);
-        assert!(result.request.is_some());
+        let request = result.request.expect("real four-step blueprint must survive reconciliation");
+        assert_eq!(request.processors.len(), 4);
+        assert_eq!(request.processors[0].classpath.len(), 17);
+        assert_eq!(request.processors[1].classpath.len(), 2);
+        assert_eq!(request.processors[2].classpath.len(), 7);
+        assert_eq!(request.processors[3].classpath.len(), 11);
         assert!(inventory.needs_generated_outputs.len() == 2);
         assert!(!inventory.instance_ready);
     }
