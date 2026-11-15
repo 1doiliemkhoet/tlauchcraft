@@ -8,6 +8,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -81,30 +82,103 @@ pub struct IntermediateEvidence {
     pub size_bytes: u64,
 }
 
-/// Distinct from a successfully installed/committed Forge instance. Reports refer to staging.
-pub fn run_verified_processors(request: &ProcessorRunRequest) -> ProcessorRunReport {
-    let mut report = ProcessorRunReport {
+/// Explicit caller-supplied authorization and out-of-process containment proof.
+/// This structure is not itself an OS sandbox; the embedding process must enforce
+/// Job Object/ACL/network controls before issuing a permit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionPermit {
+    pub approved_executable_sha1s: Vec<String>,
+    pub restricted_environment_attested: bool,
+    /// Approved private parent directory, not a Minecraft instance or world.
+    pub approved_stage_parent: PathBuf,
+}
+
+/// Compatibility entry point is fail-closed. A plan never authorizes Java.
+pub fn run_verified_processors(_request: &ProcessorRunRequest) -> ProcessorRunReport {
+    ProcessorRunReport {
         outcome: ProcessorOutcome::Failed,
         completed: 0,
         exit_codes: vec![],
         log_paths: vec![],
         verified_outputs: vec![],
         intermediate_evidence: vec![],
-        error: None,
-    };
-    if let Err(err) = execute(request, &mut report) {
-        report.error = Some(err.to_string());
-        // A failed private stage is NOT committed. Retain it for processor logs/evidence;
-        // the caller may explicitly clean it up after collecting diagnostics.
+        error: Some("processor execution requires explicit Control-approved provenance and restricted host execution permit".into()),
+    }
+}
+
+/// Executes only after the host explicitly attests restricted execution and
+/// Control-approved executable digests. Does not itself supply an OS sandbox.
+pub fn run_approved_processors(
+    request: &ProcessorRunRequest,
+    permit: &ExecutionPermit,
+    cancel: &AtomicBool,
+) -> ProcessorRunReport {
+    let mut report = run_verified_processors(request);
+    if let Err(error) = validate_execution_permit(request, permit, cancel) {
+        report.error = Some(error.to_string());
+        return report;
+    }
+    report.error = None;
+    if let Err(error) = execute(request, &mut report, cancel) {
+        report.error = Some(error.to_string());
         return report;
     }
     report.outcome = ProcessorOutcome::Verified;
     report
 }
 
+fn validate_execution_permit(
+    request: &ProcessorRunRequest,
+    permit: &ExecutionPermit,
+    cancel: &AtomicBool,
+) -> Result<(), LoaderError> {
+    if cancel.load(Ordering::SeqCst) {
+        return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+    }
+    if !permit.restricted_environment_attested
+        || !permit.approved_stage_parent.is_absolute()
+        || !request.stage_root.is_absolute()
+        || request.stage_root.parent() != Some(permit.approved_stage_parent.as_path())
+        || request.java.is_relative()
+        || permit.approved_executable_sha1s.is_empty()
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "missing OS containment attestation or approved private stage boundary".into(),
+        ));
+    }
+    let prohibited = ["saves", "worlds", "instances", ".minecraft", "profiles"];
+    for parent in request.stage_root.ancestors() {
+        if parent.file_name().and_then(|s| s.to_str()).is_some_and(|s| {
+            prohibited.iter().any(|v| s.eq_ignore_ascii_case(v))
+        }) {
+            return Err(LoaderError::InvalidMetadata(
+                "staging within existing Minecraft data is forbidden".into(),
+            ));
+        }
+    }
+    reject_symlink_ancestors(&request.stage_root)?;
+    reject_symlink_ancestors(&permit.approved_stage_parent)?;
+    let mut approved = std::collections::BTreeSet::new();
+    for hash in &permit.approved_executable_sha1s {
+        valid_sha1(hash)?;
+        if !approved.insert(hash.to_ascii_lowercase()) {
+            return Err(LoaderError::InvalidInput);
+        }
+    }
+    for processor in &request.processors {
+        if !approved.contains(&processor.executable.sha1.to_ascii_lowercase()) {
+            return Err(LoaderError::InvalidMetadata(
+                "processor executable SHA-1 not explicitly approved".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn execute(
     request: &ProcessorRunRequest,
     report: &mut ProcessorRunReport,
+    cancel: &AtomicBool,
 ) -> Result<(), LoaderError> {
     if request.minecraft_version != "1.16.5" {
         return Err(LoaderError::UnsupportedVersion(
@@ -144,6 +218,9 @@ fn execute(
         .write_all(b"tl-loader-forge-v1")
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage marker: {e}")))?;
     for (index, processor) in request.processors.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+        }
         let stdout = request
             .stage_root
             .join(format!("processor-{index}.stdout.log"));
@@ -172,6 +249,12 @@ fn execute(
             .map_err(|e| LoaderError::InvalidMetadata(format!("processor spawn: {e}")))?;
         let started = Instant::now();
         let exit = loop {
+            if cancel.load(Ordering::SeqCst) {
+                let _ = child.kill();
+                let _ = child.wait();
+                report.exit_codes.push(None);
+                return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+            }
             if let Some(status) = child
                 .try_wait()
                 .map_err(|e| LoaderError::InvalidMetadata(format!("processor wait: {e}")))?
