@@ -15,6 +15,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'forge-inspector-utils.ps1')
 $ExpectedSha1 = '7d247279cf06eed6ffcf609f36d11e34c70350f3'
 $ExpectedName = 'forge-1.16.5-36.2.29-installer.jar'
 function Fail([string]$reason) { throw "FORGE_INSPECT_FAILED: $reason" }
@@ -66,19 +67,20 @@ try {
     $client = @()
     foreach ($processor in @($profile.processors)) {
         $count++
-        $sides = @($processor.sides | Where-Object { $null -ne $_ })
+        $sides = @((Get-ForgeOptionalProperty -Object $processor -Name 'sides') | Where-Object { $null -ne $_ })
         if ($sides.Count -ne 0 -and 'client' -notin $sides) { continue }
         $outputPairs = @()
-        if ($null -ne $processor.outputs) {
-            foreach ($key in $processor.outputs.PSObject.Properties.Name) {
-                $outputPairs += [pscustomobject]@{ token=$key; checksum=[string]$processor.outputs.$key }
+        $declaredOutputs = Get-ForgeOptionalProperty -Object $processor -Name 'outputs'
+        if ($null -ne $declaredOutputs) {
+            foreach ($key in $declaredOutputs.PSObject.Properties.Name) {
+                $outputPairs += [pscustomobject]@{ token=$key; checksum=[string]$declaredOutputs.PSObject.Properties[$key].Value }
             }
         }
         $client += [pscustomobject]@{
             index = $count - 1
             jar = [string]$processor.jar
-            classpath = @($processor.classpath)
-            arguments = @($processor.args)
+            classpath = @((Get-ForgeOptionalProperty -Object $processor -Name 'classpath') | Where-Object { $null -ne $_ })
+            arguments = @((Get-ForgeOptionalProperty -Object $processor -Name 'args') | Where-Object { $null -ne $_ })
             sides = $sides
             outputs = $outputPairs
         }
@@ -94,7 +96,9 @@ try {
         }
     })
     $mavenDependencies = @($client | ForEach-Object {
-        @($_.jar) + @($_.classpath) + @($_.arguments | Where-Object { $_ -match '\\[[A-Za-z0-9_.:@+-]+\\]' })
+        $_.jar
+        $_.classpath
+        Get-ForgeMavenReferences -Arguments $_.arguments
     } | Where-Object { $null -ne $_ -and $_ -ne '' } | Sort-Object -Unique)
     $result = [ordered]@{
         status = 'INSPECTED_METADATA_ONLY_NOT_INSTALLED'
