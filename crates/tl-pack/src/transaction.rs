@@ -1,4 +1,4 @@
-//! Crash-recoverable private CurseForge staging transaction.
+//! Crash-recoverable private staging transactions for multiple pack sources.
 //!
 //! This module never publishes an instance, modifies an existing profile/world,
 //! or trusts client-provided Forge booleans to claim readiness. Publishing will
@@ -6,6 +6,7 @@
 use crate::{
     curseforge::CurseForgeResolveReport,
     install::{stage_curseforge_downloads, InstallStatus, StageReport},
+    modrinth::stage_modrinth,
     PackMetadata, PackSource,
 };
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,10 @@ pub struct TransactionJournal {
     pub operation_id: String,
     pub archive_sha256: String,
     pub minecraft_version: String,
-    pub forge_version: String,
+    #[serde(default)]
+    pub loader_kind: String,
+    #[serde(alias = "forge_version")]
+    pub loader_version: String,
     pub state: TransactionState,
     pub required_total: usize,
     pub optional_total: usize,
@@ -217,7 +221,8 @@ pub fn stage_transaction(
         operation_id: operation_id.to_owned(),
         archive_sha256: metadata.archive_sha256.clone(),
         minecraft_version: metadata.game_version.clone(),
-        forge_version: metadata.loader.version.clone().unwrap_or_default(),
+        loader_kind: metadata.loader.kind.clone(),
+        loader_version: metadata.loader.version.clone().unwrap_or_default(),
         state: TransactionState::Installing,
         required_total: metadata.files.iter().filter(|f| f.required).count(),
         optional_total: metadata.files.iter().filter(|f| !f.required).count(),
@@ -268,6 +273,132 @@ pub fn stage_transaction(
     })
 }
 
+/// Format-neutral report suitable for backend progress and explicit NEEDS_ACTION.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedStagedFile {
+    pub relative_path: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UniversalTransactionResult {
+    pub journal: TransactionJournal,
+    pub staging_path: PathBuf,
+    pub verified: Vec<VerifiedStagedFile>,
+    pub blocked: Vec<String>,
+    pub failures: Vec<String>,
+    /// Staging, even when complete, never certifies a loader or instance.
+    pub ready: bool,
+}
+
+/// Provider resolution is source-specific, but staging and journaling are not.
+pub enum SourceResolution<'a> {
+    CurseForge(&'a CurseForgeResolveReport),
+    Modrinth,
+}
+
+/// Unified, *non-publishing* source dispatch with durable transaction recovery.
+/// Existing CurseForge callers can keep using stage_transaction unchanged.
+pub fn stage_universal_transaction(
+    parent: &Path,
+    operation_id: &str,
+    archive: &Path,
+    metadata: &PackMetadata,
+    resolution: SourceResolution<'_>,
+    cancel: &AtomicBool,
+) -> Result<UniversalTransactionResult, String> {
+    let normalized = crate::normalized::normalize_pack(metadata)?;
+    if normalized.support != crate::normalized::InstallSupport::StageOnly {
+        return Err(format!(
+            "unsupported staging source/loader combination: {:?}",
+            normalized.support
+        ));
+    }
+    match (metadata.source, resolution) {
+        (PackSource::CurseforgeZip, SourceResolution::CurseForge(resolved)) => {
+            let report = stage_transaction(
+                parent, operation_id, archive, metadata, resolved, cancel,
+            )?;
+            Ok(UniversalTransactionResult {
+                journal: report.journal,
+                staging_path: report.staging_path,
+                verified: report.installed.into_iter().map(|item| VerifiedStagedFile {
+                    relative_path: item.relative_path,
+                    sha256: item.actual_sha256,
+                    bytes: item.bytes,
+                }).collect(),
+                blocked: report.blocked,
+                failures: report.failures,
+                ready: false,
+            })
+        }
+        (PackSource::ModrinthMrpack, SourceResolution::Modrinth) => {
+            let (stage, journal_path) = paths(parent, operation_id)?;
+            if fs::symlink_metadata(&stage).is_ok()
+                || fs::symlink_metadata(&journal_path).is_ok()
+            {
+                return Err("private operation already exists; recover rather than overwrite".into());
+            }
+            if !matches!(normalized.loader,
+                crate::normalized::LoaderKind::Fabric | crate::normalized::LoaderKind::Forge)
+            {
+                return Err("Modrinth loader staging is not supported".into());
+            }
+            let mut journal = TransactionJournal {
+                version: JOURNAL_VERSION,
+                operation_id: operation_id.to_owned(),
+                archive_sha256: metadata.archive_sha256.clone(),
+                minecraft_version: metadata.game_version.clone(),
+                loader_kind: metadata.loader.kind.clone(),
+                loader_version: normalized.loader_version,
+                state: TransactionState::Installing,
+                required_total: metadata.files.iter().filter(|f| f.required).count(),
+                optional_total: metadata.files.iter().filter(|f| !f.required).count(),
+                downloaded: 0,
+                blocked: 0,
+                failures: 0,
+                ready: false,
+            };
+            write_initial(&journal_path, &journal)?;
+            let mut verified = Vec::new();
+            let mut blocked = Vec::new();
+            let mut failures = Vec::new();
+            match stage_modrinth(archive, metadata, &stage, cancel) {
+                Ok(report) => {
+                    verified = report.installed.into_iter().map(|file| VerifiedStagedFile {
+                        relative_path: file.target,
+                        sha256: file.sha256,
+                        bytes: file.bytes,
+                    }).collect();
+                    blocked = report.blocked;
+                    failures = report.failed;
+                    journal.state = if report.cancelled {
+                        TransactionState::Cancelled
+                    } else if failures.is_empty() {
+                        TransactionState::NeedsAction
+                    } else {
+                        TransactionState::Failed
+                    };
+                }
+                Err(_) => {
+                    journal.state = TransactionState::Failed;
+                    failures.push("Modrinth staging failed; inspect private journal and stage".into());
+                }
+            }
+            journal.downloaded = verified.len();
+            journal.blocked = blocked.len();
+            journal.failures = failures.len();
+            update_journal(&journal_path, &journal)?;
+            Ok(UniversalTransactionResult {
+                journal, staging_path: stage, verified, blocked, failures,
+                ready: false,
+            })
+        }
+        _ => Err("source resolution does not match imported pack format".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,7 +437,8 @@ mod tests {
             operation_id: "test-job-1".into(),
             archive_sha256: "a".repeat(64),
             minecraft_version: "1.16.5".into(),
-            forge_version: "36.2.34".into(),
+            loader_kind: "forge".into(),
+            loader_version: "36.2.34".into(),
             state: TransactionState::Installing,
             required_total: 7,
             optional_total: 2,
@@ -404,7 +536,8 @@ mod tests {
             operation_id: "rollback-1".into(),
             archive_sha256: "a".repeat(64),
             minecraft_version: "1.16.5".into(),
-            forge_version: "36.2.34".into(),
+            loader_kind: "forge".into(),
+            loader_version: "36.2.34".into(),
             state: TransactionState::Failed,
             required_total: 2,
             optional_total: 1,
