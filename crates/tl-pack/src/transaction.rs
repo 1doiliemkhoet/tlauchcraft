@@ -317,17 +317,20 @@ pub fn stage_universal_transaction(
     }
     match (metadata.source, resolution) {
         (PackSource::CurseforgeZip, SourceResolution::CurseForge(resolved)) => {
-            let report = stage_transaction(
-                parent, operation_id, archive, metadata, resolved, cancel,
-            )?;
+            let report =
+                stage_transaction(parent, operation_id, archive, metadata, resolved, cancel)?;
             Ok(UniversalTransactionResult {
                 journal: report.journal,
                 staging_path: report.staging_path,
-                verified: report.installed.into_iter().map(|item| VerifiedStagedFile {
-                    relative_path: item.relative_path,
-                    sha256: item.actual_sha256,
-                    bytes: item.bytes,
-                }).collect(),
+                verified: report
+                    .installed
+                    .into_iter()
+                    .map(|item| VerifiedStagedFile {
+                        relative_path: item.relative_path,
+                        sha256: item.actual_sha256,
+                        bytes: item.bytes,
+                    })
+                    .collect(),
                 blocked: report.blocked,
                 failures: report.failures,
                 ready: false,
@@ -335,14 +338,15 @@ pub fn stage_universal_transaction(
         }
         (PackSource::ModrinthMrpack, SourceResolution::Modrinth) => {
             let (stage, journal_path) = paths(parent, operation_id)?;
-            if fs::symlink_metadata(&stage).is_ok()
-                || fs::symlink_metadata(&journal_path).is_ok()
-            {
-                return Err("private operation already exists; recover rather than overwrite".into());
+            if fs::symlink_metadata(&stage).is_ok() || fs::symlink_metadata(&journal_path).is_ok() {
+                return Err(
+                    "private operation already exists; recover rather than overwrite".into(),
+                );
             }
-            if !matches!(normalized.loader,
-                crate::normalized::LoaderKind::Fabric | crate::normalized::LoaderKind::Forge)
-            {
+            if !matches!(
+                normalized.loader,
+                crate::normalized::LoaderKind::Fabric | crate::normalized::LoaderKind::Forge
+            ) {
                 return Err("Modrinth loader staging is not supported".into());
             }
             let mut journal = TransactionJournal {
@@ -366,11 +370,15 @@ pub fn stage_universal_transaction(
             let mut failures = Vec::new();
             match stage_modrinth(archive, metadata, &stage, cancel) {
                 Ok(report) => {
-                    verified = report.installed.into_iter().map(|file| VerifiedStagedFile {
-                        relative_path: file.target,
-                        sha256: file.sha256,
-                        bytes: file.bytes,
-                    }).collect();
+                    verified = report
+                        .installed
+                        .into_iter()
+                        .map(|file| VerifiedStagedFile {
+                            relative_path: file.target,
+                            sha256: file.sha256,
+                            bytes: file.bytes,
+                        })
+                        .collect();
                     blocked = report.blocked;
                     failures = report.failed;
                     journal.state = if report.cancelled {
@@ -383,7 +391,8 @@ pub fn stage_universal_transaction(
                 }
                 Err(_) => {
                     journal.state = TransactionState::Failed;
-                    failures.push("Modrinth staging failed; inspect private journal and stage".into());
+                    failures
+                        .push("Modrinth staging failed; inspect private journal and stage".into());
                 }
             }
             journal.downloaded = verified.len();
@@ -391,7 +400,11 @@ pub fn stage_universal_transaction(
             journal.failures = failures.len();
             update_journal(&journal_path, &journal)?;
             Ok(UniversalTransactionResult {
-                journal, staging_path: stage, verified, blocked, failures,
+                journal,
+                staging_path: stage,
+                verified,
+                blocked,
+                failures,
                 ready: false,
             })
         }

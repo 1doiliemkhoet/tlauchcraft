@@ -175,11 +175,15 @@ pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String>
             InstallSupport::StageOnly
         }
         (PackSource::ModrinthMrpack, LoaderKind::Fabric) => {
-            reasons.push("Modrinth SHA-512 verified staging available; Fabric runtime unavailable".into());
+            reasons.push(
+                "Modrinth SHA-512 verified staging available; Fabric runtime unavailable".into(),
+            );
             InstallSupport::StageOnly
         }
         (PackSource::ModrinthMrpack, LoaderKind::Forge) => {
-            reasons.push("Modrinth SHA-512 verified staging available; Forge runtime not integrated".into());
+            reasons.push(
+                "Modrinth SHA-512 verified staging available; Forge runtime not integrated".into(),
+            );
             InstallSupport::StageOnly
         }
         (PackSource::PrismZip, _) => {
