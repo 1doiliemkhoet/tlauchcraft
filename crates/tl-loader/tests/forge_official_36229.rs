@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tl_loader::{
     forge_1165::forge_1165_client_blueprint,
-    forge_graph::{prepare_forge_1165, BoundValue, ForgeBindings, PrepareState},
+    forge_graph::{prepare_forge_1165, BoundValue, ForgeBindings, InstallerEntryEvidence, PrepareState},
+    runtime::VerifiedProcessorJar,
 };
 
 const PROFILE: &str = include_str!("fixtures/forge_36229_official_profile.json");
@@ -143,4 +144,41 @@ fn arbitrary_binpatch_path_must_never_pass_as_a_literal() {
     );
     let result = prepare_forge_1165(PROFILE, &version(), &input);
     assert_eq!(result.state, PrepareState::Failed);
+}
+
+#[test]
+fn real_specialsource_requires_profile_pinned_digest_before_file_use() {
+    let mut input = bindings();
+    let coordinate = "net.md-5:SpecialSource:1.8.5";
+    input.artifacts.insert(
+        coordinate.into(),
+        VerifiedProcessorJar {
+            coordinate: coordinate.into(),
+            path: std::env::temp_dir().join("not-a-real-specialsource.jar"),
+            sha1: "0000000000000000000000000000000000000000".into(),
+            source: "https://maven.minecraftforge.net/net/md-5/SpecialSource/1.8.5/SpecialSource-1.8.5.jar".into(),
+        },
+    );
+    let result = prepare_forge_1165(PROFILE, &version(), &input);
+    assert_eq!(result.state, PrepareState::Failed);
+    assert!(result.request.is_none());
+}
+
+#[test]
+fn binpatch_without_reviewed_extraction_attestation_fails_closed() {
+    let mut input = bindings();
+    input.data.insert(
+        "BINPATCH".into(),
+        BoundValue::VerifiedInstallerEntry(InstallerEntryEvidence {
+            installer: std::env::temp_dir().join("forge-1.16.5-36.2.29-installer.jar"),
+            installer_sha1: "7d247279cf06eed6ffcf609f36d11e34c70350f3".into(),
+            entry: "data/client.lzma".into(),
+            extracted: std::env::temp_dir().join("forge-nonexistent/client.lzma"),
+            extracted_sha1: "0000000000000000000000000000000000000000".into(),
+            report: std::env::temp_dir().join("forge-nonexistent/binpatch-provenance.json"),
+        }),
+    );
+    let r = prepare_forge_1165(PROFILE, &version(), &input);
+    assert_eq!(r.state, PrepareState::Failed);
+    assert!(r.request.is_none());
 }
