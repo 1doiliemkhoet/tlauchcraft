@@ -275,7 +275,11 @@ pub struct LaunchPreflight {
 }
 /// No process is created here. Checking readiness never claims G3.
 #[tauri::command]
-pub fn game_preflight(instance_id:String,profile_id:String)->Result<LaunchPreflight,String>{
+pub async fn game_preflight(instance_id:String,profile_id:String)->Result<LaunchPreflight,String>{
+    tauri::async_runtime::spawn_blocking(move || preflight_work(instance_id,profile_id))
+        .await.map_err(|e|e.to_string())?
+}
+fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,String>{
     let uuid=id(&instance_id)?;
     let profile_uuid=id(&profile_id)?;
     let i=find_instance(uuid)?;
@@ -313,7 +317,12 @@ pub fn game_preflight(instance_id:String,profile_id:String)->Result<LaunchPrefli
 }
 
 #[tauri::command]
-pub fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
+pub async fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
+    let shared=state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || launch_work(app,shared,request))
+        .await.map_err(|e|e.to_string())?
+}
+fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
     let i=find_instance(request.instance_id)?;
     if !matches!(&i.state,InstanceState::Ready){return Err("Instance not READY; complete verified Vanilla install".into())}
     let profile:OfflineProfile=db()?.get_profile(request.profile_id).map_err(|e|e.to_string())?

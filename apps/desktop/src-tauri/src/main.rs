@@ -61,16 +61,16 @@ fn pack_inspect(archive_path: String) -> Result<PackMetadata, String> {
 }
 
 #[tauri::command]
-fn java_settings_get(instance_id: String) -> Result<java_settings::JavaSettings,String> {
-    java_settings::read(&instance_id)
+async fn java_settings_get(instance_id: String) -> Result<java_settings::JavaSettings,String> {
+    tauri::async_runtime::spawn_blocking(move || java_settings::read(&instance_id)).await.map_err(|e|e.to_string())?
 }
 #[tauri::command]
-fn java_settings_save(instance_id:String,xms_mb:u32,xmx_mb:u32,java_path:String,expected_revision:i64)->Result<java_settings::JavaSettings,String>{
-    java_settings::save(&instance_id,xms_mb,xmx_mb,java_path,expected_revision)
+async fn java_settings_save(instance_id:String,xms_mb:u32,xmx_mb:u32,java_path:String,expected_revision:i64)->Result<java_settings::JavaSettings,String>{
+    tauri::async_runtime::spawn_blocking(move || java_settings::save(&instance_id,xms_mb,xmx_mb,java_path,expected_revision)).await.map_err(|e|e.to_string())?
 }
 #[tauri::command]
-fn java_memory_info() -> Result<java_settings::MemoryInfo,String>{
-    java_settings::system_memory()
+async fn java_memory_info() -> Result<java_settings::MemoryInfo,String>{
+    tauri::async_runtime::spawn_blocking(java_settings::system_memory).await.map_err(|e|e.to_string())?
 }
 fn main() {
     tauri::Builder::default()
