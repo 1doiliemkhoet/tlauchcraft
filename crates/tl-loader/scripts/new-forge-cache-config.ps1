@@ -8,6 +8,7 @@ reviewed evidence directories. Does not run Java or modify Minecraft data.
 param(
   [Parameter(Mandatory=$true)][string[]]$MavenRoots,
   [Parameter(Mandatory=$true)][string]$ClientJar,
+  [Parameter(Mandatory=$true)][string]$MojangClientUrl,
   [Parameter(Mandatory=$true)][string]$BinpatchDirectory,
   [Parameter(Mandatory=$true)][string]$Java8,
   [Parameter(Mandatory=$true)][string]$StageRoot,
@@ -33,13 +34,18 @@ $attestation = Get-Content (Join-Path $patchRoot 'binpatch-provenance.json') -Ra
 $expectedInstaller = '7d247279cf06eed6ffcf609f36d11e34c70350f3'
 if ($attestation.installer_sha1 -ne $expectedInstaller) { throw 'BINPATCH installer SHA-1 attestation mismatch' }
 $sha = '37fd3c903861eeff3bc24b71eed48f828b5269c8'
+$acceptedUrls=@(
+  "https://launcher.mojang.com/v1/objects/$sha/client.jar",
+  "https://piston-data.mojang.com/v1/objects/$sha/client.jar"
+)
+if ($acceptedUrls -cnotcontains $MojangClientUrl) { throw 'Mojang client URL must match original publisher digest-addressed source' }
 $size = 17547153
 if ((Get-FileHash -LiteralPath $client -Algorithm SHA1).Hash.ToLowerInvariant() -ne $sha -or (Get-Item -LiteralPath $client).Length -ne $size) { throw 'Mojang client SHA-1/size mismatch' }
 $report = [ordered]@{
   cache_roots = $roots
   client = [ordered]@{
     path = $client
-    url = "https://launcher.mojang.com/v1/objects/$sha/client.jar"
+    url = $MojangClientUrl
     sha1 = $sha
     size_bytes = $size
   }
