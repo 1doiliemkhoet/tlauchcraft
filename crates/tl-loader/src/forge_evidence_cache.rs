@@ -89,12 +89,18 @@ pub fn import_official_forge_cache(
     }
     reject_symlinks(&options.stage_root)?;
     if options.stage_root.ancestors().any(|ancestor| {
-        ancestor.file_name().and_then(|x| x.to_str()).is_some_and(|component| {
-            ["saves", "worlds", "instances", "profiles", ".minecraft"]
-                .iter().any(|prohibited| component.eq_ignore_ascii_case(prohibited))
-        })
+        ancestor
+            .file_name()
+            .and_then(|x| x.to_str())
+            .is_some_and(|component| {
+                ["saves", "worlds", "instances", "profiles", ".minecraft"]
+                    .iter()
+                    .any(|prohibited| component.eq_ignore_ascii_case(prohibited))
+            })
     }) {
-        return Err(LoaderError::InvalidMetadata("private stage may not be inside Minecraft instance/world".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "private stage may not be inside Minecraft instance/world".into(),
+        ));
     }
     let mut missing = BTreeSet::new();
     let mut artifacts = BTreeMap::new();
@@ -167,7 +173,10 @@ pub fn import_official_forge_cache(
         && options.binpatch.extracted.is_file()
         && options.binpatch.installer.is_file()
     {
-        data.insert("BINPATCH".into(), BoundValue::VerifiedInstallerEntry(options.binpatch.clone()));
+        data.insert(
+            "BINPATCH".into(),
+            BoundValue::VerifiedInstallerEntry(options.binpatch.clone()),
+        );
     } else {
         missing.insert("verified-installer-entry:data/client.lzma".into());
     }
@@ -304,9 +313,15 @@ fn find_verified_file(
 fn verified_mojang(client: &VerifiedMojangClient) -> Result<bool, LoaderError> {
     // Control-verified Mojang 1.16.5 release metadata. A caller cannot
     // substitute a self-consistent but unrelated SHA-1 / digest-addressed URL.
-    if !client.sha1.eq_ignore_ascii_case("37fd3c903861eeff3bc24b71eed48f828b5269c8")
+    if !client
+        .sha1
+        .eq_ignore_ascii_case("37fd3c903861eeff3bc24b71eed48f828b5269c8")
         || client.size_bytes != 17_547_153
-    { return Err(LoaderError::InvalidMetadata("unapproved Minecraft 1.16.5 client SHA-1/size".into())); }
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "unapproved Minecraft 1.16.5 client SHA-1/size".into(),
+        ));
+    }
     if client.sha1.len() != 40
         || !client.sha1.bytes().all(|x| x.is_ascii_hexdigit())
         || client.size_bytes == 0
