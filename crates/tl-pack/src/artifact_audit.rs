@@ -43,7 +43,8 @@ fn valid_digest(value: &str, digits: usize) -> bool {
 }
 
 fn verify_file(root: &Path, artifact: &ExpectedArtifact) -> Result<(), String> {
-    if artifact.bytes == 0 || artifact.bytes > MAX_ARTIFACT_BYTES
+    if artifact.bytes == 0
+        || artifact.bytes > MAX_ARTIFACT_BYTES
         || !valid_digest(&artifact.sha256, 64)
     {
         return Err("invalid claimed byte count or SHA-256".into());
@@ -53,13 +54,11 @@ fn verify_file(root: &Path, artifact: &ExpectedArtifact) -> Result<(), String> {
     if sha1.is_none() && sha512.is_none() {
         return Err("missing independently published upstream hash".into());
     }
-    if sha1.is_some_and(|v| !valid_digest(v, 40))
-        || sha512.is_some_and(|v| !valid_digest(v, 128))
-    {
+    if sha1.is_some_and(|v| !valid_digest(v, 40)) || sha512.is_some_and(|v| !valid_digest(v, 128)) {
         return Err("invalid upstream hash".into());
     }
-    let relative = safe_path(&artifact.relative_path)
-        .map_err(|_| "unsafe artifact relative path")?;
+    let relative =
+        safe_path(&artifact.relative_path).map_err(|_| "unsafe artifact relative path")?;
     let path = root.join(relative);
     for ancestor in path.ancestors() {
         if fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -77,11 +76,14 @@ fn verify_file(root: &Path, artifact: &ExpectedArtifact) -> Result<(), String> {
     let mut read_total = 0u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        let n = file.read(&mut buffer).map_err(|_| "artifact read failure")?;
+        let n = file
+            .read(&mut buffer)
+            .map_err(|_| "artifact read failure")?;
         if n == 0 {
             break;
         }
-        read_total = read_total.checked_add(n as u64)
+        read_total = read_total
+            .checked_add(n as u64)
             .ok_or("artifact length overflow")?;
         if read_total > artifact.bytes {
             return Err("artifact size changed during hashing".into());
@@ -93,7 +95,8 @@ fn verify_file(root: &Path, artifact: &ExpectedArtifact) -> Result<(), String> {
     if read_total != artifact.bytes
         || format!("{:x}", sha256_state.finalize()) != artifact.sha256.to_ascii_lowercase()
         || sha1.is_some_and(|v| format!("{:x}", sha1_state.finalize()) != v.to_ascii_lowercase())
-        || sha512.is_some_and(|v| format!("{:x}", sha512_state.finalize()) != v.to_ascii_lowercase())
+        || sha512
+            .is_some_and(|v| format!("{:x}", sha512_state.finalize()) != v.to_ascii_lowercase())
     {
         return Err("artifact digest mismatch".into());
     }
@@ -113,15 +116,17 @@ pub fn audit_staged_artifacts(root: &Path, expected: &[ExpectedArtifact]) -> Art
         failures: Vec::new(),
         ready: false,
     };
-    if !root.is_absolute()
-        || !fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_dir())
-    {
-        result.failures.push("staging root must be an existing, regular absolute directory".into());
+    if !root.is_absolute() || !fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_dir()) {
+        result
+            .failures
+            .push("staging root must be an existing, regular absolute directory".into());
         return result;
     }
     for ancestor in root.ancestors() {
         if fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
-            result.failures.push("staging root has symlinked ancestors".into());
+            result
+                .failures
+                .push("staging root has symlinked ancestors".into());
             return result;
         }
     }
@@ -129,7 +134,9 @@ pub fn audit_staged_artifacts(root: &Path, expected: &[ExpectedArtifact]) -> Art
     for artifact in expected {
         let key = artifact.relative_path.to_ascii_lowercase();
         if !seen.insert(key) {
-            result.failures.push("duplicate destination in expected inventory".into());
+            result
+                .failures
+                .push("duplicate destination in expected inventory".into());
             continue;
         }
         match verify_file(root, artifact) {
@@ -150,8 +157,8 @@ pub fn audit_staged_artifacts(root: &Path, expected: &[ExpectedArtifact]) -> Art
             }
         }
     }
-    result.complete = result.failures.is_empty()
-        && result.required_verified == result.required_expected;
+    result.complete =
+        result.failures.is_empty() && result.required_verified == result.required_expected;
     result
 }
 
@@ -203,10 +210,13 @@ mod tests {
         let root = tmp.path().canonicalize().unwrap();
         fs::create_dir(root.join("mods")).unwrap();
         fs::write(root.join("mods/a.jar"), b"a").unwrap();
-        let r = audit_staged_artifacts(&root, &[
-            fixture(b"a", "mods/a.jar", true),
-            fixture(b"b", "mods/b.jar", false),
-        ]);
+        let r = audit_staged_artifacts(
+            &root,
+            &[
+                fixture(b"a", "mods/a.jar", true),
+                fixture(b"b", "mods/b.jar", false),
+            ],
+        );
         assert!(r.complete);
         assert_eq!(r.blocked.len(), 1);
         assert!(!r.ready);
@@ -217,11 +227,14 @@ mod tests {
         let root = tmp.path().canonicalize().unwrap();
         fs::create_dir(root.join("mods")).unwrap();
         fs::write(root.join("mods/a.jar"), b"a").unwrap();
-        let r = audit_staged_artifacts(&root, &[
-            fixture(b"a", "mods/a.jar", true),
-            fixture(b"a", "mods/A.jar", true),
-            fixture(b"a", "../outside.jar", true),
-        ]);
+        let r = audit_staged_artifacts(
+            &root,
+            &[
+                fixture(b"a", "mods/a.jar", true),
+                fixture(b"a", "mods/A.jar", true),
+                fixture(b"a", "../outside.jar", true),
+            ],
+        );
         assert!(!r.complete);
         assert_eq!(r.failures.len(), 2);
     }
