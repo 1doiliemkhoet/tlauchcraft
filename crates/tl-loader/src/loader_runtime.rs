@@ -98,7 +98,9 @@ pub fn verification_from_prepare(
         instance_ready: false,
     };
     if plan.state == PrepareState::Verified {
-        result.missing.push("approved-restricted-processor-execution".to_owned());
+        result
+            .missing
+            .push("approved-restricted-processor-execution".to_owned());
     }
     result
 }
@@ -122,7 +124,11 @@ pub fn verification_from_execution(
         && execution.exit_codes.iter().all(|x| *x == Some(0))
         && execution.verified_outputs.len() == expected_outputs;
     LoaderRuntimeVerification {
-        state: if complete { RuntimeState::ProcessorsVerified } else { RuntimeState::Failed },
+        state: if complete {
+            RuntimeState::ProcessorsVerified
+        } else {
+            RuntimeState::Failed
+        },
         loader,
         minecraft_version: minecraft_version.to_owned(),
         loader_version: loader_version.to_owned(),
@@ -135,10 +141,9 @@ pub fn verification_from_execution(
             None
         } else {
             Some(
-                execution
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "processor evidence incomplete; no installation verdict".into()),
+                execution.error.clone().unwrap_or_else(|| {
+                    "processor evidence incomplete; no installation verdict".into()
+                }),
             )
         },
         instance_ready: false,
@@ -207,7 +212,11 @@ mod tests {
             error: None,
         };
         let verdict = verification_from_execution(
-            LoaderKind::Forge, "1.16.5", "36.2.29", &request(), &execution,
+            LoaderKind::Forge,
+            "1.16.5",
+            "36.2.29",
+            &request(),
+            &execution,
         );
         assert_eq!(verdict.state, RuntimeState::Failed);
         assert!(!verdict.instance_ready);
@@ -224,7 +233,11 @@ mod tests {
             error: None,
         };
         let verdict = verification_from_execution(
-            LoaderKind::Forge, "1.16.5", "36.2.29", &request(), &execution,
+            LoaderKind::Forge,
+            "1.16.5",
+            "36.2.29",
+            &request(),
+            &execution,
         );
         assert_eq!(verdict.state, RuntimeState::ProcessorsVerified);
         assert!(!verdict.instance_ready);

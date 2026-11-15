@@ -201,7 +201,9 @@ fn prepare_step(
     if !missing.is_empty() {
         return Ok(None);
     }
-    let jar = jar.ok_or_else(|| LoaderError::InvalidMetadata("processor executable missing after preflight".into()))?;
+    let jar = jar.ok_or_else(|| {
+        LoaderError::InvalidMetadata("processor executable missing after preflight".into())
+    })?;
     if outputs.is_empty() {
         return Err(
             LoaderError::InvalidMetadata("processor has no verifiable outputs".into()).into(),
