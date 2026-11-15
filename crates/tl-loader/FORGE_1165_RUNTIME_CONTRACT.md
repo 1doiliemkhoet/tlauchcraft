@@ -177,3 +177,34 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scrip
 Use fresh destination names on repeat runs. The `ExecutionPolicy Bypass` is **process-scoped** and applies only to reviewed repository scripts. The extracted material is never sent to a Java process by these commands. No existing world/profile is read or changed by the inspection/extraction scripts.
 
 **Remaining blockers:** official Java 8 tool JARs/classpath/MCP ZIP/Mojang client bytes are not present in this Chat 3 runtime; Forge Universal and derived Forge runtime JARs require vetted local generation/extraction; actual processor execution needs Control-approved binary hashes **and OS-level containment**. G2/G3/G5 are **NOT_VERIFIED**. The adapter framework is loader/version-aware but **only this Forge legacy family is currently implemented**; no claim of Fabric/Quilt/NeoForge processor runtime or Forge E2E support.
+
+## Final Control gate — 2026-11-15: approved execution / cancellation / Chat 4 handoff
+
+The historical `run_verified_processors` entrypoint is now intentionally **fail-closed** (returns `ProcessorOutcome::Failed` without starting Java). It must not be used to infer an executable authorization from `PrepareState::Verified`. `run_approved_processors(request, permit, &AtomicBool)` is the explicit entrypoint. Its `ExecutionPermit` requires the **Control-approved executable SHA-1 inventory**, a private approved absolute parent directory, a fresh child stage, an absolute Java executable and a caller assertion that a **host-enforced restricted environment already exists**. It rejects `.minecraft`, `saves`, `worlds`, `instances` and `profiles` stage ancestry, validates symlink-free stage ancestry, and polls cancellation (including kill/wait of the running child). The normal timeout, exit code, input digest and output digest checks remain. **A permit field is not an OS sandbox**: the caller is responsible for actual Windows Job Object/process tree handling, ACLs, network policy and limited permissions. **Do not grant a permit until Control approves those controls**, including all tool digests and independently reviewed SpecialSource MANIFEST.
+
+The typed `loader_runtime::installation_handoff` combines `LoaderRuntimeVerification`, `ForgeProvenanceAudit` and observed `VerifiedProcessorJar` entries. It carries Minecraft/loader kind and versions, **required Java 8**, output/intermediate evidence, fully SHA-1-verified local Maven libraries, outstanding `NeedsAction` dependencies and `can_publish_instance=false`. Even `ProcessorsVerified` **cannot publish** an instance. Chat 4 alone handles validated Forge inheritance, all generated files and libraries, atomic instance installation, rollback and later gameplay verification.
+
+### Windows PowerShell 5.1 acceptance in three short steps
+
+**Step 1 — SHA-1-pinned read-only inspection** (fresh destination names each attempt):
+
+```powershell
+git fetch origin; git switch feat/tl-03-forge-runtime; git pull --ff-only origin feat/tl-03-forge-runtime
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\inspect-forge-1165.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -MetadataDir "$PWD\forge-36229-metadata-final" -ReportPath "$PWD\forge-36229-inspection-final.json"
+```
+
+**Step 2 — BINPATCH provenance, extraction only:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\extract-forge-binpatch.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -DestinationDirectory "$PWD\forge-36229-binpatch-final"
+```
+
+**Step 3 — independently verify all reports/hashes, without extraction or Java:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\verify-forge-evidence.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -InspectionReport "$PWD\forge-36229-inspection-final.json" -MetadataDirectory "$PWD\forge-36229-metadata-final" -BinpatchDirectory "$PWD\forge-36229-binpatch-final"
+```
+
+**Optional, only if Control has independently obtained the actual official SpecialSource 1.8.5 JAR:** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\verify-specialsource.ps1 -Jar '<approved-path-to-SpecialSource-1.8.5.jar>'`. It SHA-1-checks official `c670c493c436a885c872fa4810bc698628b95922` before reading `META-INF/MANIFEST.MF` and requires `net.md_5.specialsource.SpecialSource` plus the matching class entry. Until actually run against the real JAR on Control, **Main-Class remains NOT_VERIFIED from executable bytes**.
+
+The PowerShell scripts do **not run Java** and do not modify existing Minecraft worlds or profiles. Failing/absent inputs never imply READY. `Forge Universal` (SHA-1 `b6cec9bf1744a52467bf62a30ae827b772af69b8`) and derived Forge runtime (SHA-1 `42333c69e94ce972b2f589cf3d816ba80672d373`) remain `NeedsAction` due to no publisher URL; never invent a Maven URL. Forge G2/G3 and Rustic Waters II G5 remain **NOT_VERIFIED**, irrespective of Windows unit tests.
