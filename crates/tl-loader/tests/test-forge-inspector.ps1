@@ -67,3 +67,18 @@ try {
     [IO.Directory]::Delete($temp, $true)
 }
 Write-Output 'FORGE_INSPECTOR_AND_BINPATCH_TAMPER_REJECTION: PASS'
+
+# Official-metadata flat-cache normalizer must reject missing inputs
+# before creating or modifying the canonical destination.
+$source = Join-Path ([IO.Path]::GetTempPath()) ('forge-flat-negative-' + [guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($source)
+try {
+    $dest = Join-Path ([IO.Path]::GetTempPath()) ('forge-canonical-negative-' + [guid]::NewGuid().ToString('N'))
+    $normalizer = Join-Path $PSScriptRoot '../scripts/normalize-forge-tools-cache.ps1'
+    $official = Join-Path $PSScriptRoot 'fixtures/forge_36229_official_profile.json'
+    $rejected = $false
+    try { & $normalizer -OfficialProfile $official -FlatToolsDirectory $source -NewCanonicalRoot $dest | Out-Null }
+    catch { if ($_.Exception.Message -match 'Missing flat artifact') { $rejected = $true } }
+    if (-not $rejected -or (Test-Path -LiteralPath $dest)) { throw 'Normalizer accepted missing flat tools or mutated target' }
+} finally { [IO.Directory]::Delete($source,$true) }
+Write-Output 'FORGE_FLAT_TOOLS_NORMALIZER_FAIL_CLOSED: PASS'
