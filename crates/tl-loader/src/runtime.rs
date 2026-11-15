@@ -38,6 +38,10 @@ pub struct ApprovedProcessor {
     /// Already-expanded tokens; callers resolve Forge {DATA} and [Maven] references.
     pub arguments: Vec<String>,
     pub outputs: Vec<ExpectedOutput>,
+    /// Processor-generated files without upstream SHA-1. Observe file identity and
+    /// compute diagnostic SHA-1; never misrepresent this as an authoritative hash.
+    #[serde(default)]
+    pub intermediate_outputs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +67,18 @@ pub struct ProcessorRunReport {
     pub exit_codes: Vec<Option<i32>>,
     pub log_paths: Vec<PathBuf>,
     pub verified_outputs: Vec<PathBuf>,
+    /// No official expected digest. For diagnostics and dependency trace only.
+    #[serde(default)]
+    pub intermediate_evidence: Vec<IntermediateEvidence>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntermediateEvidence {
+    pub producer_index: usize,
+    pub relative_path: String,
+    pub observed_sha1: String,
+    pub size_bytes: u64,
 }
 
 /// Distinct from a successfully installed/committed Forge instance. Reports refer to staging.
@@ -74,6 +89,7 @@ pub fn run_verified_processors(request: &ProcessorRunRequest) -> ProcessorRunRep
         exit_codes: vec![],
         log_paths: vec![],
         verified_outputs: vec![],
+        intermediate_evidence: vec![],
         error: None,
     };
     if let Err(err) = execute(request, &mut report) {
@@ -182,8 +198,25 @@ fn execute(
         for expected in &processor.outputs {
             let target = request.stage_root.join(&expected.relative_path);
             reject_symlink_ancestors(&target)?;
+            if !target.is_file() { return Err(LoaderError::InvalidMetadata("declared output is not a regular file".into())); }
             verify_sha1(&target, &expected.sha1)?;
             report.verified_outputs.push(target);
+        }
+        for relative in &processor.intermediate_outputs {
+            let target = request.stage_root.join(relative);
+            reject_symlink_ancestors(&target)?;
+            let metadata = fs::metadata(&target).map_err(|e| LoaderError::InvalidMetadata(format!("intermediate output absent: {e}")))?;
+            if !metadata.is_file() || metadata.len() == 0 {
+                return Err(LoaderError::InvalidMetadata("intermediate output is empty or not a regular file".into()));
+            }
+            // An observed SHA-1 is *not* an official expected checksum.
+            let observed_sha1 = hash_file(&target)?;
+            report.intermediate_evidence.push(IntermediateEvidence {
+                producer_index: index,
+                relative_path: relative.clone(),
+                observed_sha1,
+                size_bytes: metadata.len(),
+            });
         }
         report.completed += 1;
     }
@@ -191,8 +224,9 @@ fn execute(
 }
 
 fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> {
-    if processor.outputs.is_empty()
+    if (processor.outputs.is_empty() && processor.intermediate_outputs.is_empty())
         || processor.outputs.len() > 64
+        || processor.intermediate_outputs.len() > 64
         || processor.arguments.len() > 256
         || processor.classpath.len() > 256
     {
@@ -216,9 +250,13 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
             "net.minecraftforge:binarypatcher:",
             "net.minecraftforge.binarypatcher.ConsoleTool",
         ),
+        (
+            "net.md-5:SpecialSource:1.8.5",
+            "net.md_5.specialsource.SpecialSource",
+        ),
     ];
     if !trusted.iter().any(|(prefix, main)| {
-        processor.executable.coordinate.starts_with(prefix) && processor.main_class == *main
+        (processor.executable.coordinate == *prefix || (prefix.ends_with(':') && processor.executable.coordinate.starts_with(prefix))) && processor.main_class == *main
     }) {
         return Err(LoaderError::InvalidMetadata(
             "unapproved processor entrypoint".into(),
@@ -241,10 +279,16 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
             ));
         }
     }
+    let mut output_paths = std::collections::BTreeSet::new();
     for item in &processor.outputs {
         tl_core::validate_safe_relative_path(&item.relative_path)
             .map_err(|_| LoaderError::InvalidInput)?;
         valid_sha1(&item.sha1)?;
+        if !output_paths.insert(item.relative_path.as_str()) { return Err(LoaderError::InvalidInput); }
+    }
+    for relative in &processor.intermediate_outputs {
+        tl_core::validate_safe_relative_path(relative).map_err(|_| LoaderError::InvalidInput)?;
+        if !output_paths.insert(relative.as_str()) { return Err(LoaderError::InvalidInput); }
     }
     Ok(())
 }
@@ -277,6 +321,11 @@ pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<
         .iter()
         .any(|base| file.source == format!("{base}/{relative}"))
     };
+    if file.coordinate == "net.md-5:SpecialSource:1.8.5"
+        && !file.sha1.eq_ignore_ascii_case("c670c493c436a885c872fa4810bc698628b95922")
+    {
+        return Err(LoaderError::InvalidMetadata("SpecialSource 1.8.5 SHA-1 not publisher pinned".into()));
+    }
     if !origin_ok {
         return Err(LoaderError::InvalidMetadata(
             "unapproved processor artifact source".into(),
@@ -292,6 +341,20 @@ fn valid_sha1(sha1: &str) -> Result<(), LoaderError> {
         ));
     }
     Ok(())
+}
+
+fn hash_file(path: &Path) -> Result<String, LoaderError> {
+    reject_symlink_ancestors(path)?;
+    use sha1::{Digest, Sha1};
+    let mut file = File::open(path).map_err(|e| LoaderError::InvalidMetadata(format!("artifact missing: {e}")))?;
+    let mut hash = Sha1::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buffer).map_err(|e| LoaderError::InvalidMetadata(format!("artifact read failed: {e}")))?;
+        if n == 0 { break; }
+        hash.update(&buffer[..n]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn verify_sha1(path: &Path, sha1: &str) -> Result<(), LoaderError> {
@@ -360,6 +423,7 @@ mod tests {
                 relative_path: "libraries/output.jar".into(),
                 sha1: sha.into(),
             }],
+            intermediate_outputs: vec![],
         };
         (root, proc)
     }
