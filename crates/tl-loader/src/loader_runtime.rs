@@ -2,7 +2,7 @@
 //! This is an integration interface: it never executes Java or mutates an instance.
 use crate::{
     forge_graph::{prepare_forge_1165, ForgeBindings, PrepareReport, PrepareState},
-    runtime::{ProcessorOutcome, ProcessorRunReport, ProcessorRunRequest},
+    runtime::{IntermediateEvidence, ProcessorOutcome, ProcessorRunReport, ProcessorRunRequest, VerifiedProcessorJar},
     LoaderError, LoaderKind,
 };
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,68 @@ pub struct LoaderRuntimeVerification {
     pub error: Option<String>,
     /// Always false. Only Chat 4's transactional instance installer may mark Ready.
     pub instance_ready: bool,
+}
+
+/// Typed handoff to Chat 4. Only Chat 4 may perform a transactional instance
+/// commit after independent inheritance, generated library and world safety checks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoaderInstallationHandoff {
+    pub loader: LoaderKind,
+    pub minecraft_version: String,
+    pub loader_version: String,
+    pub required_java_major: u32,
+    pub runtime: LoaderRuntimeVerification,
+    pub verified_artifacts: Vec<VerifiedProcessorJar>,
+    pub intermediate_evidence: Vec<IntermediateEvidence>,
+    pub missing_dependencies: Vec<String>,
+    pub can_publish_instance: bool,
+}
+
+/// Validate a reported library against the official Forge installation inventory.
+/// Missing/empty official library URL is a NeedsAction, not an inferred Maven URL.
+pub fn installation_handoff(
+    runtime: LoaderRuntimeVerification,
+    audit: &crate::forge_provenance::ForgeProvenanceAudit,
+    local_artifacts: &[VerifiedProcessorJar],
+    execution: Option<&ProcessorRunReport>,
+) -> LoaderInstallationHandoff {
+    let mut missing = audit.needs_action.clone();
+    let all = audit.profile_libraries.iter().chain(&audit.derived_libraries);
+    let mut verified = Vec::new();
+    for library in all {
+        let candidate = local_artifacts.iter().find(|x| x.coordinate == library.coordinate);
+        match (&library.source, candidate) {
+            (
+                crate::forge_provenance::SourceRequirement::CanonicalMaven { url },
+                Some(artifact),
+            ) if artifact.source == *url
+                && artifact.sha1.eq_ignore_ascii_case(&library.sha1)
+                && crate::runtime::validate_verified_artifact(artifact).is_ok() =>
+            {
+                verified.push(artifact.clone());
+            }
+            _ => missing.push(format!("verified-library:{}", library.coordinate)),
+        }
+    }
+    if runtime.state != RuntimeState::ProcessorsVerified {
+        missing.push("approved-processor-execution-evidence".into());
+    }
+    if runtime.minecraft_version != audit.minecraft_version
+        || audit.derived_version != format!("{}-forge-{}", runtime.minecraft_version, runtime.loader_version)
+    {
+        missing.push("derived-version-inheritance-mismatch".into());
+    }
+    LoaderInstallationHandoff {
+        loader: runtime.loader.clone(),
+        minecraft_version: runtime.minecraft_version.clone(),
+        loader_version: runtime.loader_version.clone(),
+        required_java_major: 8, // current audited Forge 1.16.5 processor adapter
+        intermediate_evidence: execution.map_or_else(Vec::new, |r| r.intermediate_evidence.clone()),
+        runtime,
+        verified_artifacts: verified,
+        missing_dependencies: missing,
+        can_publish_instance: false,
+    }
 }
 
 pub trait LoaderRuntimeAdapter {
