@@ -183,6 +183,7 @@ mod tests {
                     relative_path: "output.jar".into(),
                     sha1: "51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa".into(),
                 }],
+                intermediate_outputs: vec![],
             }],
             timeout_seconds: 15,
         }
@@ -209,6 +210,7 @@ mod tests {
             exit_codes: vec![Some(0)],
             log_paths: vec![],
             verified_outputs: vec![],
+            intermediate_evidence: vec![],
             error: None,
         };
         let verdict = verification_from_execution(
@@ -230,6 +232,7 @@ mod tests {
             exit_codes: vec![Some(0)],
             log_paths: vec![PathBuf::from("process.log")],
             verified_outputs: vec![PathBuf::from("output.jar")],
+            intermediate_evidence: vec![],
             error: None,
         };
         let verdict = verification_from_execution(
