@@ -118,6 +118,15 @@ pub fn run_approved_processors(
         report.error = Some(error.to_string());
         return report;
     }
+    // A caller-supplied boolean cannot prove Windows Job Object, ACL and
+    // network containment. Windows execution MUST use the separately isolated
+    // Windows Sandbox guest launcher; this API cannot bypass it.
+    if cfg!(windows) {
+        report.error = Some(
+            "Windows execution denied: use Control-approved offline Windows Sandbox with native Job Object and ACL/network restrictions".into()
+        );
+        return report;
+    }
     report.error = None;
     if let Err(error) = execute(request, &mut report, cancel) {
         report.error = Some(error.to_string());
@@ -655,6 +664,29 @@ mod tests {
             .error
             .unwrap()
             .contains("containment"));
+        assert!(!request.stage_root.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn boolean_attestation_does_not_bypass_windows_sandbox() {
+        let (root, proc) = fixture();
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: root.join("stage"),
+            processors: vec![proc],
+            timeout_seconds: 10,
+        };
+        let permit = ExecutionPermit {
+            approved_executable_sha1s: vec!["51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa".into()],
+            restricted_environment_attested: true,
+            approved_stage_parent: root.clone(),
+        };
+        let result = run_approved_processors(&request, &permit, &AtomicBool::new(false));
+        assert_eq!(result.outcome, ProcessorOutcome::Failed);
+        assert!(result.error.unwrap().contains("Windows Sandbox"));
         assert!(!request.stage_root.exists());
         fs::remove_dir_all(root).unwrap();
     }
