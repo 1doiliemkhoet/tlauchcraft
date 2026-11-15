@@ -175,12 +175,12 @@ pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String>
             InstallSupport::StageOnly
         }
         (PackSource::ModrinthMrpack, LoaderKind::Fabric) => {
-            reasons.push("Modrinth verified downloader and Fabric runtime unavailable".into());
-            InstallSupport::InspectOnly
+            reasons.push("Modrinth SHA-512 verified staging available; Fabric runtime unavailable".into());
+            InstallSupport::StageOnly
         }
         (PackSource::ModrinthMrpack, LoaderKind::Forge) => {
-            reasons.push("Modrinth verified downloader and Forge integration unavailable".into());
-            InstallSupport::InspectOnly
+            reasons.push("Modrinth SHA-512 verified staging available; Forge runtime not integrated".into());
+            InstallSupport::StageOnly
         }
         (PackSource::PrismZip, _) => {
             reasons.push(
@@ -242,11 +242,11 @@ mod tests {
         }
     }
     #[test]
-    fn modrinth_fabric_and_prism_are_explicit_inspect_only() {
+    fn modrinth_fabric_is_staging_only_and_prism_is_inspect_only() {
         let fabric =
             normalize_pack(&fixture(PackSource::ModrinthMrpack, "fabric", "0.16.0")).unwrap();
         assert_eq!(fabric.loader, LoaderKind::Fabric);
-        assert_eq!(fabric.support, InstallSupport::InspectOnly);
+        assert_eq!(fabric.support, InstallSupport::StageOnly);
         let prism = normalize_pack(&fixture(PackSource::PrismZip, "forge", "47.0.0")).unwrap();
         assert_eq!(prism.support, InstallSupport::InspectOnly);
     }
