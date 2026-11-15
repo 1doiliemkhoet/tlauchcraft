@@ -186,9 +186,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.20.4"
+version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
+checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bytemuck"
@@ -3687,14 +3687,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "tl-pack"
+name = "tl-game"
 version = "0.1.0"
 dependencies = [
- "hex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha1",
+ "thiserror 2.0.12",
+ "tl-core",
+]
+
+[[package]]
+name = "tl-pack"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.12",
  "zip",
@@ -3716,7 +3726,10 @@ dependencies = [
 name = "tlauchcraft-desktop"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "rusqlite",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -3724,8 +3737,10 @@ dependencies = [
  "tauri-runtime-wry",
  "tauri-utils",
  "tl-core",
+ "tl-game",
  "tl-pack",
  "tl-storage",
+ "uuid",
 ]
 
 [[package]]
