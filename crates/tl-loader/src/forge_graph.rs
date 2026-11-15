@@ -129,12 +129,20 @@ fn prepare_inner(
         forge_1165_client_blueprint(profile_json, version_json, &bindings.forge_version)?;
     let profile: DataProfile = serde_json::from_str(profile_json)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let mut producers = BTreeMap::<String, usize>::new();
+    for (index, step) in blueprint.steps.iter().enumerate() {
+        for token in step_output_tokens(step)? {
+            if producers.insert(token.clone(), index).is_some() {
+                return Err(LoaderError::InvalidMetadata(format!("duplicate declared producer: {token}")).into());
+            }
+        }
+    }
     let mut all_missing = BTreeSet::new();
     let mut results = Vec::new();
     let mut produced = BTreeSet::<String>::new();
-    for step in &blueprint.steps {
+    for (index, step) in blueprint.steps.iter().enumerate() {
         let mut missing = BTreeSet::new();
-        let prepared = prepare_step(step, &profile, bindings, &produced, &mut missing)?;
+        let prepared = prepare_step(step, index, &producers, &profile, bindings, &produced, &mut missing)?;
         if !missing.is_empty() {
             all_missing.extend(missing);
             continue;
@@ -159,8 +167,33 @@ fn prepare_inner(
     Ok(results)
 }
 
+fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFailure> {
+    let mut result = Vec::new();
+    for key in step.outputs.keys() {
+        let token = key.strip_prefix('{').and_then(|x| x.strip_suffix('}'))
+            .ok_or_else(|| LoaderError::InvalidMetadata("declared output token invalid".into()))?;
+        result.push(token.to_string());
+    }
+    if step.outputs.is_empty() {
+        let flag = match step.jar.as_str() {
+            "net.minecraftforge:installertools:1.2.6" => "--output",
+            "net.md-5:SpecialSource:1.8.5" => "--out-jar",
+            _ => return Err(LoaderError::InvalidMetadata("unapproved output-less processor".into()).into()),
+        };
+        let i = step.args.iter().position(|v| v == flag)
+            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output flag absent".into()))?;
+        let token = step.args.get(i + 1)
+            .and_then(|x| x.strip_prefix('{').and_then(|x| x.strip_suffix('}')))
+            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output token malformed".into()))?;
+        result.push(token.into());
+    }
+    Ok(result)
+}
+
 fn prepare_step(
     step: &ForgeClientStep,
+    step_index: usize,
+    producers: &BTreeMap<String, usize>,
     profile: &DataProfile,
     bindings: &ForgeBindings,
     produced: &BTreeSet<String>,
@@ -212,6 +245,15 @@ fn prepare_step(
     }
     let mut allowable = produced.clone();
     allowable.extend(output_paths.iter().cloned());
+    // An earlier declared producer blocked by missing inputs remains a NeedsAction,
+    // not a false graph-cycle error. Later producers or undeclared sources fail.
+    for (token, producer) in producers {
+        if *producer < step_index {
+            if let Some(BoundValue::Staged(path)) = bindings.data.get(token) {
+                allowable.insert(path.clone());
+            }
+        }
+    }
     // Input flags may only use already-produced staged outputs. A current-step
     // output cannot retroactively satisfy an input dependency.
     for (i, arg) in step.args.iter().enumerate() {
@@ -221,7 +263,14 @@ fn prepare_step(
                     if let Some(BoundValue::Staged(relative)) = bindings.data.get(token) {
                         safe_stage_relative(relative)?;
                         if !produced.contains(relative) {
-                            return Err(LoaderError::InvalidMetadata(format!("processor consumes staged input before producer: {token}")).into());
+                            match producers.get(token) {
+                                Some(index) if *index < step_index => {
+                                    missing.insert(format!("upstream-output:{token}"));
+                                }
+                                _ => {
+                                    return Err(LoaderError::InvalidMetadata(format!("processor consumes staged input before producer: {token}")).into());
+                                }
+                            }
                         }
                     }
                 }
