@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf};
 use tl_loader::{
     forge_1165::forge_1165_client_blueprint,
-    forge_graph::{prepare_forge_1165, BoundValue, ForgeBindings, InstallerEntryEvidence, PrepareState},
+    forge_graph::{
+        prepare_forge_1165, BoundValue, ForgeBindings, InstallerEntryEvidence, PrepareState,
+    },
     runtime::VerifiedProcessorJar,
 };
 

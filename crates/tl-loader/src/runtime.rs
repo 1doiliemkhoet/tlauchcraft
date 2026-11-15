@@ -318,7 +318,10 @@ pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<
         .iter()
         .any(|host| {
             file.source
-                == format!("{host}/v1/objects/{}/client.jar", file.sha1.to_ascii_lowercase())
+                == format!(
+                    "{host}/v1/objects/{}/client.jar",
+                    file.sha1.to_ascii_lowercase()
+                )
         })
     } else {
         let relative = if let Some((coordinate, ext)) = file.coordinate.split_once('@') {

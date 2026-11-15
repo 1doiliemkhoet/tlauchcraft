@@ -124,7 +124,11 @@ pub fn verification_from_execution(
     let expected_paths: Vec<PathBuf> = request
         .processors
         .iter()
-        .flat_map(|p| p.outputs.iter().map(|o| request.stage_root.join(&o.relative_path)))
+        .flat_map(|p| {
+            p.outputs
+                .iter()
+                .map(|o| request.stage_root.join(&o.relative_path))
+        })
         .collect();
     let hashes_valid = execution.verified_outputs == expected_paths
         && request.processors.iter().all(|p| {
@@ -139,7 +143,9 @@ pub fn verification_from_execution(
         && execution.intermediate_evidence.iter().all(|e| {
             let path = request.stage_root.join(&e.relative_path);
             if e.producer_index >= request.processors.len()
-                || !request.processors[e.producer_index].intermediate_outputs.contains(&e.relative_path)
+                || !request.processors[e.producer_index]
+                    .intermediate_outputs
+                    .contains(&e.relative_path)
                 || !observed.insert((e.producer_index, e.relative_path.clone()))
                 || e.size_bytes == 0
                 || e.observed_sha1.len() != 40
@@ -263,7 +269,9 @@ mod tests {
     #[test]
     fn verified_processor_stage_does_not_mark_instance_ready() {
         let root = std::env::temp_dir().join(format!("tl03-stage-{}", std::process::id()));
-        if root.exists() { std::fs::remove_dir_all(&root).unwrap(); }
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("output.jar"), b"fixture").unwrap();
         let mut req = request();
@@ -277,11 +285,13 @@ mod tests {
             intermediate_evidence: vec![],
             error: None,
         };
-        let verdict = verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
+        let verdict =
+            verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
         assert_eq!(verdict.state, RuntimeState::ProcessorsVerified);
         assert!(!verdict.instance_ready);
         std::fs::write(root.join("output.jar"), b"tampered").unwrap();
-        let altered = verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
+        let altered =
+            verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
         assert_eq!(altered.state, RuntimeState::Failed);
         std::fs::remove_dir_all(root).unwrap();
     }
