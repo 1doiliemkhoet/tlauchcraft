@@ -110,6 +110,41 @@ fn build_cdn_request(
         .map_err(|_| "invalid CDN request".into())
 }
 
+/// Retriable responses are transient; authorization and missing files are not.
+fn is_transient_http_status(status: u16) -> bool {
+    matches!(status, 429 | 502 | 503 | 504)
+}
+
+/// Retry only safe anonymous GET requests with a bounded attempt count.
+/// SHA-1 mismatches, 403/404 and disk errors are never retried.
+fn fetch_verified_origin(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    cancelled: &AtomicBool,
+) -> Result<reqwest::blocking::Response, String> {
+    for attempt in 0..3u64 {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("cancelled".into());
+        }
+        let request = build_cdn_request(client, url)?;
+        match client.execute(request) {
+            Ok(response) if response.status().is_success() => return Ok(response),
+            Ok(response) => {
+                let status = response.status().as_u16();
+                if !is_transient_http_status(status) || attempt == 2 {
+                    return Err(format!("mod CDN HTTP {status}"));
+                }
+            }
+            Err(_) if attempt == 2 => return Err("mod download network failure".into()),
+            Err(_) => {}
+        }
+        // Rebuild request per attempt; no body, cookies, credentials or redirects.
+        // Sleep is short and capped. Cancellation is checked again before retry.
+        std::thread::sleep(Duration::from_millis(200 * (attempt + 1)));
+    }
+    Err("mod download attempts exhausted".into())
+}
+
 /// Download a CurseForge file only through an exact officially approved HTTPS host.
 /// Redirects disabled: no SSRF escape or leaking the key to redirect destinations.
 fn download_file(
@@ -156,15 +191,8 @@ fn download_file(
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|_| "network client initialization failed")?;
-    // Do not attach API credentials, Authorization, cookies, or user-configured headers
-    // to third-party download origins, regardless of transport security.
-    let request = build_cdn_request(&client, url)?;
-    let response = client
-        .execute(request)
-        .map_err(|_| "mod download network failure")?;
-    if !response.status().is_success() {
-        return Err(format!("mod CDN HTTP {}", response.status().as_u16()));
-    }
+    // The CDN request contains no CurseForge key or Authorization header.
+    let response = fetch_verified_origin(&client, url, cancelled)?;
     let mut out = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -394,6 +422,16 @@ mod tests {
             "https://edge.forgecdn.net:8443/x.jar",
         ] {
             assert!(build_cdn_request(&client, url).is_err(), "{url}");
+        }
+    }
+
+    #[test]
+    fn transient_get_retry_is_bounded_and_never_retries_access_denied() {
+        for status in [429, 502, 503, 504] {
+            assert!(is_transient_http_status(status));
+        }
+        for status in [200, 301, 302, 400, 401, 403, 404, 500] {
+            assert!(!is_transient_http_status(status));
         }
     }
 
