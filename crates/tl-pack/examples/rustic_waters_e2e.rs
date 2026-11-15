@@ -38,6 +38,17 @@ fn run() -> Result<(), String> {
     if metadata.source != PackSource::CurseforgeZip {
         return Err("expected a CurseForge ZIP".into());
     }
+    // This harness is specifically for the Control-verified Rustic Waters II
+    // 1.16 export. Refuse unrelated packs or a drifted Forge build.
+    if metadata.game_version != "1.16.5"
+        || metadata.loader.kind != "forge"
+        || metadata.loader.version.as_deref() != Some("36.2.29")
+        || metadata.files.len() != 200
+    {
+        return Err(
+            "Rustic Waters II contract mismatch: expected Minecraft 1.16.5, Forge 36.2.29 and 200 manifest file references".into(),
+        );
+    }
     let required = metadata.files.iter().filter(|f| f.required).count();
     let optional = metadata.files.len() - required;
     let key = match configured_api_key() {

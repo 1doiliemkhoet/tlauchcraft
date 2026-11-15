@@ -632,6 +632,75 @@ mod tests {
     }
 
     #[test]
+    fn two_hundred_manifest_file_refs_preserve_every_blocked_identity() {
+        struct BulkApi;
+        impl CurseForgeApi for BulkApi {
+            fn get(&self, path: &str, key: &str) -> Result<(u16, String), ResolveError> {
+                assert_eq!(key, "fake-test-only-key");
+                let segments: Vec<_> = path.split('/').collect();
+                let project: u64 = segments.get(2).ok_or(ResolveError::NetworkFailure)?
+                    .parse().map_err(|_| ResolveError::NetworkFailure)?;
+                let file: u64 = segments.get(4).ok_or(ResolveError::NetworkFailure)?
+                    .parse().map_err(|_| ResolveError::NetworkFailure)?;
+                let offset = project.saturating_sub(10_000);
+                if segments.len() > 5 {
+                    return Ok((200, r#"{"data":null}"#.into()));
+                }
+                if matches!(offset, 196 | 197) {
+                    return Ok((403, "denied".into()));
+                }
+                let hashes = if offset == 198 {
+                    serde_json::json!([])
+                } else {
+                    serde_json::json!([{
+                        "algo": 1,
+                        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }])
+                };
+                let version = if offset == 199 { "1.20.1" } else { "1.16.5" };
+                let body = serde_json::json!({
+                    "data": {
+                        "modId": project, "id": file,
+                        "fileName": format!("fixture-{project}.jar"),
+                        "fileLength": 1024,
+                        "gameVersions": [version, "Forge"],
+                        "downloadUrl": "https://edge.forgecdn.net/files/1/2/fixture.jar",
+                        "hashes": hashes,
+                        "dependencies": []
+                    }
+                });
+                Ok((200, body.to_string()))
+            }
+        }
+        let mut pack = metadata();
+        pack.loader.version = Some("36.2.29".into());
+        pack.files = (0..200u64).map(|offset| super::super::PlannedFile {
+            path: format!("mods/file-{offset}.jar"),
+            provider: "curseforge".into(),
+            project_id: Some(10_000 + offset),
+            file_id: Some(20_000 + offset),
+            urls: vec![],
+            sha1: None,
+            sha512: None,
+            required: offset % 10 != 0,
+            side: "both".into(),
+        }).collect();
+        let result = resolve_curseforge_files(&pack, &BulkApi, "fake-test-only-key").unwrap();
+        assert_eq!(result.files.len(), 200);
+        assert_eq!(result.files.iter().filter(|f| f.required).count(), 180);
+        assert_eq!(result.files.iter().filter(|f| !f.required).count(), 20);
+        assert_eq!(result.resolved_count, 196);
+        assert_eq!(result.needs_action_count, 4);
+        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::PermissionDenied).count(), 2);
+        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::NeedsManualDownload).count(), 1);
+        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::InvalidMetadata).count(), 1);
+        assert_eq!(result.files[196].project_id, 10_196);
+        assert_eq!(result.files[196].file_id, 20_196);
+        assert_eq!(result.files[199].project_id, 10_199);
+        assert!(!result.ready);
+    }
+
+    #[test]
     fn permission_denied_is_explicit() {
         let api = MockApi {
             file_status: 403,
