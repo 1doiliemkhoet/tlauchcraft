@@ -37,6 +37,13 @@ try {
     $inspector = Join-Path $PSScriptRoot '../scripts/inspect-forge-1165.ps1'
     $extractor = Join-Path $PSScriptRoot '../scripts/extract-forge-binpatch.ps1'
     $verifier = Join-Path $PSScriptRoot '../scripts/verify-forge-evidence.ps1'
+    $specialTool = Join-Path $PSScriptRoot '../scripts/verify-specialsource.ps1'
+    $fakeSpecial = Join-Path $temp 'SpecialSource-1.8.5.jar'
+    [IO.File]::WriteAllBytes($fakeSpecial, [byte[]](1,2,3,4))
+    $specialRejected = $false
+    try { & $specialTool -Jar $fakeSpecial | Out-Null }
+    catch { if ($_.Exception.Message -match 'SHA-1 differs') { $specialRejected = $true } }
+    if (-not $specialRejected) { throw 'SpecialSource tamper verification failed open' }
     $dest = Join-Path $temp 'fresh-binpatch'
     $metadata = Join-Path $temp 'metadata'
     $report = Join-Path $temp 'inspection.json'
