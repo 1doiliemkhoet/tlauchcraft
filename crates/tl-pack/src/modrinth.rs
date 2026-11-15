@@ -127,7 +127,7 @@ pub fn stage_modrinth(
         return Err(PackError::UnsafeArchive("stage already exists".into()));
     }
     let mut zip = ZipArchive::new(File::open(archive)?)?;
-    let mut index_file = zip.by_name("modrinth.index.json")?;
+    let index_file = zip.by_name("modrinth.index.json")?;
     if index_file.size() > MAX_INDEX {
         return Err(PackError::UnsafeArchive("oversized Modrinth index".into()));
     }
