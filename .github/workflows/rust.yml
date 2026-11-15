@@ -61,3 +61,6 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
+      - name: Forge cache CLI Failed verdict exit 2 and JSON regression (no Java)
+        shell: pwsh
+        run: ./crates/tl-loader/tests/test-forge-cache-cli-failure.ps1
