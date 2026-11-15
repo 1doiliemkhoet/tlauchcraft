@@ -6,7 +6,7 @@ reviewed evidence directories. Does not run Java or modify Minecraft data.
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)][string[]]$MavenRoots,
+  [Parameter(Mandatory=$true)][string]$MavenRoots,
   [Parameter(Mandatory=$true)][string]$ClientJar,
   [Parameter(Mandatory=$true)][string]$MojangClientUrl,
   [Parameter(Mandatory=$true)][string]$BinpatchDirectory,
@@ -16,7 +16,8 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$roots = @($MavenRoots | ForEach-Object { [IO.Path]::GetFullPath($_) })
+$roots = @($MavenRoots.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' } | ForEach-Object { [IO.Path]::GetFullPath($_) })
+if ($roots.Count -eq 0 -or $roots.Count -gt 16) { throw 'Expected 1 to 16 semicolon-separated Maven cache roots' }
 foreach ($root in $roots) { if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Missing Maven cache root: $root" } }
 $client = [IO.Path]::GetFullPath($ClientJar)
 $patchRoot = [IO.Path]::GetFullPath($BinpatchDirectory)
