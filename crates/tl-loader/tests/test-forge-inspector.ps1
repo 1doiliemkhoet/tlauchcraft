@@ -26,3 +26,37 @@ foreach ($name in @('sides','outputs','args','classpath')) {
     if ($null -ne (Get-ForgeOptionalProperty -Object $noOptional -Name $name)) { throw "Missing $name unexpectedly present" }
 }
 Write-Output 'FORGE_INSPECTOR_OPTIONAL_FIELDS_AND_MAVEN_ZIP: PASS'
+
+# Tampered installer must be rejected before ZIP inspection or any extraction.
+# This does not execute a JAR; it is deliberately not a valid Forge archive.
+$temp = Join-Path ([IO.Path]::GetTempPath()) ("tl03-forge-ps-safety-" + [guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($temp)
+try {
+    $fake = Join-Path $temp 'forge-1.16.5-36.2.29-installer.jar'
+    [IO.File]::WriteAllBytes($fake, [byte[]](1,2,3,4))
+    $inspector = Join-Path $PSScriptRoot '../scripts/inspect-forge-1165.ps1'
+    $extractor = Join-Path $PSScriptRoot '../scripts/extract-forge-binpatch.ps1'
+    $verifier = Join-Path $PSScriptRoot '../scripts/verify-forge-evidence.ps1'
+    $dest = Join-Path $temp 'fresh-binpatch'
+    $metadata = Join-Path $temp 'metadata'
+    $report = Join-Path $temp 'inspection.json'
+    foreach ($script in @('inspect','extract','verify')) {
+        $rejected = $false
+        try {
+            switch ($script) {
+                'inspect' { & $inspector -Installer $fake -MetadataDir $metadata -ReportPath $report | Out-Null }
+                'extract' { & $extractor -Installer $fake -DestinationDirectory $dest | Out-Null }
+                'verify' { & $verifier -Installer $fake -InspectionReport $report -MetadataDirectory $metadata -BinpatchDirectory $dest | Out-Null }
+            }
+        } catch {
+            if ($_.Exception.Message -match 'SHA-1 mismatch|SHA1 mismatch') { $rejected = $true }
+        }
+        if (-not $rejected) { throw "Tampered installer not rejected by $script" }
+    }
+    if ((Test-Path -LiteralPath $dest) -or (Test-Path -LiteralPath $metadata) -or (Test-Path -LiteralPath $report)) {
+        throw 'Tampered installer unexpectedly created output'
+    }
+} finally {
+    [IO.Directory]::Delete($temp, $true)
+}
+Write-Output 'FORGE_INSPECTOR_AND_BINPATCH_TAMPER_REJECTION: PASS'
