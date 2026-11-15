@@ -4,6 +4,7 @@ pub mod curseforge;
 pub mod install;
 pub mod transaction;
 pub mod validation;
+pub mod normalized;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
