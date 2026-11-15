@@ -41,8 +41,12 @@ pub fn audit_official_forge_metadata(
 ) -> Result<ForgeProvenanceAudit, LoaderError> {
     let profile: Value = serde_json::from_str(profile_json)
         .map_err(|e| LoaderError::InvalidMetadata(format!("forge profile JSON: {e}")))?;
-    let minecraft = profile["minecraft"].as_str().ok_or(LoaderError::InvalidInput)?;
-    let version = profile["version"].as_str().ok_or(LoaderError::InvalidInput)?;
+    let minecraft = profile["minecraft"]
+        .as_str()
+        .ok_or(LoaderError::InvalidInput)?;
+    let version = profile["version"]
+        .as_str()
+        .ok_or(LoaderError::InvalidInput)?;
     if derived["id"].as_str() != Some(version)
         || derived["inheritsFrom"].as_str() != Some(minecraft)
     {
@@ -61,9 +65,14 @@ pub fn audit_official_forge_metadata(
             || path.contains('\\')
             || path.contains(':')
         {
-            return Err(LoaderError::InvalidMetadata("unsafe Forge embedded patch entry".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "unsafe Forge embedded patch entry".into(),
+            ));
         }
-        needs_action.push(format!("verified-installer-entry:{}", path.trim_start_matches('/')));
+        needs_action.push(format!(
+            "verified-installer-entry:{}",
+            path.trim_start_matches('/')
+        ));
     } else {
         needs_action.push("missing official BINPATCH entry descriptor".into());
     }
@@ -84,11 +93,13 @@ fn inspect_libraries(
     collection: &str,
     missing: &mut Vec<String>,
 ) -> Result<Vec<ArtifactRequirement>, LoaderError> {
-    let entries = value.as_array().ok_or_else(|| {
-        LoaderError::InvalidMetadata(format!("{collection} libraries missing"))
-    })?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| LoaderError::InvalidMetadata(format!("{collection} libraries missing")))?;
     if entries.is_empty() || entries.len() > 1024 {
-        return Err(LoaderError::InvalidMetadata("invalid Forge library count".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "invalid Forge library count".into(),
+        ));
     }
     let mut result = Vec::new();
     for lib in entries {
@@ -99,17 +110,27 @@ fn inspect_libraries(
         let bytes = item["size"].as_u64().ok_or(LoaderError::InvalidInput)?;
         let url = item["url"].as_str().ok_or(LoaderError::InvalidInput)?;
         if bytes == 0 || sha1.len() != 40 || !sha1.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(LoaderError::InvalidMetadata(format!("missing official checksum/size: {coordinate}")));
+            return Err(LoaderError::InvalidMetadata(format!(
+                "missing official checksum/size: {coordinate}"
+            )));
         }
         let relative = if let Some((base, ext)) = coordinate.rsplit_once('@') {
-            if !matches!(ext, "zip" | "txt") { return Err(LoaderError::InvalidInput); }
+            if !matches!(ext, "zip" | "txt") {
+                return Err(LoaderError::InvalidInput);
+            }
             let jar = maven::artifact_path(base)?;
-            format!("{}.{}", jar.strip_suffix(".jar").ok_or(LoaderError::InvalidInput)?, ext)
+            format!(
+                "{}.{}",
+                jar.strip_suffix(".jar").ok_or(LoaderError::InvalidInput)?,
+                ext
+            )
         } else {
             maven::artifact_path(coordinate)?
         };
         if relative != path {
-            return Err(LoaderError::InvalidMetadata(format!("official path differs from Maven coordinate: {coordinate}")));
+            return Err(LoaderError::InvalidMetadata(format!(
+                "official path differs from Maven coordinate: {coordinate}"
+            )));
         }
         let source = if url.is_empty() {
             missing.push(format!("source:{collection}:{coordinate}:{sha1}"));
@@ -123,9 +144,13 @@ fn inspect_libraries(
             .iter()
             .any(|host| url == format!("{host}/{path}"));
             if !canonical {
-                return Err(LoaderError::InvalidMetadata(format!("noncanonical Maven source: {coordinate}")));
+                return Err(LoaderError::InvalidMetadata(format!(
+                    "noncanonical Maven source: {coordinate}"
+                )));
             }
-            SourceRequirement::CanonicalMaven { url: url.to_owned() }
+            SourceRequirement::CanonicalMaven {
+                url: url.to_owned(),
+            }
         };
         result.push(ArtifactRequirement {
             coordinate: coordinate.to_owned(),
@@ -146,27 +171,52 @@ mod tests {
     const VERSION: &str = include_str!("../tests/fixtures/forge_36229_official_version.json");
     #[test]
     fn real_official_inventory_has_two_source_gaps_and_embedded_patch() {
-        let audit = audit_official_forge_metadata(PROFILE, &serde_json::from_str(VERSION).unwrap()).unwrap();
+        let audit = audit_official_forge_metadata(PROFILE, &serde_json::from_str(VERSION).unwrap())
+            .unwrap();
         assert_eq!(audit.profile_libraries.len(), 39);
         assert_eq!(audit.derived_libraries.len(), 26);
-        assert_eq!(audit.embedded_client_patch.as_deref(), Some("/data/client.lzma"));
-        assert!(audit.needs_action.iter().any(|x| x.contains("forge:1.16.5-36.2.29:universal")));
-        assert!(audit.needs_action.iter().any(|x| x.contains("source:derived:net.minecraftforge:forge:1.16.5-36.2.29")));
-        assert!(audit.needs_action.iter().any(|x| x.contains("verified-mojang-client:1.16.5")));
+        assert_eq!(
+            audit.embedded_client_patch.as_deref(),
+            Some("/data/client.lzma")
+        );
+        assert!(audit
+            .needs_action
+            .iter()
+            .any(|x| x.contains("forge:1.16.5-36.2.29:universal")));
+        assert!(audit
+            .needs_action
+            .iter()
+            .any(|x| x.contains("source:derived:net.minecraftforge:forge:1.16.5-36.2.29")));
+        assert!(audit
+            .needs_action
+            .iter()
+            .any(|x| x.contains("verified-mojang-client:1.16.5")));
         assert!(!audit.installed);
     }
     #[test]
     fn rejects_manifest_mirror_tampering() {
         let mut p: Value = serde_json::from_str(PROFILE).unwrap();
-        p["libraries"][0]["downloads"]["artifact"]["url"] = json!("https://mirror.example.net/bad.jar");
-        assert!(audit_official_forge_metadata(&p.to_string(), &serde_json::from_str(VERSION).unwrap()).is_err());
+        p["libraries"][0]["downloads"]["artifact"]["url"] =
+            json!("https://mirror.example.net/bad.jar");
+        assert!(audit_official_forge_metadata(
+            &p.to_string(),
+            &serde_json::from_str(VERSION).unwrap()
+        )
+        .is_err());
     }
     #[test]
     fn rejects_forged_universal_checksum_and_path() {
         let mut p: Value = serde_json::from_str(PROFILE).unwrap();
         let libraries = p["libraries"].as_array_mut().unwrap();
-        let universal = libraries.iter_mut().find(|x| x["name"].as_str().unwrap().contains(":universal")).unwrap();
+        let universal = libraries
+            .iter_mut()
+            .find(|x| x["name"].as_str().unwrap().contains(":universal"))
+            .unwrap();
         universal["downloads"]["artifact"]["sha1"] = json!("fake");
-        assert!(audit_official_forge_metadata(&p.to_string(), &serde_json::from_str(VERSION).unwrap()).is_err());
+        assert!(audit_official_forge_metadata(
+            &p.to_string(),
+            &serde_json::from_str(VERSION).unwrap()
+        )
+        .is_err());
     }
 }
