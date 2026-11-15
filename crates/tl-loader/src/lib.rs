@@ -8,6 +8,7 @@ pub mod fabric;
 pub mod forge_1165;
 pub mod forge_graph;
 pub mod installer;
+pub mod loader_runtime;
 pub mod maven;
 pub mod runtime;
 
