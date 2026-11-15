@@ -116,13 +116,23 @@ pub fn verification_from_execution(
 ) -> LoaderRuntimeVerification {
     let expected = request.processors.len();
     let expected_outputs: usize = request.processors.iter().map(|p| p.outputs.len()).sum();
+    let expected_intermediates: usize = request.processors.iter().map(|p| p.intermediate_outputs.len()).sum();
+    let intermediate_evidence_valid = execution.intermediate_evidence.len() == expected_intermediates
+        && execution.intermediate_evidence.iter().all(|e| {
+            e.producer_index < request.processors.len()
+                && e.size_bytes > 0
+                && e.observed_sha1.len() == 40
+                && e.observed_sha1.bytes().all(|b| b.is_ascii_hexdigit())
+                && request.processors[e.producer_index].intermediate_outputs.contains(&e.relative_path)
+        });
     let complete = expected > 0
         && execution.outcome == ProcessorOutcome::Verified
         && execution.error.is_none()
         && execution.completed == expected
         && execution.exit_codes.len() == expected
         && execution.exit_codes.iter().all(|x| *x == Some(0))
-        && execution.verified_outputs.len() == expected_outputs;
+        && execution.verified_outputs.len() == expected_outputs
+        && intermediate_evidence_valid;
     LoaderRuntimeVerification {
         state: if complete {
             RuntimeState::ProcessorsVerified
