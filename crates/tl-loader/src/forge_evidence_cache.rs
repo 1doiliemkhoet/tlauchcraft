@@ -88,6 +88,14 @@ pub fn import_official_forge_cache(
         reject_symlinks(root)?;
     }
     reject_symlinks(&options.stage_root)?;
+    if options.stage_root.ancestors().any(|ancestor| {
+        ancestor.file_name().and_then(|x| x.to_str()).is_some_and(|component| {
+            ["saves", "worlds", "instances", "profiles", ".minecraft"]
+                .iter().any(|prohibited| component.eq_ignore_ascii_case(prohibited))
+        })
+    }) {
+        return Err(LoaderError::InvalidMetadata("private stage may not be inside Minecraft instance/world".into()));
+    }
     let mut missing = BTreeSet::new();
     let mut artifacts = BTreeMap::new();
     let mut verified = 0;
@@ -155,10 +163,14 @@ pub fn import_official_forge_cache(
             }),
         );
     }
-    data.insert(
-        "BINPATCH".into(),
-        BoundValue::VerifiedInstallerEntry(options.binpatch.clone()),
-    );
+    if options.binpatch.report.is_file()
+        && options.binpatch.extracted.is_file()
+        && options.binpatch.installer.is_file()
+    {
+        data.insert("BINPATCH".into(), BoundValue::VerifiedInstallerEntry(options.binpatch.clone()));
+    } else {
+        missing.insert("verified-installer-entry:data/client.lzma".into());
+    }
     for (token, relative) in [
         ("MAPPINGS", "generated/mappings.txt"),
         ("MC_SLIM", "generated/client-slim.jar"),
@@ -413,6 +425,38 @@ mod tests {
         assert!(!opt.stage_root.exists());
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn corrupt_real_manifest_artifact_fails_without_creating_stage() {
+        let root = std::env::temp_dir().join(format!("tl03-corrupt-import-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let derived: Value = serde_json::from_str(DERIVED).unwrap();
+        let profile: Value = serde_json::from_str(PROFILE).unwrap();
+        let first = &profile["libraries"][0]["downloads"]["artifact"];
+        let path = root.join(first["path"].as_str().unwrap());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"tampered").unwrap();
+        let options = options(&root);
+        let (cache, plan) = preflight_official_forge(PROFILE, &derived, &options);
+        assert_eq!(cache.state, CacheImportState::Failed);
+        assert_eq!(plan.state, PrepareState::Failed);
+        assert!(!options.stage_root.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn minecraft_world_path_refused() {
+        let root = std::env::temp_dir().join(format!("tl03-world-import-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut options = options(&root);
+        options.stage_root = root.join(".minecraft").join("saves").join("new-stage");
+        let derived: Value = serde_json::from_str(DERIVED).unwrap();
+        let (cache, plan) = preflight_official_forge(PROFILE, &derived, &options);
+        assert_eq!(cache.state, CacheImportState::Failed);
+        assert_eq!(plan.state, PrepareState::Failed);
+        assert!(!options.stage_root.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn invalid_mojang_source_fails_closed() {
         let root = std::env::temp_dir().join(format!("tl03-mojang-import-{}", std::process::id()));
