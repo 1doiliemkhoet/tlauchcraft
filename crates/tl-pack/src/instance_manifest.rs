@@ -140,7 +140,11 @@ mod tests {
         }
     }
     fn launch() -> LaunchPreferences {
-        LaunchPreferences { java_path: "C:\\Java\\bin\\java.exe".into(), xms_mb: 512, xmx_mb: 4096 }
+        LaunchPreferences {
+            java_path: "C:\\Java\\bin\\java.exe".into(),
+            xms_mb: 512,
+            xmx_mb: 4096,
+        }
     }
     #[test]
     fn create_new_manifest_is_durable_nonready_and_idempotently_refuses_overwrite() {
