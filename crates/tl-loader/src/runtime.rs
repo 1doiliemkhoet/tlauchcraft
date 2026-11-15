@@ -311,11 +311,15 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
 pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<(), LoaderError> {
     let origin_ok = if file.coordinate == "net.minecraft:client:1.16.5" {
         // Mojang object storage names the object by its expected digest.
-        file.source
-            == format!(
-                "https://piston-data.mojang.com/v1/objects/{}/client.jar",
-                file.sha1.to_ascii_lowercase()
-            )
+        [
+            "https://piston-data.mojang.com",
+            "https://launcher.mojang.com",
+        ]
+        .iter()
+        .any(|host| {
+            file.source
+                == format!("{host}/v1/objects/{}/client.jar", file.sha1.to_ascii_lowercase())
+        })
     } else {
         let relative = if let Some((coordinate, ext)) = file.coordinate.split_once('@') {
             if !matches!(ext, "zip" | "txt") {
