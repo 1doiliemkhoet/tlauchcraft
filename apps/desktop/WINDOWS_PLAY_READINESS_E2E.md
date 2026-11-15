@@ -58,3 +58,30 @@ Screenshot Java & Memory settings and compare actual `-Xms`/`-Xmx` flags. Redact
 Save Windows edition/build, Tauri/NSIS installer hash, screenshots for each required stage, Rust install errors, Java stdout/stderr per-launch files, SQLite read-only query, real Minecraft version and world screenshots. Use `docs/control/scripts/g8-interactive-capture.ps1` for interactive screenshots. Report observed failures explicitly and leave G3/G5/G8 unverified when screenshots are absent.
 
 **Contract coupling:** Desktop now consumes the *merged* `tl_game::vanilla::{resolve_official_version,install_vanilla,extract_natives,build_vanilla_launch}` and `tl_game::vanilla_evidence::write_install_checksums`. New installation sets READY only after independent SHA-1 rehash and nonzero extracted Windows DLLs. Desktop root: `%LOCALAPPDATA%\\tlauchcraft\\instances\\<instance UUID>`; Java `game_dir` is its persistent `game` subfolder, with saves under `game\\saves`. A successful standalone `vanilla_e2e.exe` run at another root does **not** automatically register or adopt that installation into Desktop. Do not delete or move any existing saved worlds. Desktop G3 still requires Control's real GUI test.
+
+
+## P0 console popup / Downloads latency retest (PR #27)
+
+Previous NSIS run `43633240009` was observed by Control to flash CMD when Java started/stopped, sometimes on Downloads tab, and to stutter in Downloads. The code now uses `CREATE_NO_WINDOW` in `tl-game::probe_java` and `tl-game::launch`, as well as `java_settings::validate` and native extraction PowerShell. RAM detection now uses native `kernel32::GlobalMemoryStatusEx` instead of spawning `powershell.exe Get-CimInstance`. No `java.exe` path substitution, JVM 8/21 version policy change, file/world move or database reset.
+
+**Quantitative code changes (not measured GUI speedups):**
+
+| Signal | Previous | New code |
+| --- | --- | --- |
+| Idle status refresh | Every 1,600 ms | Every 9,000 ms |
+| Active installation refresh | Every 1,600 ms | Every 2,400 ms |
+| Downloads items in initial render | Up to 100 | Latest 24, explicit Show all |
+| RAM Windows query | PowerShell CIM child | In-process GlobalMemoryStatusEx |
+| Java launch/probe window flags | default Windows console | CREATE_NO_WINDOW |
+| Java preflight/launch/settings | synchronous Rust Tauri handlers | spawn_blocking async commands |
+
+**Real release benchmark:** Open Activity logs, switch Home → Downloads → Home 10 times and record the emitted `UI navigation downloads: N.Nms` entries, plus observed CMD popups. Repeat while a real instance is downloading and while Java is running; report median and p95 before/after where comparable measurements exist. Browser two-frame mark is diagnostic, not a full frame-time profiler. There are **no measured before/after GUI timings from this agent**.
+
+**Java process ownership:** Two `java.exe` PIDs are not proof of duplicate launcher-owned Minecraft. Confirm full command line, process parent ID, individual start times and game directory before classifying. Within one launcher process, duplicate Play is refused for the same instance, and Stop only kills children present in the in-memory launcher-owned process registry. After a launcher restart the previous children are **not automatically adopted or terminated**. A still-running Java process from a previous launcher can therefore coexist with a later launch, and this must be checked manually before declaring duplicate-process protection fully verified. **Never kill Java processes solely by executable name or PID reported in a screenshot.**
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='java.exe' OR Name='javaw.exe'" |
+ Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine
+```
+
+For acceptance, preserve the same world, capture popup/no-popup screenshots or video, compare the log's UI navigation measurements, check RAM and Java 8/21 compatibility, and report all PIDs and their launch roots. Keep **full G8 PARTIAL** until Control passes these checks.
