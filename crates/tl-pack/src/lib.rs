@@ -2,6 +2,7 @@
 //! This crate does not assert that an imported instance is runnable.
 pub mod curseforge;
 pub mod install;
+pub mod modrinth;
 pub mod normalized;
 pub mod publisher;
 pub mod transaction;
