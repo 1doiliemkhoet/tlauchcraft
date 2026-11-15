@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Inspect official Forge 1.16.5-36.2.34 installer, READ-ONLY. Never launches Java.
+  Inspect official Forge 1.16.5-36.2.29 installer, READ-ONLY. Never launches Java.
 .DESCRIPTION
   Verifies the publisher-pinned SHA1 before opening ZIP, reads ONLY bounded
   install_profile.json / version.json, and records client processor/dependency
@@ -15,8 +15,8 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$ExpectedSha1 = 'ab306b654c44d659ce69da5d4f87590b66dc91e8'
-$ExpectedName = 'forge-1.16.5-36.2.34-installer.jar'
+$ExpectedSha1 = '7d247279cf06eed6ffcf609f36d11e34c70350f3'
+$ExpectedName = 'forge-1.16.5-36.2.29-installer.jar'
 function Fail([string]$reason) { throw "FORGE_INSPECT_FAILED: $reason" }
 $full = [IO.Path]::GetFullPath($Installer)
 if (-not [IO.File]::Exists($full)) { Fail "Installer missing: $full" }
@@ -56,6 +56,10 @@ try {
     $version = $versionText | ConvertFrom-Json
     if ($profile.minecraft -ne '1.16.5') { Fail "Unexpected Minecraft profile: $($profile.minecraft)" }
     if (-not $profile.processors) { Fail "No processors in installer profile" }
+    if ($profile.version -ne '1.16.5-forge-36.2.29') { Fail "Unexpected Forge version: $($profile.version)" }
+    if ($version.id -ne '1.16.5-forge-36.2.29') { Fail "Unexpected derived version: $($version.id)" }
+    if (@($profile.libraries).Count -ne 39) { Fail "Unexpected Forge profile library count: $(@($profile.libraries).Count)" }
+    if (@($profile.processors).Count -ne 4) { Fail "Unexpected Forge processor count: $(@($profile.processors).Count)" }
     if ($version.inheritsFrom -ne '1.16.5') { Fail "Unexpected derived version parent" }
     if ($version.mainClass -ne 'cpw.mods.modlauncher.Launcher') { Fail "Unexpected derived mainClass" }
     $count = 0
@@ -79,9 +83,22 @@ try {
             outputs = $outputPairs
         }
     }
+    if ($client.Count -ne 4) { Fail "Expected four client processors; found $($client.Count)" }
+    $profileLibraryDetails = @($profile.libraries | ForEach-Object {
+        [pscustomobject]@{
+            coordinate = [string]$_.name
+            url = [string]$_.downloads.artifact.url
+            sha1 = [string]$_.downloads.artifact.sha1
+            size = $_.downloads.artifact.size
+            path = [string]$_.downloads.artifact.path
+        }
+    })
+    $mavenDependencies = @($client | ForEach-Object {
+        @($_.jar) + @($_.classpath) + @($_.arguments | Where-Object { $_ -match '\\[[A-Za-z0-9_.:@+-]+\\]' })
+    } | Where-Object { $null -ne $_ -and $_ -ne '' } | Sort-Object -Unique)
     $result = [ordered]@{
         status = 'INSPECTED_METADATA_ONLY_NOT_INSTALLED'
-        official_download = 'https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.34/forge-1.16.5-36.2.34-installer.jar'
+        official_download = 'https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar'
         installer = $full
         sha1_verified = $actual
         bytes = (Get-Item -LiteralPath $full).Length
@@ -91,6 +108,8 @@ try {
         derived_main_class = [string]$version.mainClass
         profile_libraries = @($profile.libraries).Count
         derived_libraries = @($version.libraries).Count
+        profile_library_details = $profileLibraryDetails
+        maven_dependencies_referenced = $mavenDependencies
         data_tokens = @($profile.data.PSObject.Properties.Name)
         processor_count_all = $count
         processor_count_client = $client.Count
