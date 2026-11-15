@@ -108,3 +108,39 @@ The printed SHA-1 **must equal** `7d247279cf06eed6ffcf609f36d11e34c70350f3`; com
 - The 4-processor unit graph regression is **constructed using the Control-confirmed processor count**, *not* a dump of the official 36.2.29 processors, classpath coordinates or output hashes. Those individual values remain unknown until Control exports the verified `install_profile.json` and `version.json`. Do not substitute invented coordinates for real dependencies.
 - Forge Maven downloads remain Chat 2/Control-owned: only canonical official URLs and digest-pinned immutable local cache are acceptable. Any downloaded executable processor needs explicit authorization, and private staging **does not imply OS sandboxing**.
 - Real installer extraction on Control, real processor invocation, exact generated output hashes, Forge launch and Rustic Waters II gameplay remain **NOT_VERIFIED** in Chat 3 until produced evidence is attached.
+
+## General loader runtime adapter and Chat 4 evidence (post PR #27 develop sync)
+
+`tl_loader::loader_runtime` is the **version-aware extension point** for a loader runtime without hard-coding `36.2.29` into shared installation types:
+
+```rust
+use tl_loader::loader_runtime::{
+    forge_adapter_for, LoaderRuntimeAdapter, RuntimeState,
+    LoaderRuntimeVerification, verification_from_prepare, verification_from_execution,
+};
+
+let adapter = forge_adapter_for("1.16.5", "36.2.29")?;
+let plan = adapter.prepare(verified_profile, &verified_derived_version, &bindings);
+let evidence = verification_from_prepare(
+    tl_loader::LoaderKind::Forge, "1.16.5", "36.2.29", &plan
+);
+// Even PrepareState::Verified yields RuntimeState::NeedsAction:
+// Java processor execution requires separate Control approval and OS isolation.
+```
+
+- The common `LoaderRuntimeAdapter` interface accepts metadata and verified `ForgeBindings`. `forge_adapter_for` enables the **legacy 1.16.5 / 36.2.x Forge family only**. Unimplemented Minecraft/Forge versions return `UnsupportedVersion` deliberately. Fabric, NeoForge, Quilt runtime adapters are NOT implemented by this change; presence of metadata parsers elsewhere in `tl-loader` is not runtime E2E support.
+- `verification_from_execution` cross-checks the runner outcome, completed processor count, zero exit codes and exact **number** of declared output hashes. The underlying `run_verified_processors` checks actual SHA-1 bytes of each output. Runtime verification is not a replacement for rechecking final staged files, dependency inventory, version inheritance and transactional instance commit in Chat 4. `LoaderRuntimeVerification.instance_ready` is **always false**.
+- Missing processor executable and classpath dependencies now accumulate into `PrepareState::NeedsAction` diagnostics instead of returning early on the first missing tool. Graph resolution never triggers downloads and never starts Java.
+- The SHA-1-pinned 36.2.29 Windows inspector and user's confirmed 4 processors / 39 libraries are **provenance and shape evidence only**. No official exported metadata was available in this chat to validate four *specific* processors. The previous synthetic fixture remains marked synthetic; it cannot be used to assert E2E.
+- Existing `runtime::run_verified_processors` remains gated by the caller: there is no new executable invocation in `loader_runtime`. Neither staging directory nor checksum validation is an OS sandbox. Before any third-party JAR runs, Control must approve explicit sources/hashes and a restricted process context.
+- Baseline merge commit includes Chat 7's merged Windows Vanilla/UX improvements; no changes to `tl-game`, `tl-pack`, Desktop, profile storage or user worlds.
+
+### Control inspection commands (PowerShell, project root)
+
+```powershell
+git fetch origin; git switch feat/tl-03-forge-runtime; git pull --ff-only origin feat/tl-03-forge-runtime
+(Get-FileHash 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -Algorithm SHA1).Hash.ToLowerInvariant()
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\inspect-forge-1165.ps1 -Installer 'C:\Users\admin\Downloads\forge-1.16.5-36.2.29-installer.jar' -MetadataDir "$PWD\forge-36229-metadata" -ReportPath "$PWD\forge-36229-inspection.json"
+```
+
+Run the last command only for this reviewed, trusted repository script. Process-scoped `-ExecutionPolicy Bypass` does not change machine/user policy persistently; it is not a recommendation to disable system-wide policy. Confirm printed SHA-1 `7d247279cf06eed6ffcf609f36d11e34c70350f3`. Existing metadata output directories must be renamed or moved before re-running because the inspector intentionally refuses overwrite.
