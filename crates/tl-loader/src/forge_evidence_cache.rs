@@ -270,22 +270,29 @@ pub fn preflight_official_forge(
             },
         ),
         Ok(result) => {
-            let mut plan = prepare_forge_1165(profile_json, derived, &result.bindings);
-            // Missing real cache material may make plan's resolved graph incomplete;
-            // aggregate the audited inventory gaps into a conservative NeedsAction.
-            if plan.state != PrepareState::Failed
-                && result.report.state == CacheImportState::NeedsAction
-            {
-                plan.unresolved
-                    .extend(result.report.missing.iter().cloned());
-                plan.unresolved.sort();
-                plan.unresolved.dedup();
-                plan.state = PrepareState::NeedsAction;
-                plan.request = None;
-            }
+            let plan = reconcile_processor_preflight(
+                &result.report,
+                prepare_forge_1165(profile_json, derived, &result.bindings),
+            );
             (result.report, plan)
         }
     }
+}
+
+/// Only CURRENT processor-input gaps invalidate a plan. Future generated or
+/// installer-supplied libraries are deliberately absent from report.missing.
+fn reconcile_processor_preflight(
+    inventory: &CacheImportReport,
+    mut plan: PrepareReport,
+) -> PrepareReport {
+    if plan.state != PrepareState::Failed && inventory.state == CacheImportState::NeedsAction {
+        plan.unresolved.extend(inventory.missing.iter().cloned());
+        plan.unresolved.sort();
+        plan.unresolved.dedup();
+        plan.state = PrepareState::NeedsAction;
+        plan.request = None;
+    }
+    plan
 }
 
 fn find_verified_file(
@@ -536,6 +543,38 @@ mod tests {
         );
         assert!(!result.report.instance_ready);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn future_generated_outputs_never_discard_a_valid_four_step_plan() {
+        use crate::runtime::ProcessorRunRequest;
+        let inventory = CacheImportReport {
+            state: CacheImportState::Verified,
+            verified_libraries: 63,
+            generated_or_installer: 2,
+            needs_generated_outputs: vec!["generated-or-installer:forge-universal".into(), "generated-or-installer:forge-derived".into()],
+            missing: vec![],
+            error: None,
+            processor_input_readiness: ForgeReadiness::ProcessorInputsVerified,
+            instance_ready: false,
+        };
+        let prepared = PrepareReport {
+            state: PrepareState::Verified,
+            request: Some(ProcessorRunRequest {
+                minecraft_version: "1.16.5".into(),
+                java: PathBuf::from("C:/verified-java8/bin/java.exe"),
+                stage_root: PathBuf::from("C:/private-fresh-stage"),
+                processors: Vec::new(),
+                timeout_seconds: 120,
+            }),
+            unresolved: vec![],
+            error: None,
+        };
+        let result = reconcile_processor_preflight(&inventory, prepared);
+        assert_eq!(result.state, PrepareState::Verified);
+        assert!(result.request.is_some());
+        assert!(inventory.needs_generated_outputs.len() == 2);
+        assert!(!inventory.instance_ready);
     }
 
     #[test]
