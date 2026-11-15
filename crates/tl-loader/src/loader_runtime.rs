@@ -121,16 +121,34 @@ pub fn verification_from_execution(
         .iter()
         .map(|p| p.intermediate_outputs.len())
         .sum();
+    let expected_paths: Vec<PathBuf> = request
+        .processors
+        .iter()
+        .flat_map(|p| p.outputs.iter().map(|o| request.stage_root.join(&o.relative_path)))
+        .collect();
+    let hashes_valid = execution.verified_outputs == expected_paths
+        && request.processors.iter().all(|p| {
+            p.outputs.iter().all(|o| {
+                let target = request.stage_root.join(&o.relative_path);
+                target.is_file() && crate::runtime::verify_sha1(&target, &o.sha1).is_ok()
+            })
+        });
+    let mut observed = std::collections::BTreeSet::new();
     let intermediate_evidence_valid = execution.intermediate_evidence.len()
         == expected_intermediates
         && execution.intermediate_evidence.iter().all(|e| {
-            e.producer_index < request.processors.len()
-                && e.size_bytes > 0
-                && e.observed_sha1.len() == 40
-                && e.observed_sha1.bytes().all(|b| b.is_ascii_hexdigit())
-                && request.processors[e.producer_index]
-                    .intermediate_outputs
-                    .contains(&e.relative_path)
+            let path = request.stage_root.join(&e.relative_path);
+            if e.producer_index >= request.processors.len()
+                || !request.processors[e.producer_index].intermediate_outputs.contains(&e.relative_path)
+                || !observed.insert((e.producer_index, e.relative_path.clone()))
+                || e.size_bytes == 0
+                || e.observed_sha1.len() != 40
+                || !e.observed_sha1.bytes().all(|b| b.is_ascii_hexdigit())
+                || crate::runtime::verify_sha1(&path, &e.observed_sha1).is_err()
+            {
+                return false;
+            }
+            std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == e.size_bytes)
         });
     let complete = expected > 0
         && execution.outcome == ProcessorOutcome::Verified
@@ -139,6 +157,7 @@ pub fn verification_from_execution(
         && execution.exit_codes.len() == expected
         && execution.exit_codes.iter().all(|x| *x == Some(0))
         && execution.verified_outputs.len() == expected_outputs
+        && hashes_valid
         && intermediate_evidence_valid;
     LoaderRuntimeVerification {
         state: if complete {
@@ -243,23 +262,27 @@ mod tests {
 
     #[test]
     fn verified_processor_stage_does_not_mark_instance_ready() {
+        let root = std::env::temp_dir().join(format!("tl03-stage-{}", std::process::id()));
+        if root.exists() { std::fs::remove_dir_all(&root).unwrap(); }
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("output.jar"), b"fixture").unwrap();
+        let mut req = request();
+        req.stage_root = root.clone();
         let execution = ProcessorRunReport {
             outcome: ProcessorOutcome::Verified,
             completed: 1,
             exit_codes: vec![Some(0)],
-            log_paths: vec![PathBuf::from("process.log")],
-            verified_outputs: vec![PathBuf::from("output.jar")],
+            log_paths: vec![root.join("process.log")],
+            verified_outputs: vec![root.join("output.jar")],
             intermediate_evidence: vec![],
             error: None,
         };
-        let verdict = verification_from_execution(
-            LoaderKind::Forge,
-            "1.16.5",
-            "36.2.29",
-            &request(),
-            &execution,
-        );
+        let verdict = verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
         assert_eq!(verdict.state, RuntimeState::ProcessorsVerified);
         assert!(!verdict.instance_ready);
+        std::fs::write(root.join("output.jar"), b"tampered").unwrap();
+        let altered = verification_from_execution(LoaderKind::Forge, "1.16.5", "36.2.29", &req, &execution);
+        assert_eq!(altered.state, RuntimeState::Failed);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
