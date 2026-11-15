@@ -18,6 +18,11 @@ tauri-plugin-dialog = "2"
 tl-core = { path = "../../../crates/tl-core" }
 tl-storage = { path = "../../../crates/tl-storage" }
 tl-pack = { path = "../../../crates/tl-pack" }
+tl-game = { path = "../../../crates/tl-game" }
+serde_json = "=1.0.140"
+rusqlite = { version = "=0.34.0", features = ["bundled"] }
+uuid = { version = "=1.16.0", features = ["v4", "serde"] }
+chrono = { version = "=0.4.40", features = ["serde", "clock"] }
 
 # Desktop is independently locked; root workspace belongs to Chat 1.
 [workspace]
