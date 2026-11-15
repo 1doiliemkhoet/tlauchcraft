@@ -19,25 +19,45 @@ pub struct MemoryInfo {
     pub available_mb: u64,
     pub reserved_mb: u64,
 }
+#[cfg(windows)]
+#[repr(C)]
+struct MemoryStatusEx {
+    length: u32,
+    memory_load: u32,
+    total_phys: u64,
+    avail_phys: u64,
+    total_page_file: u64,
+    avail_page_file: u64,
+    total_virtual: u64,
+    avail_virtual: u64,
+    avail_extended_virtual: u64,
+}
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GlobalMemoryStatusEx(status: *mut MemoryStatusEx) -> i32;
+}
 fn memory_info() -> Result<MemoryInfo, String> {
     #[cfg(not(windows))]
     { return Err("Windows memory detection only".into()); }
     #[cfg(windows)]
     {
-        let mut probe=Command::new("powershell.exe");
-        probe.args(["-NoProfile","-NonInteractive","-Command",
-            "$m=Get-CimInstance Win32_OperatingSystem; Write-Output ($m.TotalVisibleMemorySize.ToString()+' '+$m.FreePhysicalMemory.ToString())"]);
-        use std::os::windows::process::CommandExt;
-        probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let out=probe.output().map_err(|e|format!("Windows RAM probe failed: {e}"))?;
-        if !out.status.success() { return Err("Windows memory probe failed".into()); }
-        let raw=String::from_utf8_lossy(&out.stdout);
-        let vals: Vec<u64>=raw.split_whitespace().map(str::parse::<u64>).collect::<Result<_,_>>()
-            .map_err(|_|"Windows RAM response invalid")?;
-        if vals.len()!=2 { return Err("Windows RAM response incomplete".into()); }
-        let total=vals[0]/1024; let available=vals[1]/1024;
-        if total<1024 || available>total || available<768 { return Err("Insufficient or invalid available system RAM".into()); }
-        Ok(MemoryInfo{total_mb:total,available_mb:available,reserved_mb:1024})
+        // Native Windows kernel32 API, no 300-1000 ms PowerShell/WMI process on tab entry.
+        let mut status = MemoryStatusEx {
+            length: std::mem::size_of::<MemoryStatusEx>() as u32,
+            memory_load: 0, total_phys: 0, avail_phys: 0,
+            total_page_file: 0, avail_page_file: 0,
+            total_virtual: 0, avail_virtual: 0, avail_extended_virtual: 0
+        };
+        if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+            return Err(format!("Windows RAM probe failed: {}", std::io::Error::last_os_error()));
+        }
+        let total = status.total_phys / (1024 * 1024);
+        let available = status.avail_phys / (1024 * 1024);
+        if total < 1024 || available > total || available < 768 {
+            return Err("Insufficient or invalid available system RAM".into());
+        }
+        Ok(MemoryInfo {total_mb:total,available_mb:available,reserved_mb:1024})
     }
 }
 fn connect()->Result<Connection,String> {
