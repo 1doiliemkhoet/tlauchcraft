@@ -55,6 +55,9 @@ jobs:
       - name: Windows Job Object / offline Sandbox configuration regression (no Java)
         shell: pwsh
         run: ./crates/tl-loader/tests/test-windows-forge-containment.ps1
+      - name: Windows Maven flat-cache normalizer integrity tests (no Java)
+        shell: pwsh
+        run: ./crates/tl-loader/tests/test-forge-cache-normalizer.ps1
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
