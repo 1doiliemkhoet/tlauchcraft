@@ -638,10 +638,16 @@ mod tests {
             fn get(&self, path: &str, key: &str) -> Result<(u16, String), ResolveError> {
                 assert_eq!(key, "fake-test-only-key");
                 let segments: Vec<_> = path.split('/').collect();
-                let project: u64 = segments.get(2).ok_or(ResolveError::NetworkFailure)?
-                    .parse().map_err(|_| ResolveError::NetworkFailure)?;
-                let file: u64 = segments.get(4).ok_or(ResolveError::NetworkFailure)?
-                    .parse().map_err(|_| ResolveError::NetworkFailure)?;
+                let project: u64 = segments
+                    .get(2)
+                    .ok_or(ResolveError::NetworkFailure)?
+                    .parse()
+                    .map_err(|_| ResolveError::NetworkFailure)?;
+                let file: u64 = segments
+                    .get(4)
+                    .ok_or(ResolveError::NetworkFailure)?
+                    .parse()
+                    .map_err(|_| ResolveError::NetworkFailure)?;
                 let offset = project.saturating_sub(10_000);
                 if segments.len() > 5 {
                     return Ok((200, r#"{"data":null}"#.into()));
@@ -674,26 +680,49 @@ mod tests {
         }
         let mut pack = metadata();
         pack.loader.version = Some("36.2.29".into());
-        pack.files = (0..200u64).map(|offset| super::super::PlannedFile {
-            path: format!("mods/file-{offset}.jar"),
-            provider: "curseforge".into(),
-            project_id: Some(10_000 + offset),
-            file_id: Some(20_000 + offset),
-            urls: vec![],
-            sha1: None,
-            sha512: None,
-            required: offset % 10 != 0,
-            side: "both".into(),
-        }).collect();
+        pack.files = (0..200u64)
+            .map(|offset| super::super::PlannedFile {
+                path: format!("mods/file-{offset}.jar"),
+                provider: "curseforge".into(),
+                project_id: Some(10_000 + offset),
+                file_id: Some(20_000 + offset),
+                urls: vec![],
+                sha1: None,
+                sha512: None,
+                required: offset % 10 != 0,
+                side: "both".into(),
+            })
+            .collect();
         let result = resolve_curseforge_files(&pack, &BulkApi, "fake-test-only-key").unwrap();
         assert_eq!(result.files.len(), 200);
         assert_eq!(result.files.iter().filter(|f| f.required).count(), 180);
         assert_eq!(result.files.iter().filter(|f| !f.required).count(), 20);
         assert_eq!(result.resolved_count, 196);
         assert_eq!(result.needs_action_count, 4);
-        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::PermissionDenied).count(), 2);
-        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::NeedsManualDownload).count(), 1);
-        assert_eq!(result.files.iter().filter(|f| f.availability == FileAvailability::InvalidMetadata).count(), 1);
+        assert_eq!(
+            result
+                .files
+                .iter()
+                .filter(|f| f.availability == FileAvailability::PermissionDenied)
+                .count(),
+            2
+        );
+        assert_eq!(
+            result
+                .files
+                .iter()
+                .filter(|f| f.availability == FileAvailability::NeedsManualDownload)
+                .count(),
+            1
+        );
+        assert_eq!(
+            result
+                .files
+                .iter()
+                .filter(|f| f.availability == FileAvailability::InvalidMetadata)
+                .count(),
+            1
+        );
         assert_eq!(result.files[196].project_id, 10_196);
         assert_eq!(result.files[196].file_id, 20_196);
         assert_eq!(result.files[199].project_id, 10_199);

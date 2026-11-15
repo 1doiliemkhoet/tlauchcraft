@@ -245,9 +245,10 @@ pub fn stage_curseforge_downloads(
         if file.availability != FileAvailability::Available {
             continue;
         }
-        let name = file.file_name.as_deref().ok_or_else(|| {
-            PackError::Metadata("approved file has no target filename".into())
-        })?;
+        let name = file
+            .file_name
+            .as_deref()
+            .ok_or_else(|| PackError::Metadata("approved file has no target filename".into()))?;
         if !crate::curseforge::safe_mod_file_name(name)
             || !planned_mod_names.insert(name.to_ascii_lowercase())
         {
@@ -255,9 +256,13 @@ pub fn stage_curseforge_downloads(
                 "unsafe or duplicate Windows mod destination".into(),
             ));
         }
-        if file.sha1.as_ref().is_none_or(|sha| {
-            sha.len() != 40 || !sha.bytes().all(|c| c.is_ascii_hexdigit())
-        }) || file.expected_size.is_none_or(|size| size == 0 || size > MAX_MOD_BYTES)
+        if file
+            .sha1
+            .as_ref()
+            .is_none_or(|sha| sha.len() != 40 || !sha.bytes().all(|c| c.is_ascii_hexdigit()))
+            || file
+                .expected_size
+                .is_none_or(|size| size == 0 || size > MAX_MOD_BYTES)
         {
             return Err(PackError::Metadata(
                 "approved file has no valid trusted SHA-1/size".into(),
