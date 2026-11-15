@@ -429,7 +429,8 @@ pub fn probe_java(java: &Path, required: u32) -> Result<u32, GameError> {
         use std::os::windows::process::CommandExt;
         probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let result = probe.output()
+    let result = probe
+        .output()
         .map_err(|e| GameError::LaunchFailed(e.to_string()))?;
     if !result.status.success() {
         return Err(GameError::LaunchFailed("java -version failed".into()));
