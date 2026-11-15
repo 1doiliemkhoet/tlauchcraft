@@ -1,7 +1,7 @@
 //! Read-only CLI for verified Forge cache preflight on Control Windows.
 //! Usage: cargo run --locked -p tl-loader --example forge_cache_preflight -- <profile.json> <version.json> <config.json> <report-new.json>
 //! No Java is launched and no Minecraft instance is modified.
-use std::{env,fs,fs::OpenOptions,io::Write,path::Path};
+use std::{env, fs, fs::OpenOptions, io::Write, path::Path};
 use tl_loader::forge_evidence_cache::{preflight_official_forge, ForgeCacheImport};
 fn main() {
     if let Err(e) = perform() {
@@ -11,9 +11,13 @@ fn main() {
 }
 fn perform() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 5 { return Err("expected profile.json version.json config.json new-report.json".into()); }
+    if args.len() != 5 {
+        return Err("expected profile.json version.json config.json new-report.json".into());
+    }
     for path in &args[1..4] {
-        if !Path::new(path).is_file() { return Err(format!("missing input: {path}").into()); }
+        if !Path::new(path).is_file() {
+            return Err(format!("missing input: {path}").into());
+        }
     }
     let profile = fs::read_to_string(&args[1])?;
     let derived = serde_json::from_str(&fs::read_to_string(&args[2])?)?;
@@ -33,7 +37,10 @@ fn perform() -> Result<(), Box<dyn std::error::Error>> {
         "stage_created": options.stage_root.exists(),
     });
     let json = serde_json::to_string_pretty(&result)?;
-    let mut report = OpenOptions::new().create_new(true).write(true).open(&args[4])?;
+    let mut report = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&args[4])?;
     report.write_all(json.as_bytes())?;
     println!("{json}");
     Ok(())
