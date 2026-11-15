@@ -133,7 +133,9 @@ fn validate_execution_permit(
     cancel: &AtomicBool,
 ) -> Result<(), LoaderError> {
     if cancel.load(Ordering::SeqCst) {
-        return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "processor execution cancelled".into(),
+        ));
     }
     if !permit.restricted_environment_attested
         || !permit.approved_stage_parent.is_absolute()
@@ -148,9 +150,11 @@ fn validate_execution_permit(
     }
     let prohibited = ["saves", "worlds", "instances", ".minecraft", "profiles"];
     for parent in request.stage_root.ancestors() {
-        if parent.file_name().and_then(|s| s.to_str()).is_some_and(|s| {
-            prohibited.iter().any(|v| s.eq_ignore_ascii_case(v))
-        }) {
+        if parent
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| prohibited.iter().any(|v| s.eq_ignore_ascii_case(v)))
+        {
             return Err(LoaderError::InvalidMetadata(
                 "staging within existing Minecraft data is forbidden".into(),
             ));
@@ -219,7 +223,9 @@ fn execute(
         .map_err(|e| LoaderError::InvalidMetadata(format!("stage marker: {e}")))?;
     for (index, processor) in request.processors.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
-            return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "processor execution cancelled".into(),
+            ));
         }
         let stdout = request
             .stage_root
@@ -253,7 +259,9 @@ fn execute(
                 let _ = child.kill();
                 let _ = child.wait();
                 report.exit_codes.push(None);
-                return Err(LoaderError::InvalidMetadata("processor execution cancelled".into()));
+                return Err(LoaderError::InvalidMetadata(
+                    "processor execution cancelled".into(),
+                ));
             }
             if let Some(status) = child
                 .try_wait()
@@ -632,15 +640,21 @@ mod tests {
             approved_stage_parent: root.clone(),
         };
         assert!(run_approved_processors(&request, &permit, &cancellation)
-            .error.unwrap().contains("not explicitly approved"));
+            .error
+            .unwrap()
+            .contains("not explicitly approved"));
         permit.approved_executable_sha1s = vec!["51cff3c1f0bc59f6187e7040cc12a4e9b1eca7aa".into()];
         permit.restricted_environment_attested = false;
         assert!(run_approved_processors(&request, &permit, &cancellation)
-            .error.unwrap().contains("containment"));
+            .error
+            .unwrap()
+            .contains("containment"));
         permit.restricted_environment_attested = true;
         permit.approved_stage_parent = root.join(".minecraft");
         assert!(run_approved_processors(&request, &permit, &cancellation)
-            .error.unwrap().contains("containment"));
+            .error
+            .unwrap()
+            .contains("containment"));
         assert!(!request.stage_root.exists());
         fs::remove_dir_all(root).unwrap();
     }

@@ -2,7 +2,10 @@
 //! This is an integration interface: it never executes Java or mutates an instance.
 use crate::{
     forge_graph::{prepare_forge_1165, ForgeBindings, PrepareReport, PrepareState},
-    runtime::{IntermediateEvidence, ProcessorOutcome, ProcessorRunReport, ProcessorRunRequest, VerifiedProcessorJar},
+    runtime::{
+        IntermediateEvidence, ProcessorOutcome, ProcessorRunReport, ProcessorRunRequest,
+        VerifiedProcessorJar,
+    },
     LoaderError, LoaderKind,
 };
 use serde::{Deserialize, Serialize};
@@ -57,10 +60,15 @@ pub fn installation_handoff(
     execution: Option<&ProcessorRunReport>,
 ) -> LoaderInstallationHandoff {
     let mut missing = audit.needs_action.clone();
-    let all = audit.profile_libraries.iter().chain(&audit.derived_libraries);
+    let all = audit
+        .profile_libraries
+        .iter()
+        .chain(&audit.derived_libraries);
     let mut verified = Vec::new();
     for library in all {
-        let candidate = local_artifacts.iter().find(|x| x.coordinate == library.coordinate);
+        let candidate = local_artifacts
+            .iter()
+            .find(|x| x.coordinate == library.coordinate);
         match (&library.source, candidate) {
             (
                 crate::forge_provenance::SourceRequirement::CanonicalMaven { url },
@@ -78,7 +86,11 @@ pub fn installation_handoff(
         missing.push("approved-processor-execution-evidence".into());
     }
     if runtime.minecraft_version != audit.minecraft_version
-        || audit.derived_version != format!("{}-forge-{}", runtime.minecraft_version, runtime.loader_version)
+        || audit.derived_version
+            != format!(
+                "{}-forge-{}",
+                runtime.minecraft_version, runtime.loader_version
+            )
     {
         missing.push("derived-version-inheritance-mismatch".into());
     }
@@ -298,8 +310,8 @@ mod tests {
         const PROFILE: &str = include_str!("../tests/fixtures/forge_36229_official_profile.json");
         const VERSION: &str = include_str!("../tests/fixtures/forge_36229_official_version.json");
         let derived: serde_json::Value = serde_json::from_str(VERSION).unwrap();
-        let audit = crate::forge_provenance::audit_official_forge_metadata(PROFILE, &derived)
-            .unwrap();
+        let audit =
+            crate::forge_provenance::audit_official_forge_metadata(PROFILE, &derived).unwrap();
         let plan = PrepareReport {
             state: PrepareState::Verified,
             request: Some(request()),
@@ -310,8 +322,14 @@ mod tests {
         let handoff = installation_handoff(runtime, &audit, &[], None);
         assert_eq!(handoff.required_java_major, 8);
         assert!(!handoff.can_publish_instance);
-        assert!(handoff.missing_dependencies.iter().any(|x| x.contains("verified-library:")));
-        assert!(handoff.missing_dependencies.iter().any(|x| x.contains("verified-mojang-client")));
+        assert!(handoff
+            .missing_dependencies
+            .iter()
+            .any(|x| x.contains("verified-library:")));
+        assert!(handoff
+            .missing_dependencies
+            .iter()
+            .any(|x| x.contains("verified-mojang-client")));
         assert_eq!(handoff.verified_artifacts.len(), 0);
     }
 
