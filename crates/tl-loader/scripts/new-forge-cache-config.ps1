@@ -55,5 +55,6 @@ $report = [ordered]@{
   stage_root = $staging
   timeout_seconds = 120
 }
-$report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $config -Encoding UTF8
+$json = $report | ConvertTo-Json -Depth 12
+[IO.File]::WriteAllText($config,$json,(New-Object Text.UTF8Encoding($false)))
 Write-Output "FORGE_CACHE_CONFIG_ONLY_NOT_INSTALLED: $config"
