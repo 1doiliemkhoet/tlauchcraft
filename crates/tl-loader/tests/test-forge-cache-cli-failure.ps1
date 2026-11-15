@@ -44,3 +44,7 @@ try {
   Write-Output 'FORGE_FAILED_CLI_NONZERO_AND_JSON_VERDICT_PASS_NO_JAVA'
 }
 finally { [IO.Directory]::Delete($root,$true) }
+# The intentionally failed native cargo child leaves LASTEXITCODE=2 in pwsh.
+# The regression PASSED after independently checking that exit code + JSON.
+$global:LASTEXITCODE = 0
+exit 0
