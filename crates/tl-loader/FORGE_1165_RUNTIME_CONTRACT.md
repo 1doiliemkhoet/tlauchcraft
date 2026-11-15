@@ -227,7 +227,7 @@ Before running, replace the five placeholders with the **actual absolute Windows
 
 ```powershell
 git fetch origin; git switch feat/tl-03-forge-runtime; git pull --ff-only origin feat/tl-03-forge-runtime
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\new-forge-cache-config.ps1 -MavenRoots @('C:\REPLACE\maven-classpath','C:\REPLACE\other-maven-cache') -ClientJar 'C:\REPLACE\client.jar' -BinpatchDirectory 'C:\REPLACE\binpatch-evidence' -Java8 'C:\REPLACE\java8\bin\java.exe' -StageRoot 'C:\REPLACE\new-private-stage' -ConfigFile "$PWD\forge-cache-config-final.json"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\crates\tl-loader\scripts\new-forge-cache-config.ps1 -MavenRoots @('C:\REPLACE\maven-classpath','C:\REPLACE\other-maven-cache') -ClientJar 'C:\REPLACE\client.jar' -MojangClientUrl 'https://launcher.mojang.com/v1/objects/37fd3c903861eeff3bc24b71eed48f828b5269c8/client.jar' -BinpatchDirectory 'C:\REPLACE\binpatch-evidence' -Java8 'C:\REPLACE\java8\bin\java.exe' -StageRoot 'C:\REPLACE\new-private-stage' -ConfigFile "$PWD\forge-cache-config-final.json"
 cargo run --locked -p tl-loader --example forge_cache_preflight -- "$PWD\forge-36229-metadata-final\install_profile.json" "$PWD\forge-36229-metadata-final\version.json" "$PWD\forge-cache-config-final.json" "$PWD\forge-preflight-report-final.json"
 ```
 
