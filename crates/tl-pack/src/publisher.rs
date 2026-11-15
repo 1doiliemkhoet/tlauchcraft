@@ -44,9 +44,7 @@ pub fn publish_verified(
     }
     for dir in [stage_parent, stage, destination] {
         for ancestor in dir.ancestors() {
-            if fs::symlink_metadata(ancestor)
-                .is_ok_and(|m| m.file_type().is_symlink())
-            {
+            if fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err("publish path contains symlink".into());
             }
         }
@@ -76,11 +74,14 @@ mod tests {
         fs::create_dir(&stage).unwrap();
         fs::create_dir(&existing).unwrap();
         fs::write(existing.join("level.dat"), b"saved world").unwrap();
-        assert!(publish_verified(
-            &stage, &existing, VerifiedPublishPermit { _sealed: () },
-        ).is_err());
+        assert!(
+            publish_verified(&stage, &existing, VerifiedPublishPermit { _sealed: () },).is_err()
+        );
         assert!(stage.exists());
-        assert_eq!(fs::read(existing.join("level.dat")).unwrap(), b"saved world");
+        assert_eq!(
+            fs::read(existing.join("level.dat")).unwrap(),
+            b"saved world"
+        );
     }
     #[test]
     fn publishes_only_a_new_sibling_when_trusted_permit_exists() {
@@ -90,9 +91,7 @@ mod tests {
         let final_dir = base.join("new-instance-1");
         fs::create_dir(&stage).unwrap();
         fs::write(stage.join("instance.json"), b"verified fixture").unwrap();
-        publish_verified(
-            &stage, &final_dir, VerifiedPublishPermit { _sealed: () },
-        ).unwrap();
+        publish_verified(&stage, &final_dir, VerifiedPublishPermit { _sealed: () }).unwrap();
         assert!(!stage.exists());
         assert_eq!(
             fs::read(final_dir.join("instance.json")).unwrap(),
@@ -106,13 +105,17 @@ mod tests {
         let stage = base.join("job-stage.staging");
         fs::create_dir(&stage).unwrap();
         assert!(publish_verified(
-            &stage, &base.join("..").join("outside-instance"),
+            &stage,
+            &base.join("..").join("outside-instance"),
             VerifiedPublishPermit { _sealed: () },
-        ).is_err());
+        )
+        .is_err());
         assert!(publish_verified(
-            &stage, &base.join("world instance"),
+            &stage,
+            &base.join("world instance"),
             VerifiedPublishPermit { _sealed: () },
-        ).is_err());
+        )
+        .is_err());
         assert!(stage.exists());
     }
 }
