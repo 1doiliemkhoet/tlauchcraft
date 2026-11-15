@@ -65,7 +65,9 @@ fn stage_copy<R: Read>(
     sha1: Option<&str>,
     cancelled: &AtomicBool,
 ) -> Result<String, String> {
-    if expected_size == 0 || expected_size > MAX_FILE || sha512.len() != 128
+    if expected_size == 0
+        || expected_size > MAX_FILE
+        || sha512.len() != 128
         || !sha512.bytes().all(|c| c.is_ascii_hexdigit())
     {
         return Err("invalid trusted size or SHA-512".into());
@@ -87,7 +89,9 @@ fn stage_copy<R: Read>(
         if count > expected_size {
             return Err("download exceeds manifest size".into());
         }
-        target.write_all(&buf[..bytes]).map_err(|_| "staging write failure")?;
+        target
+            .write_all(&buf[..bytes])
+            .map_err(|_| "staging write failure")?;
         h512.update(&buf[..bytes]);
         h1.update(&buf[..bytes]);
         h256.update(&buf[..bytes]);
@@ -132,7 +136,9 @@ pub fn stage_modrinth(
     let index: Index = serde_json::from_slice(&bytes)
         .map_err(|_| PackError::Metadata("invalid Modrinth index".into()))?;
     if index.files.len() != metadata.files.len() {
-        return Err(PackError::Metadata("manifest file inventory mismatch".into()));
+        return Err(PackError::Metadata(
+            "manifest file inventory mismatch".into(),
+        ));
     }
     let mut by_path = HashMap::new();
     let mut aliases = HashSet::new();
@@ -144,9 +150,11 @@ pub fn stage_modrinth(
         by_path.insert(file.path.clone(), file);
     }
     for file in &metadata.files {
-        let reference = by_path.get(&file.path)
+        let reference = by_path
+            .get(&file.path)
             .ok_or_else(|| PackError::Metadata("unmatched Modrinth file".into()))?;
-        if reference.file_size == 0 || reference.file_size > MAX_FILE
+        if reference.file_size == 0
+            || reference.file_size > MAX_FILE
             || file.sha512.as_deref() != reference.hashes.get("sha512").map(String::as_str)
         {
             return Err(PackError::Metadata(
@@ -156,14 +164,20 @@ pub fn stage_modrinth(
     }
     if cancelled.load(Ordering::Relaxed) {
         return Ok(ModrinthStageReport {
-            installed: Vec::new(), blocked: Vec::new(), failed: Vec::new(),
-            cancelled: true, ready: false,
+            installed: Vec::new(),
+            blocked: Vec::new(),
+            failed: Vec::new(),
+            cancelled: true,
+            ready: false,
         });
     }
     crate::stage_overrides(archive, metadata, new_staging)?;
     let mut report = ModrinthStageReport {
-        installed: Vec::new(), blocked: Vec::new(), failed: Vec::new(),
-        cancelled: false, ready: false,
+        installed: Vec::new(),
+        blocked: Vec::new(),
+        failed: Vec::new(),
+        cancelled: false,
+        ready: false,
     };
     for file in &metadata.files {
         if cancelled.load(Ordering::Relaxed) {
@@ -172,7 +186,9 @@ pub fn stage_modrinth(
         }
         let reference = &by_path[&file.path];
         let Some(url) = file.urls.iter().find(|u| approved_modrinth_url(u)) else {
-            report.blocked.push(format!("{}: no authorized Modrinth CDN URL", file.path));
+            report
+                .blocked
+                .push(format!("{}: no authorized Modrinth CDN URL", file.path));
             continue;
         };
         let client = reqwest::blocking::Client::builder()
@@ -183,41 +199,58 @@ pub fn stage_modrinth(
         let response = match client.get(url).send() {
             Ok(response) if response.status().is_success() => response,
             _ => {
-                report.failed.push(format!("{}: approved download failed", file.path));
+                report
+                    .failed
+                    .push(format!("{}: approved download failed", file.path));
                 continue;
             }
         };
         let relative = safe_path(&file.path)?;
         let destination = new_staging.join(relative);
         if destination.exists() {
-            report.failed.push(format!("{}: collides with existing override", file.path));
+            report
+                .failed
+                .push(format!("{}: collides with existing override", file.path));
             continue;
         }
         if let Some(dir) = destination.parent() {
             fs::create_dir_all(dir)?;
         }
         let partial = destination.with_extension("tlpartial");
-        let mut handle = match OpenOptions::new().create_new(true).write(true).open(&partial) {
+        let mut handle = match OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&partial)
+        {
             Ok(f) => f,
             Err(_) => {
-                report.failed.push(format!("{}: staged path collision", file.path));
+                report
+                    .failed
+                    .push(format!("{}: staged path collision", file.path));
                 continue;
             }
         };
         let checked = stage_copy(
-            response, &mut handle, reference.file_size,
+            response,
+            &mut handle,
+            reference.file_size,
             file.sha512.as_deref().unwrap_or(""),
-            file.sha1.as_deref(), cancelled,
+            file.sha1.as_deref(),
+            cancelled,
         );
         drop(handle);
         match checked {
             Ok(sha256) => {
                 if fs::rename(&partial, &destination).is_err() {
                     let _ = fs::remove_file(&partial);
-                    report.failed.push(format!("{}: atomic staged rename failed", file.path));
+                    report
+                        .failed
+                        .push(format!("{}: atomic staged rename failed", file.path));
                 } else {
                     report.installed.push(ModrinthInstalledFile {
-                        target: file.path.clone(), sha256, bytes: reference.file_size,
+                        target: file.path.clone(),
+                        sha256,
+                        bytes: reference.file_size,
                     });
                 }
             }
@@ -240,7 +273,9 @@ mod tests {
     use std::io::Cursor;
     #[test]
     fn blocks_unapproved_origins_and_credentials() {
-        assert!(approved_modrinth_url("https://cdn.modrinth.com/data/test/file.jar"));
+        assert!(approved_modrinth_url(
+            "https://cdn.modrinth.com/data/test/file.jar"
+        ));
         for url in [
             "http://cdn.modrinth.com/x.jar",
             "https://cdn.modrinth.com.evil.test/x.jar",
@@ -256,8 +291,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut out = File::create(temp.path().join("mod.tmp")).unwrap();
         let result = stage_copy(
-            Cursor::new(b"mod fixture"), &mut out,
-            11, &"a".repeat(128), None, &AtomicBool::new(false),
+            Cursor::new(b"mod fixture"),
+            &mut out,
+            11,
+            &"a".repeat(128),
+            None,
+            &AtomicBool::new(false),
         );
         assert!(result.is_err());
     }
@@ -267,10 +306,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut out = File::create(temp.path().join("mod.tmp")).unwrap();
         let result = stage_copy(
-            Cursor::new(bytes), &mut out, bytes.len() as u64,
-            &format!("{:x}", Sha512::digest(bytes)), None,
+            Cursor::new(bytes),
+            &mut out,
+            bytes.len() as u64,
+            &format!("{:x}", Sha512::digest(bytes)),
+            None,
             &AtomicBool::new(false),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result, format!("{:x}", Sha256::digest(bytes)));
     }
     #[test]
@@ -279,8 +322,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mut out = File::create(temp.path().join("mod.tmp")).unwrap();
         let result = stage_copy(
-            Cursor::new(bytes), &mut out, bytes.len() as u64,
-            &format!("{:x}", Sha512::digest(bytes)), None,
+            Cursor::new(bytes),
+            &mut out,
+            bytes.len() as u64,
+            &format!("{:x}", Sha512::digest(bytes)),
+            None,
             &AtomicBool::new(true),
         );
         assert_eq!(result.unwrap_err(), "cancelled");
