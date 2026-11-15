@@ -115,7 +115,10 @@ fn provider_kind(file: &PlannedFile, source: &PackSource) -> ProviderKind {
 pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String> {
     if metadata.game_version.trim().is_empty()
         || metadata.archive_sha256.len() != 64
-        || !metadata.archive_sha256.bytes().all(|c| c.is_ascii_hexdigit())
+        || !metadata
+            .archive_sha256
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit())
     {
         return Err("verified archive identity and Minecraft version required".into());
     }
@@ -136,8 +139,10 @@ pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String>
         }
         let provider = provider_kind(file, &metadata.source);
         if provider == ProviderKind::CurseForge {
-            let id = (file.project_id.ok_or("missing project ID")?,
-                file.file_id.ok_or("missing file ID")?);
+            let id = (
+                file.project_id.ok_or("missing project ID")?,
+                file.file_id.ok_or("missing file ID")?,
+            );
             if id.0 == 0 || id.1 == 0 || !projects.insert(id.0) {
                 return Err("duplicate or invalid CurseForge project/file ID".into());
             }
@@ -178,7 +183,9 @@ pub fn normalize_pack(metadata: &PackMetadata) -> Result<NormalizedPack, String>
             InstallSupport::InspectOnly
         }
         (PackSource::PrismZip, _) => {
-            reasons.push("Prism/local loader provenance and verified file resolution unavailable".into());
+            reasons.push(
+                "Prism/local loader provenance and verified file resolution unavailable".into(),
+            );
             InstallSupport::InspectOnly
         }
         (_, LoaderKind::NeoForge | LoaderKind::Quilt | LoaderKind::Unsupported) => {
@@ -212,7 +219,10 @@ mod tests {
             name: "any pack name".into(),
             source,
             game_version: "1.16.5".into(),
-            loader: Loader { kind: kind.into(), version: Some(version.into()) },
+            loader: Loader {
+                kind: kind.into(),
+                version: Some(version.into()),
+            },
             archive_sha256: "a".repeat(64),
             archive_entries: 1,
             uncompressed_bytes: 0,
@@ -233,31 +243,32 @@ mod tests {
     }
     #[test]
     fn modrinth_fabric_and_prism_are_explicit_inspect_only() {
-        let fabric = normalize_pack(&fixture(
-            PackSource::ModrinthMrpack, "fabric", "0.16.0",
-        )).unwrap();
+        let fabric =
+            normalize_pack(&fixture(PackSource::ModrinthMrpack, "fabric", "0.16.0")).unwrap();
         assert_eq!(fabric.loader, LoaderKind::Fabric);
         assert_eq!(fabric.support, InstallSupport::InspectOnly);
-        let prism = normalize_pack(&fixture(
-            PackSource::PrismZip, "forge", "47.0.0",
-        )).unwrap();
+        let prism = normalize_pack(&fixture(PackSource::PrismZip, "forge", "47.0.0")).unwrap();
         assert_eq!(prism.support, InstallSupport::InspectOnly);
     }
     #[test]
     fn unimplemented_loader_is_not_advertised() {
-        let plan = normalize_pack(&fixture(
-            PackSource::CurseforgeZip, "neoforge", "20.4.1",
-        )).unwrap();
+        let plan =
+            normalize_pack(&fixture(PackSource::CurseforgeZip, "neoforge", "20.4.1")).unwrap();
         assert_eq!(plan.support, InstallSupport::Unsupported);
     }
     #[test]
     fn windows_case_folded_duplicate_fails_before_download() {
         let mut pack = fixture(PackSource::ModrinthMrpack, "fabric", "0.16.0");
         let mut file = PlannedFile {
-            path: "mods/Example.jar".into(), provider: "modrinth".into(),
-            project_id: None, file_id: None, urls: Vec::new(),
-            sha1: Some("a".repeat(40)), sha512: None,
-            required: true, side: "both".into(),
+            path: "mods/Example.jar".into(),
+            provider: "modrinth".into(),
+            project_id: None,
+            file_id: None,
+            urls: Vec::new(),
+            sha1: Some("a".repeat(40)),
+            sha512: None,
+            required: true,
+            side: "both".into(),
         };
         pack.files.push(file.clone());
         file.path = "mods/example.jar".into();
@@ -268,10 +279,15 @@ mod tests {
     fn file_provider_is_derived_from_manifest_not_pack_name() {
         let mut pack = fixture(PackSource::ModrinthMrpack, "fabric", "0.16.0");
         pack.files.push(PlannedFile {
-            path: "mods/mod.jar".into(), provider: "modrinth".into(),
-            project_id: None, file_id: None, urls: Vec::new(),
-            sha1: None, sha512: Some("f".repeat(128)),
-            required: false, side: "client".into(),
+            path: "mods/mod.jar".into(),
+            provider: "modrinth".into(),
+            project_id: None,
+            file_id: None,
+            urls: Vec::new(),
+            sha1: None,
+            sha512: Some("f".repeat(128)),
+            required: false,
+            side: "client".into(),
         });
         let plan = normalize_pack(&pack).unwrap();
         assert_eq!(plan.files.len(), 1);
