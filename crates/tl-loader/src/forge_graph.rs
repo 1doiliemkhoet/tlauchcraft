@@ -84,16 +84,37 @@ fn validate_profile_artifact(
     artifact: &VerifiedProcessorJar,
     profile: &DataProfile,
 ) -> Result<(), PrepareFailure> {
-    if profile.libraries.is_empty() { return Ok(()); } // legacy representative fixture
-    let record = profile.libraries.iter().find(|item| item.name == coordinate)
-        .ok_or_else(|| LoaderError::InvalidMetadata(format!("processor artifact absent from official profile: {coordinate}")))?;
-    let entry = record.downloads.as_ref().and_then(|d| d.artifact.as_ref())
-        .ok_or_else(|| LoaderError::InvalidMetadata("official artifact download descriptor missing".into()))?;
+    if profile.libraries.is_empty() {
+        return Ok(());
+    } // legacy representative fixture
+    let record = profile
+        .libraries
+        .iter()
+        .find(|item| item.name == coordinate)
+        .ok_or_else(|| {
+            LoaderError::InvalidMetadata(format!(
+                "processor artifact absent from official profile: {coordinate}"
+            ))
+        })?;
+    let entry = record
+        .downloads
+        .as_ref()
+        .and_then(|d| d.artifact.as_ref())
+        .ok_or_else(|| {
+            LoaderError::InvalidMetadata("official artifact download descriptor missing".into())
+        })?;
     if entry.url.is_empty() {
-        return Err(LoaderError::InvalidMetadata("installer-generated library has no remote URL; requires verified installer evidence".into()).into());
+        return Err(LoaderError::InvalidMetadata(
+            "installer-generated library has no remote URL; requires verified installer evidence"
+                .into(),
+        )
+        .into());
     }
     if artifact.source != entry.url || !artifact.sha1.eq_ignore_ascii_case(&entry.sha1) {
-        return Err(LoaderError::InvalidMetadata(format!("artifact provenance/sha1 mismatch: {coordinate}")).into());
+        return Err(LoaderError::InvalidMetadata(format!(
+            "artifact provenance/sha1 mismatch: {coordinate}"
+        ))
+        .into());
     }
     Ok(())
 }
@@ -169,7 +190,10 @@ fn prepare_inner(
     for (index, step) in blueprint.steps.iter().enumerate() {
         for token in step_output_tokens(step)? {
             if producers.insert(token.clone(), index).is_some() {
-                return Err(LoaderError::InvalidMetadata(format!("duplicate declared producer: {token}")).into());
+                return Err(LoaderError::InvalidMetadata(format!(
+                    "duplicate declared producer: {token}"
+                ))
+                .into());
             }
         }
     }
@@ -178,7 +202,15 @@ fn prepare_inner(
     let mut produced = BTreeSet::<String>::new();
     for (index, step) in blueprint.steps.iter().enumerate() {
         let mut missing = BTreeSet::new();
-        let prepared = prepare_step(step, index, &producers, &profile, bindings, &produced, &mut missing)?;
+        let prepared = prepare_step(
+            step,
+            index,
+            &producers,
+            &profile,
+            bindings,
+            &produced,
+            &mut missing,
+        )?;
         if !missing.is_empty() {
             all_missing.extend(missing);
             continue;
@@ -206,7 +238,9 @@ fn prepare_inner(
 fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFailure> {
     let mut result = Vec::new();
     for key in step.outputs.keys() {
-        let token = key.strip_prefix('{').and_then(|x| x.strip_suffix('}'))
+        let token = key
+            .strip_prefix('{')
+            .and_then(|x| x.strip_suffix('}'))
             .ok_or_else(|| LoaderError::InvalidMetadata("declared output token invalid".into()))?;
         result.push(token.to_string());
     }
@@ -214,13 +248,22 @@ fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFail
         let flag = match step.jar.as_str() {
             "net.minecraftforge:installertools:1.2.6" => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
-            _ => return Err(LoaderError::InvalidMetadata("unapproved output-less processor".into()).into()),
+            _ => {
+                return Err(
+                    LoaderError::InvalidMetadata("unapproved output-less processor".into()).into(),
+                )
+            }
         };
-        let i = step.args.iter().position(|v| v == flag)
-            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output flag absent".into()))?;
-        let token = step.args.get(i + 1)
+        let i = step.args.iter().position(|v| v == flag).ok_or_else(|| {
+            LoaderError::InvalidMetadata("intermediate output flag absent".into())
+        })?;
+        let token = step
+            .args
+            .get(i + 1)
             .and_then(|x| x.strip_prefix('{').and_then(|x| x.strip_suffix('}')))
-            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output token malformed".into()))?;
+            .ok_or_else(|| {
+                LoaderError::InvalidMetadata("intermediate output token malformed".into())
+            })?;
         result.push(token.into());
     }
     Ok(result)
@@ -259,19 +302,33 @@ fn prepare_step(
             None => continue,
         };
         output_paths.push(path.clone());
-        outputs.push(ExpectedOutput { relative_path: path, sha1: digest });
+        outputs.push(ExpectedOutput {
+            relative_path: path,
+            sha1: digest,
+        });
     }
     let mut intermediate_outputs = Vec::new();
     if step.outputs.is_empty() {
         let output_flag = match step.jar.as_str() {
             "net.minecraftforge:installertools:1.2.6" => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
-            _ => return Err(LoaderError::InvalidMetadata("processor has no declared or approved inferred outputs".into()).into()),
+            _ => {
+                return Err(LoaderError::InvalidMetadata(
+                    "processor has no declared or approved inferred outputs".into(),
+                )
+                .into())
+            }
         };
-        let pos = step.args.iter().position(|arg| arg == output_flag)
-            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output flag missing".into()))?;
-        let raw_output = step.args.get(pos + 1)
-            .ok_or_else(|| LoaderError::InvalidMetadata("intermediate output token missing".into()))?;
+        let pos = step
+            .args
+            .iter()
+            .position(|arg| arg == output_flag)
+            .ok_or_else(|| {
+                LoaderError::InvalidMetadata("intermediate output flag missing".into())
+            })?;
+        let raw_output = step.args.get(pos + 1).ok_or_else(|| {
+            LoaderError::InvalidMetadata("intermediate output token missing".into())
+        })?;
         let path = match resolve_output_path(raw_output, profile, bindings, missing)? {
             Some(p) => p,
             None => return Ok(None),
@@ -293,9 +350,15 @@ fn prepare_step(
     // Input flags may only use already-produced staged outputs. A current-step
     // output cannot retroactively satisfy an input dependency.
     for (i, arg) in step.args.iter().enumerate() {
-        if matches!(arg.as_str(), "--input" | "--in-jar" | "--srg-in" | "--srg" | "--clean" | "--apply") {
+        if matches!(
+            arg.as_str(),
+            "--input" | "--in-jar" | "--srg-in" | "--srg" | "--clean" | "--apply"
+        ) {
             if let Some(raw_input) = step.args.get(i + 1) {
-                if let Some(token) = raw_input.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+                if let Some(token) = raw_input
+                    .strip_prefix('{')
+                    .and_then(|v| v.strip_suffix('}'))
+                {
                     if let Some(BoundValue::Staged(relative)) = bindings.data.get(token) {
                         safe_stage_relative(relative)?;
                         if !produced.contains(relative) {
@@ -304,7 +367,10 @@ fn prepare_step(
                                     missing.insert(format!("upstream-output:{token}"));
                                 }
                                 _ => {
-                                    return Err(LoaderError::InvalidMetadata(format!("processor consumes staged input before producer: {token}")).into());
+                                    return Err(LoaderError::InvalidMetadata(format!(
+                                        "processor consumes staged input before producer: {token}"
+                                    ))
+                                    .into());
                                 }
                             }
                         }
@@ -326,7 +392,9 @@ fn prepare_step(
         LoaderError::InvalidMetadata("processor executable missing after preflight".into())
     })?;
     if outputs.is_empty() && intermediate_outputs.is_empty() {
-        return Err(LoaderError::InvalidMetadata("processor output evidence missing".into()).into());
+        return Err(
+            LoaderError::InvalidMetadata("processor output evidence missing".into()).into(),
+        );
     }
     Ok(Some((
         ApprovedProcessor {

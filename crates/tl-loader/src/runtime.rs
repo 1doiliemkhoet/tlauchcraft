@@ -198,16 +198,24 @@ fn execute(
         for expected in &processor.outputs {
             let target = request.stage_root.join(&expected.relative_path);
             reject_symlink_ancestors(&target)?;
-            if !target.is_file() { return Err(LoaderError::InvalidMetadata("declared output is not a regular file".into())); }
+            if !target.is_file() {
+                return Err(LoaderError::InvalidMetadata(
+                    "declared output is not a regular file".into(),
+                ));
+            }
             verify_sha1(&target, &expected.sha1)?;
             report.verified_outputs.push(target);
         }
         for relative in &processor.intermediate_outputs {
             let target = request.stage_root.join(relative);
             reject_symlink_ancestors(&target)?;
-            let metadata = fs::metadata(&target).map_err(|e| LoaderError::InvalidMetadata(format!("intermediate output absent: {e}")))?;
+            let metadata = fs::metadata(&target).map_err(|e| {
+                LoaderError::InvalidMetadata(format!("intermediate output absent: {e}"))
+            })?;
             if !metadata.is_file() || metadata.len() == 0 {
-                return Err(LoaderError::InvalidMetadata("intermediate output is empty or not a regular file".into()));
+                return Err(LoaderError::InvalidMetadata(
+                    "intermediate output is empty or not a regular file".into(),
+                ));
             }
             // An observed SHA-1 is *not* an official expected checksum.
             let observed_sha1 = hash_file(&target)?;
@@ -256,7 +264,9 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
         ),
     ];
     if !trusted.iter().any(|(prefix, main)| {
-        (processor.executable.coordinate == *prefix || (prefix.ends_with(':') && processor.executable.coordinate.starts_with(prefix))) && processor.main_class == *main
+        (processor.executable.coordinate == *prefix
+            || (prefix.ends_with(':') && processor.executable.coordinate.starts_with(prefix)))
+            && processor.main_class == *main
     }) {
         return Err(LoaderError::InvalidMetadata(
             "unapproved processor entrypoint".into(),
@@ -284,11 +294,15 @@ fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> 
         tl_core::validate_safe_relative_path(&item.relative_path)
             .map_err(|_| LoaderError::InvalidInput)?;
         valid_sha1(&item.sha1)?;
-        if !output_paths.insert(item.relative_path.as_str()) { return Err(LoaderError::InvalidInput); }
+        if !output_paths.insert(item.relative_path.as_str()) {
+            return Err(LoaderError::InvalidInput);
+        }
     }
     for relative in &processor.intermediate_outputs {
         tl_core::validate_safe_relative_path(relative).map_err(|_| LoaderError::InvalidInput)?;
-        if !output_paths.insert(relative.as_str()) { return Err(LoaderError::InvalidInput); }
+        if !output_paths.insert(relative.as_str()) {
+            return Err(LoaderError::InvalidInput);
+        }
     }
     Ok(())
 }
@@ -322,9 +336,13 @@ pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<
         .any(|base| file.source == format!("{base}/{relative}"))
     };
     if file.coordinate == "net.md-5:SpecialSource:1.8.5"
-        && !file.sha1.eq_ignore_ascii_case("c670c493c436a885c872fa4810bc698628b95922")
+        && !file
+            .sha1
+            .eq_ignore_ascii_case("c670c493c436a885c872fa4810bc698628b95922")
     {
-        return Err(LoaderError::InvalidMetadata("SpecialSource 1.8.5 SHA-1 not publisher pinned".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "SpecialSource 1.8.5 SHA-1 not publisher pinned".into(),
+        ));
     }
     if !origin_ok {
         return Err(LoaderError::InvalidMetadata(
@@ -346,12 +364,17 @@ fn valid_sha1(sha1: &str) -> Result<(), LoaderError> {
 fn hash_file(path: &Path) -> Result<String, LoaderError> {
     reject_symlink_ancestors(path)?;
     use sha1::{Digest, Sha1};
-    let mut file = File::open(path).map_err(|e| LoaderError::InvalidMetadata(format!("artifact missing: {e}")))?;
+    let mut file = File::open(path)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("artifact missing: {e}")))?;
     let mut hash = Sha1::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let n = file.read(&mut buffer).map_err(|e| LoaderError::InvalidMetadata(format!("artifact read failed: {e}")))?;
-        if n == 0 { break; }
+        let n = file
+            .read(&mut buffer)
+            .map_err(|e| LoaderError::InvalidMetadata(format!("artifact read failed: {e}")))?;
+        if n == 0 {
+            break;
+        }
         hash.update(&buffer[..n]);
     }
     Ok(format!("{:x}", hash.finalize()))

@@ -62,9 +62,18 @@ fn official_graph_exact_order_classpaths_and_outputs() {
         assert_eq!(step.classpath.len(), cp);
         assert_eq!(step.outputs.len(), hashes);
     }
-    assert_eq!(profile["data"]["MC_SLIM_SHA"]["client"], "'045d6edac8fe1b004e159c49704b5b729f551079'");
-    assert_eq!(profile["data"]["MC_EXTRA_SHA"]["client"], "'4aef4168f94d97bc73bf510213b2518942f931d1'");
-    assert_eq!(profile["data"]["PATCHED_SHA"]["client"], "'42710a50971139d0f218e438a211a0dbe9bbb3d2'");
+    assert_eq!(
+        profile["data"]["MC_SLIM_SHA"]["client"],
+        "'045d6edac8fe1b004e159c49704b5b729f551079'"
+    );
+    assert_eq!(
+        profile["data"]["MC_EXTRA_SHA"]["client"],
+        "'4aef4168f94d97bc73bf510213b2518942f931d1'"
+    );
+    assert_eq!(
+        profile["data"]["PATCHED_SHA"]["client"],
+        "'42710a50971139d0f218e438a211a0dbe9bbb3d2'"
+    );
     assert_eq!(profile["data"]["BINPATCH"]["client"], "/data/client.lzma");
     assert!(profile["data"].get("MINECRAFT_JAR").is_none());
     assert!(ver["arguments"]["game"].as_array().unwrap().len() > 4);
@@ -74,7 +83,12 @@ fn official_graph_exact_order_classpaths_and_outputs() {
 fn real_graph_with_no_verified_binaries_needs_action_not_false_ready() {
     let input = bindings();
     let result = prepare_forge_1165(PROFILE, &version(), &input);
-    assert_eq!(result.state, PrepareState::NeedsAction, "{:?}", result.error);
+    assert_eq!(
+        result.state,
+        PrepareState::NeedsAction,
+        "{:?}",
+        result.error
+    );
     assert!(result.request.is_none());
     for required in [
         "installertools:1.2.6",
@@ -85,7 +99,11 @@ fn real_graph_with_no_verified_binaries_needs_action_not_false_ready() {
         "MINECRAFT_JAR",
         "BINPATCH",
     ] {
-        assert!(result.unresolved.iter().any(|x| x.contains(required)), "missing NeedsAction for {required}: {:?}", result.unresolved);
+        assert!(
+            result.unresolved.iter().any(|x| x.contains(required)),
+            "missing NeedsAction for {required}: {:?}",
+            result.unresolved
+        );
     }
     assert!(!input.stage_root.exists());
 }
@@ -119,7 +137,10 @@ fn official_graph_rejects_invalid_declared_sha1() {
 #[test]
 fn arbitrary_binpatch_path_must_never_pass_as_a_literal() {
     let mut input = bindings();
-    input.data.insert("BINPATCH".into(), BoundValue::Literal("../../user/world.dat".into()));
+    input.data.insert(
+        "BINPATCH".into(),
+        BoundValue::Literal("../../user/world.dat".into()),
+    );
     let result = prepare_forge_1165(PROFILE, &version(), &input);
     assert_eq!(result.state, PrepareState::Failed);
 }
