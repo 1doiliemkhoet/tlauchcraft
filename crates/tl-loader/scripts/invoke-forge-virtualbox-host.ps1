@@ -97,6 +97,11 @@ try {
       @($body.checks | Where-Object { $_.state -ne 'PASS' }).Count -ne 0 -or $body.java_executed -ne $false -or $body.forge_execution_verified -ne $false) {
     Fail "Guest/host evidence rejected; result=$($body.status); guestError=$guestError. Review $out"
   }
+  $verifier=Join-Path $PSScriptRoot 'assert-forge-vbox-evidence.ps1'
+  $verified=& $verifier -HostBefore $hostPath -GuestEvidence $guestReport -HostAfter (Join-Path $out 'host-after.json') | ConvertFrom-Json
+  if ($verified.status -ne 'HOST_AND_VM_PREFLIGHT_VERIFIED_NO_JAVA' -or $verified.checks_passed -ne 13) {
+    Fail 'Host/guest independent verdict gate was not satisfied'
+  }
   Write-Output "VBOX_HOST_AND_GUEST_PREFLIGHT_PASS_NO_JAVA: $out"
 } finally {
   if ($plain -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($plain) }
