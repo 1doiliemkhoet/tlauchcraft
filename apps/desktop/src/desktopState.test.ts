@@ -46,7 +46,15 @@ describe('Play readiness after restart and preflight',()=>{
     expect(canPlayInstance({...instance,state:'downloading'},instance.profile_id,ready,status)).toBe(false);
     expect(canPlayInstance(instance,'other-profile',ready,status)).toBe(false);
     expect(canPlayInstance(instance,instance.profile_id,{...ready,instance_id:'other'},status)).toBe(false);
-    expect(canPlayInstance({...instance,loader:{kind:'forge',version:'1'}},instance.profile_id,ready,status)).toBe(false);
+    // Forge is accepted only after backend preflight; this unit test never
+    // asserts that a Forge runtime or gameplay was actually verified.
+    const forge={...instance,minecraft_version:'1.16.5',
+      loader:{kind:'forge' as const,version:'36.2.34'}};
+    expect(canPlayInstance(forge,instance.profile_id,null,status)).toBe(false);
+    expect(canPlayInstance({...forge,state:'verifying'},instance.profile_id,ready,status)).toBe(false);
+    expect(canPlayInstance(forge,instance.profile_id,ready,status)).toBe(true);
+    expect(canPlayInstance(forge,instance.profile_id,ready,{...status,
+      pid:1234,process_state:'running'})).toBe(false);
   });
   it('accepts a rehydrated READY instance only after preflight; forbids duplicate Java process',()=>{
     const afterLauncherRestart=JSON.parse(JSON.stringify(instance)) as GameInstance;
