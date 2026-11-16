@@ -266,7 +266,11 @@ pub fn assemble_from_approved_execution(
     )
     .map_err(|e| format!("approved Forge execution unavailable: {e}"))?;
     crate::forge_stage::assemble_forge_stage(
-        stage, mojang_cache, evidence.mojang_parent, &runtime, cancel,
+        stage,
+        mojang_cache,
+        evidence.mojang_parent,
+        &runtime,
+        cancel,
     )
 }
 
