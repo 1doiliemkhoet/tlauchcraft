@@ -9,16 +9,16 @@ try {
   # An invalid host VBoxManage must fail BEFORE prompting guest credentials,
   # writing secrets, or touching the VM.
   $script=Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-host.ps1'
-  # VirtualBox 7.2 copyto positional operands are HOST sources only.
-  # The guest path must be passed via --target-directory, or VERR_PATH_NOT_FOUND occurs.
+  # VBox 7.2: file sources cannot be copied with the pre-existing guest
+  # directory as the CopyToGuest destination (VBOX_E_IPRT_ERROR).
+  # Each operation must supply a fresh, explicit guest *file* path.
   $hostSource=Get-Content -LiteralPath $script -Raw
-  if ($hostSource -notmatch [regex]::Escape('("--target-directory=$guest"),$file')) {
-    throw 'Guest copyto must use --target-directory rather than treating guest path as host source'
+  if ($hostSource -notmatch [regex]::Escape('$guestFile=Join-Path $guest ([IO.Path]::GetFileName($file))') -or
+      $hostSource -notmatch [regex]::Escape('("--target-directory=$guestFile"),$file')) {
+    throw 'copyto must use the new fully-qualified guest filename for each source file'
   }
-  # Regression: VBox 7.2 rejects an existing destination directory when
-  # --no-replace is combined with --target-directory in this guest copy path.
-  if ($hostSource -match [regex]::Escape("'--no-replace',(`"--target-directory=`$guest`"),`$file")) {
-    throw 'copyto must not use --no-replace on the already-created guest run directory'
+  if ($hostSource -match [regex]::Escape('("--target-directory=$guest"),$file')) {
+    throw 'copyto must never use an already-existing guest directory as the file destination'
   }
   $denied=$false
   try { & $script -Vm 'win10' -GuestUser 'vboxuser' -VBoxManage $mock -OutputDirectory (Join-Path $dir 'never-created') | Out-Null }
