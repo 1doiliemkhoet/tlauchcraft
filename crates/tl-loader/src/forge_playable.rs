@@ -198,7 +198,8 @@ pub fn verify_forge_runtime_for_pack(
         return Err(LoaderError::InvalidInput);
     }
     crate::runtime::verify_sha1(&request.java, &java_evidence.sha1)?;
-    if !request.stage_root.join(".tl-loader-stage").is_file() {
+    let marker = request.stage_root.join(".tl-loader-stage");
+    if fs::read(&marker).ok().as_deref() != Some(b"tl-loader-forge-v1") {
         return Err(LoaderError::NeedsInstallerExecution);
     }
     if execution.log_paths.len() != 8 || execution.log_paths.iter().any(|path| {
@@ -232,7 +233,7 @@ pub fn verify_forge_runtime_for_pack(
     }
     let audit = audit_official_forge_metadata(profile_json, derived)?;
     let mut libraries = Vec::new();
-    let mut seen = BTreeMap::<String, (String, u64, String)>::new();
+    let mut seen = BTreeMap::<String, (String, u64, String, SourceRequirement)>::new();
     let mut maven = BTreeMap::new();
     for item in official_maven {
         if maven.insert(item.coordinate.as_str(), item).is_some() {
@@ -250,6 +251,7 @@ pub fn verify_forge_runtime_for_pack(
             requirement.sha1.clone(),
             requirement.size_bytes,
             requirement.relative_path.clone(),
+            requirement.source.clone(),
         );
         if let Some(previous) = seen.get(&requirement.coordinate) {
             if previous != &descriptor {
