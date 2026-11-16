@@ -1,4 +1,5 @@
-//! Real Windows Vanilla install/launch bridge; never asserts Minecraft E2E from a process spawn.
+//! Windows Vanilla + independently reverified published Forge 1.16.5 launch bridge.
+//! A spawned Java process is NOT a gameplay or LAN acceptance verdict.
 use std::{
     collections::HashMap,
     fs, path::{Path, PathBuf},
@@ -32,6 +33,8 @@ pub struct StartedProcess {
     pub pid:u32,
     pub started_at:String,
     pub log_path:String,
+    pub stderr_path:String,
+    pub latest_log_path:String,
     pub termination_state:&'static str,
 }
 #[derive(Deserialize)]
@@ -53,8 +56,8 @@ fn find_instance(uuid:Uuid)->Result<GameInstance,String>{
 fn root(i:&GameInstance)->Result<PathBuf,String>{
     i.validate().map_err(|e|e.to_string())?;
     let base=default_data_dir().map_err(|e|e.to_string())?;
-    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
-        return Err("Forge/Fabric/modpack installation is not supported by the Vanilla bridge".into())
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla|LoaderKind::Forge){
+        return Err("Only Vanilla and verified published Forge 1.16.5 are supported".into())
     }
     let root=base.join(&i.root_path);
     for part in root.ancestors().take_while(|p|p.starts_with(&base)) {
@@ -119,8 +122,27 @@ pub fn instance_create_vanilla(req:NewVanillaInstance)->Result<GameInstance,Stri
     Ok(instance)
 }
 fn game_dir_for(root:&Path)->PathBuf {
-    // Do not reset or relocate saved worlds across launcher restarts and reinstalls.
+    // Vanilla's established world location remains untouched.
     root.join("game")
+}
+fn launch_game_dir(i:&GameInstance,root:&Path)->PathBuf {
+    // CurseForge staged overrides and mods/ are rooted at the Forge instance.
+    // Saves stay here across subsequent launches, not in a new temporary dir.
+    if matches!(&i.loader.kind,LoaderKind::Forge){root.to_path_buf()}
+    else{game_dir_for(root)}
+}
+fn valid_installed_version(i:&GameInstance,version:&Value)->bool {
+    match &i.loader.kind {
+        LoaderKind::Vanilla=>version["id"]==i.minecraft_version,
+        LoaderKind::Forge=>i.minecraft_version=="1.16.5"
+            && i.loader.version.as_ref().is_some_and(|v|{
+                version["id"]==format!("1.16.5-forge-{v}")
+                    && version["inheritsFrom"]=="1.16.5"
+                    && version["mainClass"]=="cpw.mods.modlauncher.Launcher"
+                    && version["javaVersion"]["majorVersion"]==8
+            }),
+        _=>false
+    }
 }
 fn count_native_dlls(natives:&Path)->Result<usize,String>{
     let mut count=0;
@@ -136,6 +158,9 @@ fn count_native_dlls(natives:&Path)->Result<usize,String>{
 }
 fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),String>{
     let i=find_instance(uuid)?;
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
+        return Err("Use the trusted Forge publication workflow, not Vanilla Install".into());
+    }
     let dir=root(&i)?;
     if cancel.load(Ordering::Relaxed){return Err("Install cancelled".into())}
     event(&app,uuid,"resolving","Resolving official Mojang Vanilla metadata");
@@ -182,6 +207,9 @@ fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),Strin
 pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String)->Result<String,String>{
     let uuid=id(&instance_id)?;
     let i=find_instance(uuid)?;
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
+        return Err("Forge/modpacks must use the verified Forge publisher".into());
+    }
     root(&i)?;
     if !matches!(&i.state,InstanceState::Empty|InstanceState::Failed|InstanceState::Cancelled|InstanceState::NeedsAction){
         return Err(format!("Cannot install instance in state {:?}",i.state))
@@ -265,6 +293,25 @@ fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
     Ok((version,natives))
 }
 
+/// Never trust an instance READY flag alone: re-hash the published Forge
+/// modpack, every official library/client/asset, overrides and natives at
+/// preflight AND immediately before launching Java.
+fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf),String>{
+    match &i.loader.kind {
+        LoaderKind::Vanilla=>installed_metadata(dir),
+        LoaderKind::Forge=>{
+            let record=tl_pack::forge_publish::reverify_published_forge(dir)?;
+            if i.minecraft_version!=record.minecraft_version
+                || i.loader.version.as_deref()!=Some(record.forge_version.as_str()){
+                return Err("Published Forge version does not match SQLite instance".into())
+            }
+            let natives=dir.join(&record.natives_relative_path);
+            Ok((record.version,natives))
+        },
+        _=>Err("Unsupported loader for Desktop Play".into())
+    }
+}
+
 #[derive(Serialize)]
 pub struct LaunchPreflight {
     pub instance_id:String,
@@ -284,7 +331,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     let profile_uuid=id(&profile_id)?;
     let i=find_instance(uuid)?;
     if !matches!(&i.state,InstanceState::Ready){
-        return Err("Vanilla files must be installed and READY".into())
+        return Err("Instance must be verified and READY".into())
     }
     let profile=db()?.get_profile(profile_uuid).map_err(|e|e.to_string())?
         .ok_or("Offline profile not in SQLite")?;
@@ -294,8 +341,8 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     };
     tl_game::foundation::validate_launch_context(&i,&profile,&req).map_err(|e|e.to_string())?;
     let dir=root(&i)?;
-    let (version,natives)=installed_metadata(&dir)?;
-    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
+    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    if !valid_installed_version(&i,&version){
         return Err("Installed version metadata mismatch".into())
     }
     let prefs=java_settings::read(&instance_id)?;
@@ -305,7 +352,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
         .map_err(|e|e.to_string())?;
     let paths=tl_game::vanilla::VanillaPaths{
-        root:dir.clone(),game_dir:game_dir_for(&dir),natives_dir:natives,
+        root:dir.clone(),game_dir:launch_game_dir(&i,&dir),natives_dir:natives,
         java:java_settings::java_executable(&prefs)
     };
     let _command=tl_game::vanilla::build_vanilla_launch(&version,&paths,&identity,prefs.xms_mb,prefs.xmx_mb)
@@ -324,7 +371,9 @@ pub async fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl
 }
 fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
     let i=find_instance(request.instance_id)?;
-    if !matches!(&i.state,InstanceState::Ready){return Err("Instance not READY; complete verified Vanilla install".into())}
+    if !matches!(&i.state,InstanceState::Ready){
+        return Err("Instance not READY; complete verified publication".into())
+    }
     let profile:OfflineProfile=db()?.get_profile(request.profile_id).map_err(|e|e.to_string())?
         .ok_or("Persisted profile missing")?;
     tl_game::foundation::validate_launch_context(&i,&profile,&request).map_err(|e|e.to_string())?;
@@ -343,13 +392,13 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
     if request.extra_jvm_args.as_ref().is_some_and(|extra|!extra.is_empty()){
        return Err("Custom JVM args are not permitted by the Desktop bridge".into())
     }
-    let (version,natives)=installed_metadata(&dir)?;
-    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
+    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    if !valid_installed_version(&i,&version){
         return Err("Installed version does not match instance".into())
     }
     let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
         .map_err(|e|e.to_string())?;
-    let paths=tl_game::vanilla::VanillaPaths{root:dir.clone(),game_dir:game_dir_for(&dir),natives_dir:natives,java:java_settings::java_executable(&prefs)};
+    let paths=tl_game::vanilla::VanillaPaths{root:dir.clone(),game_dir:launch_game_dir(&i,&dir),natives_dir:natives,java:java_settings::java_executable(&prefs)};
     let launch=tl_game::vanilla::build_vanilla_launch(&version,&paths,&identity,selected_xms,selected_xmx)
         .map_err(|e|e.to_string())?;
     let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
@@ -374,7 +423,10 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
         "details":{"pid":pid},"percent":null
     }));
     Ok(StartedProcess{pid,started_at:chrono::Utc::now().to_rfc3339(),
-        log_path:stdout.to_string_lossy().into_owned(),termination_state:"running"})
+        log_path:stdout.to_string_lossy().into_owned(),
+        stderr_path:stderr.to_string_lossy().into_owned(),
+        latest_log_path:launch_game_dir(&i,&dir).join("logs").join("latest.log").to_string_lossy().into_owned(),
+        termination_state:"running"})
 }
 #[tauri::command]
 pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),String>{
