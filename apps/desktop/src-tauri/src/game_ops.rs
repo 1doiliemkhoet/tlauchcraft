@@ -326,7 +326,10 @@ fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf),
     match &i.loader.kind {
         LoaderKind::Vanilla=>installed_metadata(dir),
         LoaderKind::Forge=>{
-            let record=tl_pack::forge_publish::reverify_published_forge(dir)?;
+            let trusted = db()?.get_forge_receipt_anchor(i.id)
+                .map_err(|e|e.to_string())?
+                .ok_or("Trusted Forge receipt digest missing from SQLite")?;
+            let record=tl_pack::forge_publish::reverify_published_forge(dir,&trusted)?;
             if i.minecraft_version!=record.minecraft_version
                 || i.loader.version.as_deref()!=Some(record.forge_version.as_str()){
                 return Err("Published Forge version does not match SQLite instance".into())
@@ -531,12 +534,16 @@ pub(crate) fn finalize_approved_forge_instance(
     let mut store=db()?;
     store.create_instance(&instance).map_err(|e|e.to_string())?;
     let _written=tl_pack::forge_publish::publish_forge_from_execution(
-        pack_stage,&target,source_archive,&metadata,resolved,approved
+        pack_stage,&target,source_archive,&metadata,resolved,approved,
+        |sha256| store.insert_forge_receipt_anchor(instance.id,sha256)
+            .map_err(|e|format!("Cannot persist trusted Forge receipt anchor: {e}"))
     )?;
     if cancelled.load(Ordering::Relaxed){
         return Err("cancelled after atomic publication; VERIFYING intent retained".into())
     }
-    let record=tl_pack::forge_publish::reverify_published_forge(&target)?;
+    let trusted=store.get_forge_receipt_anchor(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Trusted Forge receipt digest missing after publication")?;
+    let record=tl_pack::forge_publish::reverify_published_forge(&target,&trusted)?;
     if record.minecraft_version!=instance.minecraft_version
         || instance.loader.version.as_deref()!=Some(record.forge_version.as_str())
         || !valid_installed_version(&instance,&record.version){
@@ -565,7 +572,9 @@ pub(crate) fn reconcile_published_forge(instance:&GameInstance)->Result<bool,Str
     if !target.is_dir(){
         return Ok(false)
     }
-    let verified=tl_pack::forge_publish::reverify_published_forge(&target)?;
+    let trusted=db()?.get_forge_receipt_anchor(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Crash recovery denied: trusted Forge receipt anchor missing")?;
+    let verified=tl_pack::forge_publish::reverify_published_forge(&target,&trusted)?;
     if verified.minecraft_version!=instance.minecraft_version
         || instance.loader.version.as_deref()!=Some(verified.forge_version.as_str())
         || !valid_installed_version(instance,&verified.version){

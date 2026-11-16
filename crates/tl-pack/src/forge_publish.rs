@@ -327,6 +327,7 @@ pub fn publish_forge_from_execution(
     pack: &PackMetadata,
     resolved: &CurseForgeResolveReport,
     evidence: ApprovedForgePublishInputs<'_>,
+    anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<ForgeInstallRecord, String> {
     if pack.source != PackSource::CurseforgeZip || !stage.is_absolute() {
         return Err("Forge requires an original CurseForge archive and private stage".into());
@@ -443,6 +444,10 @@ pub fn publish_forge_from_execution(
     // Windows rename cannot reliably move a directory with an open receipt
     // handle. The durable file must be flushed AND closed before MoveFileW.
     drop(out);
+    // Persist the immutable trusted digest BEFORE exposing the final directory.
+    // Crash recovery must never derive trust from the user-writable JSON itself.
+    let receipt_digest = format!("{:x}", Sha256::digest(&bytes));
+    anchor_verified_receipt(&receipt_digest)?;
     publish_verified(
         stage,
         destination,
@@ -486,9 +491,63 @@ fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String>
     Ok(())
 }
 
+
+fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Result<(), String> {
+    let mods_dir = root.join("mods");
+    reject_symlinks(&mods_dir)?;
+    let mut expected = std::collections::HashSet::new();
+    for item in mods {
+        let relative = crate::safe_path(&item.relative_path).map_err(|e| e.to_string())?;
+        if relative.parent() != Some(Path::new("mods")) {
+            return Err("Forge mod receipt targets a non-mod directory".into());
+        }
+        let filename = relative
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or("invalid Forge mod filename")?
+            .to_ascii_lowercase();
+        if !filename.ends_with(".jar") || !expected.insert(filename) {
+            return Err("invalid or duplicate Forge mod inventory entry".into());
+        }
+    }
+    if expected.is_empty() {
+        return Err("Forge mod inventory empty".into());
+    }
+    let mut observed = std::collections::HashSet::new();
+    for entry in fs::read_dir(&mods_dir).map_err(|_| "Forge mods directory missing")? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+            return Err("Forge mods directory contains a symlink or non-file".into());
+        }
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "invalid Unicode in Forge mod filename")?
+            .to_ascii_lowercase();
+        if !expected.contains(&name) || !observed.insert(name) {
+            return Err("unexpected or case-duplicate Forge mod in published instance".into());
+        }
+    }
+    if observed != expected {
+        return Err("missing Forge mod from published inventory".into());
+    }
+    Ok(())
+}
+
+fn verify_receipt_anchor(bytes: &[u8], trusted_sha256: &str) -> Result<(), String> {
+    if trusted_sha256.len() != 64 || !trusted_sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err("missing trusted Forge receipt digest".into());
+    }
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if !actual.eq_ignore_ascii_case(trusted_sha256) {
+        return Err("Forge receipt changed since trusted SQLite VERIFYING intent".into());
+    }
+    Ok(())
+}
+
 /// Disk read is not enough to issue a publish permit. Used only at Play time,
 /// after the corresponding persisted SQLite instance is already READY.
-pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, String> {
+pub fn reverify_published_forge(root: &Path, trusted_sha256: &str) -> Result<ForgeInstallRecord, String> {
     if !root.is_absolute() {
         return Err("published Forge path must be absolute".into());
     }
@@ -501,9 +560,9 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
     {
         return Err("Forge install record oversized".into());
     }
-    let record: ForgeInstallRecord =
-        serde_json::from_slice(&fs::read(&marker).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+    let bytes = fs::read(&marker).map_err(|e| e.to_string())?;
+    verify_receipt_anchor(&bytes, trusted_sha256)?;
+    let record: ForgeInstallRecord = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     if record.schema != "tl-forge-published/v1"
         || record.minecraft_version.is_empty()
         || record.forge_version.is_empty()
@@ -533,6 +592,7 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
             None,
         )?;
     }
+    verify_exact_mod_inventory(root, &record.installed_mods)?;
     for file in &record.installed_mods {
         check_file(
             root,
@@ -589,7 +649,7 @@ mod tests {
     #[test]
     fn absent_publish_marker_fails_closed() {
         let temp = tempfile::tempdir().unwrap();
-        assert!(reverify_published_forge(temp.path()).is_err());
+        assert!(reverify_published_forge(temp.path(), &"0".repeat(64)).is_err());
     }
 
     #[test]
@@ -600,7 +660,7 @@ mod tests {
             r#"{"schema":"tl-forge-published/v1","state":"READY"}"#,
         )
         .unwrap();
-        assert!(reverify_published_forge(temp.path()).is_err());
+        assert!(reverify_published_forge(temp.path(), &"0".repeat(64)).is_err());
     }
 
     #[test]
@@ -613,4 +673,41 @@ mod tests {
         assert!(check_file(temp.path(), "mod.jar", 8, None, Some(&expected)).is_err());
         assert!(check_file(temp.path(), "../escape", 8, None, Some(&expected)).is_err());
     }
+
+    #[test]
+    fn forge_mod_inventory_rejects_extra_missing_and_case_duplicates() {
+        let temp = tempfile::tempdir().unwrap();
+        let mods_dir = temp.path().join("mods");
+        fs::create_dir(&mods_dir).unwrap();
+        fs::write(mods_dir.join("Main.jar"), b"main").unwrap();
+        let original = VerifiedModReceipt {
+            project_id: 1,
+            file_id: 2,
+            required: true,
+            relative_path: "mods/Main.jar".into(),
+            bytes: 4,
+            upstream_sha1: "a".repeat(40),
+            observed_sha256: "b".repeat(64),
+        };
+        assert!(verify_exact_mod_inventory(temp.path(), &[original.clone()]).is_ok());
+        fs::write(mods_dir.join("extra.jar"), b"unknown").unwrap();
+        assert!(verify_exact_mod_inventory(temp.path(), &[original.clone()]).is_err());
+        fs::remove_file(mods_dir.join("extra.jar")).unwrap();
+        let mut case_duplicate = original.clone();
+        case_duplicate.relative_path = "mods/main.JAR".into();
+        assert!(verify_exact_mod_inventory(temp.path(), &[original.clone(), case_duplicate]).is_err());
+        fs::remove_file(mods_dir.join("Main.jar")).unwrap();
+        assert!(verify_exact_mod_inventory(temp.path(), &[original]).is_err());
+    }
+
+    #[test]
+    fn forge_receipt_digest_rejects_self_consistent_mutable_json_changes() {
+        let trusted = br#"{"mainClass":"trusted","hash":"abcd"}"#;
+        let digest = format!("{:x}", Sha256::digest(trusted));
+        assert!(verify_receipt_anchor(trusted, &digest).is_ok());
+        let forged = br#"{"mainClass":"evil","hash":"changed"}"#;
+        assert!(verify_receipt_anchor(forged, &digest).is_err());
+        assert!(verify_receipt_anchor(trusted, "").is_err());
+    }
+
 }

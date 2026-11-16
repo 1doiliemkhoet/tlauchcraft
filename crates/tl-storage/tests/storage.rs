@@ -25,7 +25,7 @@ fn profile_and_instance_persist_after_restart() {
     let store = SqliteStore::open(dir.path()).unwrap();
     assert_eq!(store.get_profile(profile.id).unwrap(), Some(profile));
     assert_eq!(store.get_instance(instance.id).unwrap(), Some(instance));
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), 3);
 }
 #[test]
 fn username_unique_case_insensitive_and_reference_restricted() {
@@ -171,7 +171,7 @@ fn migrated_v1_profiles_and_instances_retain_data() {
         .unwrap();
     }
     let store = SqliteStore::open(root.path()).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), 3);
     assert_eq!(store.get_profile_versioned(p.id).unwrap().unwrap().value, p);
     assert_eq!(
         store.get_instance_versioned(i.id).unwrap().unwrap().value,
@@ -283,5 +283,51 @@ fn deleting_instance_metadata_preserves_world_directory() {
     assert_eq!(
         std::fs::read(save.join("level.dat")).unwrap(),
         b"world-fixture-preserve"
+    );
+}
+
+#[test]
+fn forge_receipt_anchor_is_immutable_and_requires_verifying_intent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = SqliteStore::open(dir.path()).unwrap();
+    let profile = OfflineProfile::new("AnchorUser").unwrap();
+    store.create_profile(&profile).unwrap();
+    let mut forge = GameInstance::new(
+        "Forge",
+        "1.16.5",
+        LoaderSpec {
+            kind: LoaderKind::Forge,
+            version: Some("36.2.34".into()),
+        },
+        profile.id,
+    )
+    .unwrap();
+    store.create_instance(&forge).unwrap();
+    let sha = "a".repeat(64);
+    assert_eq!(
+        store.insert_forge_receipt_anchor(forge.id, &sha),
+        Err(CoreError::CompatibilityConflict)
+    );
+    forge.state = InstanceState::Verifying;
+    store.update_instance(&forge).unwrap();
+    assert_eq!(
+        store.insert_forge_receipt_anchor(forge.id, "not-a-digest"),
+        Err(CoreError::InvalidInput)
+    );
+    store.insert_forge_receipt_anchor(forge.id, &sha).unwrap();
+    assert_eq!(
+        store.get_forge_receipt_anchor(forge.id).unwrap(),
+        Some(sha)
+    );
+    assert_eq!(
+        store.insert_forge_receipt_anchor(forge.id, &"b".repeat(64)),
+        Err(CoreError::AlreadyExists)
+    );
+    let mut forged = store.get_instance(forge.id).unwrap().unwrap();
+    forged.state = InstanceState::Ready;
+    store.update_instance(&forged).unwrap();
+    assert_eq!(
+        store.insert_forge_receipt_anchor(forge.id, &"c".repeat(64)),
+        Err(CoreError::CompatibilityConflict)
     );
 }
