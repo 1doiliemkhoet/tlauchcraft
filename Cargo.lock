@@ -1335,6 +1335,8 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+ "tl-game",
+ "tl-loader",
  "zip",
 ]
 

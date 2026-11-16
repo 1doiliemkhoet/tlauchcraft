@@ -1,13 +1,84 @@
 //! Atomic publication boundary, intentionally inaccessible to the UI.
-//! A publish permit may only be produced by a trusted, fully verified loader
-//! integration. Chat 3's runtime adapter has not merged, so no production
-//! permit constructor exists and READY cannot be granted from user input.
+//! A permit is minted only after the in-process Forge runtime verifier and
+//! complete on-disk pack/asset audit succeed. UI JSON is never a permit.
 use std::{fs, path::Path};
 
 /// Not serializable and not constructible outside tl-pack.
 #[derive(Debug)]
 pub struct VerifiedPublishPermit {
     _sealed: (),
+}
+
+impl VerifiedPublishPermit {
+    /// Restricted to the internal, fail-closed Forge publication bridge.
+    /// This does not deserialize an attestation or accept UI-supplied flags.
+    pub(crate) fn after_verified_forge_publish_audit() -> Self {
+        Self { _sealed: () }
+    }
+}
+
+/// Native no-replace move. std::fs::rename may replace an existing
+/// destination on Unix, even if a preflight existence check passed.
+#[cfg(windows)]
+fn atomic_create_new_move(stage: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
+    }
+    let from: Vec<u16> = stage.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    if unsafe { MoveFileW(from.as_ptr(), to.as_ptr()) } == 0 {
+        return Err(format!(
+            "atomic create-new instance move failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn atomic_create_new_move(stage: &Path, destination: &Path) -> Result<(), String> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    extern "C" {
+        fn renameat2(
+            old_dir: i32,
+            old_path: *const i8,
+            new_dir: i32,
+            new_path: *const i8,
+            flags: u32,
+        ) -> i32;
+    }
+    const AT_FDCWD: i32 = -100;
+    const RENAME_NOREPLACE: u32 = 1;
+    let from = CString::new(stage.as_os_str().as_bytes()).map_err(|_| "invalid stage path")?;
+    let to =
+        CString::new(destination.as_os_str().as_bytes()).map_err(|_| "invalid destination path")?;
+    if unsafe {
+        renameat2(
+            AT_FDCWD,
+            from.as_ptr(),
+            AT_FDCWD,
+            to.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    } != 0
+    {
+        return Err(format!(
+            "atomic create-new instance move failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn atomic_create_new_move(_stage: &Path, _destination: &Path) -> Result<(), String> {
+    Err("atomic no-replace publish is unsupported on this platform".into())
 }
 
 /// Publish an *already verified* private staging directory as a new instance.
@@ -56,10 +127,7 @@ pub fn publish_verified(
     if fs::symlink_metadata(destination).is_ok() {
         return Err("existing target instance must not be replaced".into());
     }
-    // Must never be called until the Forge/Fabric/NeoForge adapter produces
-    // an independently verified, in-process permit, and the final manifest
-    // was fully hashed and checked. No publicly callable minting function.
-    fs::rename(stage, destination).map_err(|_| "atomic instance rename failed".into())
+    atomic_create_new_move(stage, destination)
 }
 
 #[cfg(test)]

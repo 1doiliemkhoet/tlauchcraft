@@ -1,4 +1,5 @@
-//! Real Windows Vanilla install/launch bridge; never asserts Minecraft E2E from a process spawn.
+//! Windows Vanilla + independently reverified published Forge 1.16.5 launch bridge.
+//! A spawned Java process is NOT a gameplay or LAN acceptance verdict.
 use std::{
     collections::HashMap,
     fs, path::{Path, PathBuf},
@@ -32,6 +33,8 @@ pub struct StartedProcess {
     pub pid:u32,
     pub started_at:String,
     pub log_path:String,
+    pub stderr_path:String,
+    pub latest_log_path:String,
     pub termination_state:&'static str,
 }
 #[derive(Deserialize)]
@@ -53,8 +56,8 @@ fn find_instance(uuid:Uuid)->Result<GameInstance,String>{
 fn root(i:&GameInstance)->Result<PathBuf,String>{
     i.validate().map_err(|e|e.to_string())?;
     let base=default_data_dir().map_err(|e|e.to_string())?;
-    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
-        return Err("Forge/Fabric/modpack installation is not supported by the Vanilla bridge".into())
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla|LoaderKind::Forge){
+        return Err("Only Vanilla and independently verified published Forge are supported".into())
     }
     let root=base.join(&i.root_path);
     for part in root.ancestors().take_while(|p|p.starts_with(&base)) {
@@ -119,8 +122,43 @@ pub fn instance_create_vanilla(req:NewVanillaInstance)->Result<GameInstance,Stri
     Ok(instance)
 }
 fn game_dir_for(root:&Path)->PathBuf {
-    // Do not reset or relocate saved worlds across launcher restarts and reinstalls.
+    // Vanilla's established world location remains untouched.
     root.join("game")
+}
+fn launch_game_dir(i:&GameInstance,root:&Path)->PathBuf {
+    // CurseForge staged overrides and mods/ are rooted at the Forge instance.
+    // Saves stay here across subsequent launches, not in a new temporary dir.
+    if matches!(&i.loader.kind,LoaderKind::Forge){root.to_path_buf()}
+    else{game_dir_for(root)}
+}
+fn valid_installed_version(i:&GameInstance,version:&Value)->bool {
+    match &i.loader.kind {
+        LoaderKind::Vanilla=>version["id"]==i.minecraft_version,
+        LoaderKind::Forge=>i.loader.version.as_ref().is_some_and(|v|{
+                // The loader's audited receipt gates supported Minecraft/Forge
+                // families. Desktop only checks the persisted exact selection.
+                version["id"]==format!("{}-forge-{v}",i.minecraft_version)
+                    && version["inheritsFrom"]==i.minecraft_version
+                    && version["mainClass"].as_str().is_some_and(|s| !s.is_empty())
+                    && tl_game::required_java(version).is_ok_and(|major| (8..=25).contains(&major))
+            }),
+        _=>false
+    }
+}
+/// Vanilla preserves its original strict foundation gate. Forge opts into a
+/// separate identity contract and can only launch after installed receipt
+/// verification in installed_launch_metadata. No version fixture is assumed.
+fn validate_game_identity_binding(
+    instance:&GameInstance,
+    profile:&OfflineProfile,
+    request:&tl_core::LaunchRequest,
+)->Result<(),String>{
+    let outcome=match &instance.loader.kind{
+        LoaderKind::Vanilla=>tl_game::foundation::validate_launch_context(instance,profile,request),
+        LoaderKind::Forge=>tl_game::foundation::validate_forge_launch_context(instance,profile,request),
+        _=>return Err("Unsupported game loader".into())
+    };
+    outcome.map_err(|e|e.to_string())
 }
 fn count_native_dlls(natives:&Path)->Result<usize,String>{
     let mut count=0;
@@ -136,6 +174,9 @@ fn count_native_dlls(natives:&Path)->Result<usize,String>{
 }
 fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),String>{
     let i=find_instance(uuid)?;
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
+        return Err("Use the trusted Forge publication workflow, not Vanilla Install".into());
+    }
     let dir=root(&i)?;
     if cancel.load(Ordering::Relaxed){return Err("Install cancelled".into())}
     event(&app,uuid,"resolving","Resolving official Mojang Vanilla metadata");
@@ -182,6 +223,9 @@ fn install_work(app:AppHandle,uuid:Uuid,cancel:Arc<AtomicBool>)->Result<(),Strin
 pub fn game_install(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String)->Result<String,String>{
     let uuid=id(&instance_id)?;
     let i=find_instance(uuid)?;
+    if !matches!(&i.loader.kind,LoaderKind::Vanilla){
+        return Err("Forge/modpacks must use the verified Forge publisher".into());
+    }
     root(&i)?;
     if !matches!(&i.state,InstanceState::Empty|InstanceState::Failed|InstanceState::Cancelled|InstanceState::NeedsAction){
         return Err(format!("Cannot install instance in state {:?}",i.state))
@@ -222,7 +266,17 @@ pub fn game_status(state:State<'_,Arc<GameState>>,instance_id:String)->Result<Ga
     let uuid=id(&instance_id)?;
     let mut i=find_instance(uuid)?;
     let installing=state.installs.lock().map_err(|_|"Install lock poisoned")?.contains_key(&uuid);
-    if !installing && matches!(&i.state,InstanceState::Planned|InstanceState::Downloading|InstanceState::Verifying) {
+    // Forge crash recovery is distinct from Vanilla's interrupted install worker:
+    // never downgrade an atomic-published VERIFYING intent before rehashing.
+    if !installing && i.loader.kind==LoaderKind::Forge && i.state==InstanceState::Verifying {
+        match reconcile_published_forge(&i) {
+            Ok(true)=>{clear_error(uuid);i=find_instance(uuid)?;},
+            Ok(false)=>{},
+            Err(err)=>save_error(uuid,&format!("Forge publish recovery blocked: {err}"))
+        }
+    }
+    if !installing && matches!(&i.state,InstanceState::Planned|InstanceState::Downloading|InstanceState::Verifying)
+        && !(i.loader.kind==LoaderKind::Forge && i.state==InstanceState::Verifying) {
         let reason="Install worker was interrupted by a launcher restart; retry install to resume verification";
         save_error(uuid,reason);
         update_state(uuid,InstanceState::Failed)?;
@@ -265,6 +319,28 @@ fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
     Ok((version,natives))
 }
 
+/// Never trust an instance READY flag alone: re-hash the published Forge
+/// modpack, every official library/client/asset, overrides and natives at
+/// preflight AND immediately before launching Java.
+fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf),String>{
+    match &i.loader.kind {
+        LoaderKind::Vanilla=>installed_metadata(dir),
+        LoaderKind::Forge=>{
+            let trusted = db()?.get_forge_receipt_anchor(i.id)
+                .map_err(|e|e.to_string())?
+                .ok_or("Trusted Forge receipt digest missing from SQLite")?;
+            let record=tl_pack::forge_publish::reverify_published_forge(dir,&trusted)?;
+            if i.minecraft_version!=record.minecraft_version
+                || i.loader.version.as_deref()!=Some(record.forge_version.as_str()){
+                return Err("Published Forge version does not match SQLite instance".into())
+            }
+            let natives=dir.join(&record.natives_relative_path);
+            Ok((record.version,natives))
+        },
+        _=>Err("Unsupported loader for Desktop Play".into())
+    }
+}
+
 #[derive(Serialize)]
 pub struct LaunchPreflight {
     pub instance_id:String,
@@ -284,7 +360,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     let profile_uuid=id(&profile_id)?;
     let i=find_instance(uuid)?;
     if !matches!(&i.state,InstanceState::Ready){
-        return Err("Vanilla files must be installed and READY".into())
+        return Err("Instance must be verified and READY".into())
     }
     let profile=db()?.get_profile(profile_uuid).map_err(|e|e.to_string())?
         .ok_or("Offline profile not in SQLite")?;
@@ -292,10 +368,10 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
         instance_id:uuid,profile_id:profile_uuid,java_path:None,
         min_ram_mb:None,max_ram_mb:None,extra_jvm_args:None
     };
-    tl_game::foundation::validate_launch_context(&i,&profile,&req).map_err(|e|e.to_string())?;
+    validate_game_identity_binding(&i,&profile,&req)?;
     let dir=root(&i)?;
-    let (version,natives)=installed_metadata(&dir)?;
-    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
+    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    if !valid_installed_version(&i,&version){
         return Err("Installed version metadata mismatch".into())
     }
     let prefs=java_settings::read(&instance_id)?;
@@ -305,7 +381,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
         .map_err(|e|e.to_string())?;
     let paths=tl_game::vanilla::VanillaPaths{
-        root:dir.clone(),game_dir:game_dir_for(&dir),natives_dir:natives,
+        root:dir.clone(),game_dir:launch_game_dir(&i,&dir),natives_dir:natives,
         java:java_settings::java_executable(&prefs)
     };
     let _command=tl_game::vanilla::build_vanilla_launch(&version,&paths,&identity,prefs.xms_mb,prefs.xmx_mb)
@@ -324,10 +400,12 @@ pub async fn game_launch(app:AppHandle,state:State<'_,Arc<GameState>>,request:tl
 }
 fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest)->Result<StartedProcess,String>{
     let i=find_instance(request.instance_id)?;
-    if !matches!(&i.state,InstanceState::Ready){return Err("Instance not READY; complete verified Vanilla install".into())}
+    if !matches!(&i.state,InstanceState::Ready){
+        return Err("Instance not READY; complete verified publication".into())
+    }
     let profile:OfflineProfile=db()?.get_profile(request.profile_id).map_err(|e|e.to_string())?
         .ok_or("Persisted profile missing")?;
-    tl_game::foundation::validate_launch_context(&i,&profile,&request).map_err(|e|e.to_string())?;
+    validate_game_identity_binding(&i,&profile,&request)?;
     let dir=root(&i)?;
     let prefs=java_settings::read(&i.id.to_string())?;
     if request.min_ram_mb.is_some_and(|v|v!=prefs.xms_mb) || request.max_ram_mb.is_some_and(|v|v!=prefs.xmx_mb) {
@@ -343,13 +421,13 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
     if request.extra_jvm_args.as_ref().is_some_and(|extra|!extra.is_empty()){
        return Err("Custom JVM args are not permitted by the Desktop bridge".into())
     }
-    let (version,natives)=installed_metadata(&dir)?;
-    if version.get("id").and_then(Value::as_str)!=Some(i.minecraft_version.as_str()){
+    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    if !valid_installed_version(&i,&version){
         return Err("Installed version does not match instance".into())
     }
     let identity=tl_game::vanilla::VanillaIdentity::from_offline_profile(&profile)
         .map_err(|e|e.to_string())?;
-    let paths=tl_game::vanilla::VanillaPaths{root:dir.clone(),game_dir:game_dir_for(&dir),natives_dir:natives,java:java_settings::java_executable(&prefs)};
+    let paths=tl_game::vanilla::VanillaPaths{root:dir.clone(),game_dir:launch_game_dir(&i,&dir),natives_dir:natives,java:java_settings::java_executable(&prefs)};
     let launch=tl_game::vanilla::build_vanilla_launch(&version,&paths,&identity,selected_xms,selected_xmx)
         .map_err(|e|e.to_string())?;
     let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
@@ -374,7 +452,10 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
         "details":{"pid":pid},"percent":null
     }));
     Ok(StartedProcess{pid,started_at:chrono::Utc::now().to_rfc3339(),
-        log_path:stdout.to_string_lossy().into_owned(),termination_state:"running"})
+        log_path:stdout.to_string_lossy().into_owned(),
+        stderr_path:stderr.to_string_lossy().into_owned(),
+        latest_log_path:launch_game_dir(&i,&dir).join("logs").join("latest.log").to_string_lossy().into_owned(),
+        termination_state:"running"})
 }
 #[tauri::command]
 pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String)->Result<(),String>{
@@ -392,6 +473,123 @@ pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String
       "details":{},"percent":null
     }));
     Ok(())
+}
+
+/// Commit one NEW Forge instance after an opaque Control-approved processor
+/// execution. This is deliberately an internal native handoff, NOT a Tauri
+/// command accepting frontend JSON/report flags. The external isolated runner
+/// is not yet wired on Windows, so there is no public way to forge READY.
+///
+/// A durable SQLite VERIFYING intent precedes atomic create-new publication.
+/// If interrupted after rename, reconciliation can finish READY only after
+/// rehashing all published artifacts and matching the persisted selection.
+#[allow(dead_code)] // called by the future Control-approved isolated runner
+pub(crate) fn finalize_approved_forge_instance(
+    display_name:String,
+    profile_id:Uuid,
+    source_archive:&Path,
+    pack_stage:&Path,
+    resolved:&tl_pack::curseforge::CurseForgeResolveReport,
+    approved:tl_pack::forge_publish::ApprovedForgePublishInputs<'_>,
+    cancelled:&AtomicBool,
+)->Result<GameInstance,String>{
+    let metadata=tl_pack::inspect_archive(source_archive).map_err(|e|e.to_string())?;
+    if metadata.loader.kind!="forge" || metadata.loader.version.is_none(){
+        return Err("Forge publication requires the original selected pack manifest".into())
+    }
+    if cancelled.load(Ordering::Relaxed){
+        return Err("Forge publication cancelled before staging".into())
+    }
+    if db()?.get_profile(profile_id).map_err(|e|e.to_string())?.is_none(){
+        return Err("Persisted offline profile missing".into())
+    }
+    let forge_version=metadata.loader.version.clone().ok_or("Missing Forge version")?;
+    if metadata.game_version!=approved.selection.minecraft_version
+        || forge_version!=approved.selection.forge_version
+        || metadata.archive_sha256!=approved.selection.pack_archive_sha256{
+        return Err("Original modpack and approved Forge execution differ".into())
+    }
+    let base=default_data_dir().map_err(|e|e.to_string())?;
+    let cache=base.join("cache").join("mojang");
+    // From a protected, approved execution receipt: stage Mojang/Forge
+    // library bytes under the existing pack stage, with no redownload on
+    // valid shared cache. Publication rechecks everything independently.
+    tl_pack::forge_publish::assemble_from_approved_execution(
+        pack_stage,&cache,&approved,cancelled
+    )?;
+    if cancelled.load(Ordering::Relaxed){
+        return Err("Forge publication cancelled; private stage preserved".into())
+    }
+    let mut instance=GameInstance::new(
+        display_name,metadata.game_version.clone(),
+        LoaderSpec{kind:LoaderKind::Forge,version:Some(forge_version)},profile_id
+    ).map_err(|e|e.to_string())?;
+    instance.state=InstanceState::Verifying;
+    let target=root(&instance)?;
+    if pack_stage.parent()!=target.parent(){
+        return Err("private stage and new instance must be siblings".into())
+    }
+    // Durable planned instance exists before any atomic directory move.
+    // Never mutate an existing UUID's files, profile, or save directory.
+    let mut store=db()?;
+    store.create_instance(&instance).map_err(|e|e.to_string())?;
+    let _written=tl_pack::forge_publish::publish_forge_from_execution(
+        pack_stage,&target,source_archive,&metadata,resolved,approved,
+        |sha256| store.insert_forge_receipt_anchor(instance.id,sha256)
+            .map_err(|e|format!("Cannot persist trusted Forge receipt anchor: {e}"))
+    )?;
+    if cancelled.load(Ordering::Relaxed){
+        return Err("cancelled after atomic publication; VERIFYING intent retained".into())
+    }
+    let trusted=store.get_forge_receipt_anchor(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Trusted Forge receipt digest missing after publication")?;
+    let record=tl_pack::forge_publish::reverify_published_forge(&target,&trusted)?;
+    if record.minecraft_version!=instance.minecraft_version
+        || instance.loader.version.as_deref()!=Some(record.forge_version.as_str())
+        || !valid_installed_version(&instance,&record.version){
+        return Err("post-publish Forge record does not match SQLite intent".into())
+    }
+    let mut versioned=store.get_instance_versioned(instance.id).map_err(|e|e.to_string())?
+        .ok_or("published Forge instance disappeared from SQLite")?;
+    if versioned.value.state!=InstanceState::Verifying{
+        return Err("Forge publish state changed concurrently".into())
+    }
+    versioned.value.state=InstanceState::Ready;
+    store.update_instance_if_revision(&versioned.value,versioned.revision)
+        .map_err(|e|format!("Forge READY CAS failed; recover on next list: {e}"))?;
+    instance.state=InstanceState::Ready;
+    Ok(instance)
+}
+
+/// Reconciles only a previously persisted VERIFYING Forge intent with an
+/// existing final directory and a fully rehashed install marker. No pending
+/// record is promoted merely because a stage, frontend flag or JSON exists.
+pub(crate) fn reconcile_published_forge(instance:&GameInstance)->Result<bool,String>{
+    if instance.loader.kind!=LoaderKind::Forge || instance.state!=InstanceState::Verifying{
+        return Ok(false)
+    }
+    let target=root(instance)?;
+    if !target.is_dir(){
+        return Ok(false)
+    }
+    let trusted=db()?.get_forge_receipt_anchor(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Crash recovery denied: trusted Forge receipt anchor missing")?;
+    let verified=tl_pack::forge_publish::reverify_published_forge(&target,&trusted)?;
+    if verified.minecraft_version!=instance.minecraft_version
+        || instance.loader.version.as_deref()!=Some(verified.forge_version.as_str())
+        || !valid_installed_version(instance,&verified.version){
+        return Err("incomplete or incompatible Forge commit intent".into())
+    }
+    let mut store=db()?;
+    let mut existing=store.get_instance_versioned(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Forge intent no longer present")?;
+    if existing.value.state!=InstanceState::Verifying {
+        return Ok(false)
+    }
+    existing.value.state=InstanceState::Ready;
+    store.update_instance_if_revision(&existing.value,existing.revision)
+        .map_err(|e|format!("Forge crash recovery CAS conflict: {e}"))?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -423,6 +621,46 @@ mod tests {
         let second=game_dir_for(&root).join("saves").join("OldWorld").join("level.dat");
         assert_eq!(first,second);
         assert!(!first.to_string_lossy().contains("natives-"));
+    }
+    #[test]
+    fn forge_launch_requires_exact_persisted_loader_and_merged_metadata(){
+        let profile=OfflineProfile::new("PeerOne").unwrap();
+        let forge=GameInstance::new("Pack","1.16.5",LoaderSpec{
+            kind:LoaderKind::Forge,version:Some("36.2.34".into())
+        },profile.id).unwrap();
+        let correct=json!({
+            "id":"1.16.5-forge-36.2.34",
+            "inheritsFrom":"1.16.5",
+            "mainClass":"cpw.mods.modlauncher.Launcher",
+            "javaVersion":{"majorVersion":8}
+        });
+        assert!(valid_installed_version(&forge,&correct));
+        let mut wrong=correct.clone();
+        wrong["id"]=json!("1.16.5-forge-36.2.29");
+        assert!(!valid_installed_version(&forge,&wrong));
+        wrong=correct.clone();
+        // This is a *structural* compatibility selector. Actual Forge main
+        // class and Java-major authenticity come from the trusted installed
+        // receipt, independently rehashed before Desktop Play.
+        wrong["mainClass"]=json!("");
+        assert!(!valid_installed_version(&forge,&wrong));
+        wrong=correct;
+        wrong["javaVersion"]["majorVersion"]=json!(0);
+        assert!(!valid_installed_version(&forge,&wrong));
+        assert_eq!(launch_game_dir(&forge,Path::new("C:/Pack")),PathBuf::from("C:/Pack"));
+        // No Minecraft-family hardcode in the common Desktop selector.
+        // A future audited Forge adapter can supply its own launch metadata.
+        let future=GameInstance::new("Future","1.20.1",LoaderSpec{
+            kind:LoaderKind::Forge,version:Some("47.3.0".into())
+        },Uuid::new_v4()).unwrap();
+        let future_meta=json!({
+            "id":"1.20.1-forge-47.3.0",
+            "inheritsFrom":"1.20.1",
+            "mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "javaVersion":{"majorVersion":17}
+        });
+        assert!(valid_installed_version(&future,&future_meta));
+
     }
     #[test]
     fn native_verifier_rejects_empty_folder(){

@@ -63,6 +63,23 @@ fn save_new_json(path: &Path, value: &Value) -> Result<(), GameError> {
     Ok(())
 }
 
+/// Rehash every official Minecraft/Forge planned file including asset objects.
+/// Performs no file writes and never asserts that the game actually launched.
+pub fn validate_install_files(version: &Value, root: &Path) -> Result<usize, GameError> {
+    let planned = plan_version(version, root, &Environment::current())?;
+    let index = planned
+        .iter()
+        .find(|item| item.role == crate::metadata::FileRole::AssetIndex)
+        .ok_or_else(|| GameError::InvalidInput("missing asset index".into()))?;
+    let asset_index: Value = serde_json::from_slice(&fs::read(&index.target)?)?;
+    let mut files = planned;
+    files.extend(plan_asset_objects(&asset_index, root)?);
+    for file in &files {
+        attest(file)?;
+    }
+    Ok(files.len())
+}
+
 /// Rehash every official planned client/library/native/asset file from disk after install.
 /// A complete manifest confirms G2 *file integrity*, not gameplay correctness.
 pub fn write_install_checksums(

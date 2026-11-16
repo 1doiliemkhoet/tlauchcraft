@@ -136,6 +136,47 @@ pub fn run_approved_processors(
     report
 }
 
+/// Opaque in-process evidence from the approved processor runner only.
+/// A deserialized ProcessorRunReport (including successful-looking JSON) is
+/// NEVER enough to authorize publication of a playable game instance.
+#[derive(Debug)]
+pub struct VerifiedProcessorExecution {
+    request: ProcessorRunRequest,
+    report: ProcessorRunReport,
+}
+
+impl VerifiedProcessorExecution {
+    /// Calls the actual guarded executable runner. On Windows the current
+    /// runtime explicitly denies host execution until the isolated guest
+    /// authorization contract is implemented.
+    pub fn run_approved(
+        request: &ProcessorRunRequest,
+        permit: &ExecutionPermit,
+        cancel: &AtomicBool,
+    ) -> Result<Self, LoaderError> {
+        let report = run_approved_processors(request, permit, cancel);
+        if report.outcome != ProcessorOutcome::Verified
+            || report.error.is_some()
+            || report.completed != request.processors.len()
+            || report.exit_codes.iter().any(|code| *code != Some(0))
+        {
+            return Err(LoaderError::NeedsInstallerExecution);
+        }
+        Ok(Self {
+            request: request.clone(),
+            report,
+        })
+    }
+
+    pub fn request(&self) -> &ProcessorRunRequest {
+        &self.request
+    }
+
+    pub fn report(&self) -> &ProcessorRunReport {
+        &self.report
+    }
+}
+
 fn validate_execution_permit(
     request: &ProcessorRunRequest,
     permit: &ExecutionPermit,

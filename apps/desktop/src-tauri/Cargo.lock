@@ -2717,6 +2717,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3699,6 +3706,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tl-loader"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha1",
+ "thiserror 2.0.12",
+ "tl-core",
+ "tl-game",
+]
+
+
+[[package]]
 name = "tl-pack"
 version = "0.1.0"
 dependencies = [
@@ -3709,6 +3730,8 @@ dependencies = [
  "sha1",
  "sha2",
  "thiserror 2.0.12",
+ "tl-game",
+ "tl-loader",
  "zip",
 ]
 
