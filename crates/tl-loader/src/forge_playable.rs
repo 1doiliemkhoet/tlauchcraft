@@ -118,9 +118,9 @@ pub fn forge_java8_launch_version(merged: &Value) -> Result<Value, LoaderError> 
         || merged["id"]
             .as_str()
             .is_none_or(|id| !id.starts_with("1.16.5-forge-"))
-        || merged["javaVersion"]["majorVersion"]
-            .as_u64()
-            .is_some_and(|major| major != 8)
+        || merged
+            .get("javaVersion")
+            .is_some_and(|value| value["majorVersion"].as_u64() != Some(8))
     {
         return Err(LoaderError::CompatibilityConflict);
     }
@@ -566,6 +566,9 @@ mod tests {
         assert!(tl_game::required_java(&legacy).is_err());
         let mapped = forge_java8_launch_version(&legacy).unwrap();
         assert_eq!(tl_game::required_java(&mapped).unwrap(), 8);
+        let mut malformed = merged.clone();
+        malformed["javaVersion"]["majorVersion"] = json!("8");
+        assert!(forge_java8_launch_version(&malformed).is_err());
     }
 
     #[test]
