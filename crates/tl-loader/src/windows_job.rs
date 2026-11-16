@@ -3,7 +3,6 @@
 //! This is NOT an OS sandbox: a normal user process still has that user's file
 //! and network permissions. It does prevent a processor from running before
 //! job assignment and kills the entire contained process tree on cancellation.
-#![cfg(windows)]
 use std::{
     ffi::c_void,
     io,
@@ -124,10 +123,8 @@ fn resume_single_primary_thread(pid: u32) -> io::Result<()> {
     let mut thread_id = None;
     let mut valid = unsafe { Thread32First(snapshot.0, &mut entry) } != 0;
     while valid {
-        if entry.owner_pid == pid {
-            if thread_id.replace(entry.thread_id).is_some() {
-                return Err(io::Error::other("suspended processor has multiple threads"));
-            }
+        if entry.owner_pid == pid && thread_id.replace(entry.thread_id).is_some() {
+            return Err(io::Error::other("suspended processor has multiple threads"));
         }
         valid = unsafe { Thread32Next(snapshot.0, &mut entry) } != 0;
     }
