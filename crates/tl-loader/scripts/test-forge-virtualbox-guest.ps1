@@ -56,7 +56,7 @@ try {
   Check 'guest_additions_shared_folder_inspection_available' (Test-Path -LiteralPath $vboxControl -PathType Leaf) 'VBoxControl.exe is needed to independently query guest shared folders'
   $sharedOutput=(& $vboxControl sharedfolder list 2>&1 | Out-String)
   $vboxExit=$LASTEXITCODE
-  $reportedEmpty=($sharedOutput -match '(?im)No Shared Folders available|Shared Folder mappings \\(0\\):|0 shared folders|0 mappings')
+  $reportedEmpty=($sharedOutput -match '(?im)No Shared Folders available|Shared Folder mappings \(0\):|0 shared folders|0 mappings')
   Check 'guest_no_host_shared_mounts' ($mounts.Count -eq 0 -and $mapped -notmatch '(?i)\\\\VBOXSVR|\\\\VBOXSRV' -and $vboxExit -eq 0 -and $reportedEmpty) "mapped_drive_count=$($mounts.Count);VBoxControl_exit=$vboxExit;no_share_report=$reportedEmpty"
   [void][IO.Directory]::CreateDirectory($root)
   $stage=Join-Path $root 'stage-forge-preflight'
@@ -95,48 +95,6 @@ Start-Sleep -Seconds 60
   [IO.File]::WriteAllText($driver,$driverText,(New-Object Text.UTF8Encoding($false)))
   $timedOut=$false
   try { [void][ForgeJobProcess]::Run($powershell,([string[]]@('-NoProfile','-NonInteractive','-File',$driver,$grandchild,$marker)),$stage,5000) }
-  catch [TimeoutException] { $timedOut=$true }
-  Check 'job_timeout' $timedOut 'Native JobObject 5000ms timeout triggered'
-  Check 'job_descendant_observed' (Test-Path -LiteralPath $marker -PathType Leaf) 'Grandchild PID marker written before timeout'
-  $pidValue=[int][IO.File]::ReadAllText($marker)
-  Start-Sleep -Milliseconds 500
-  Check 'job_descendant_cleanup' ($null -eq (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)) "grandchild_pid=$pidValue;not_running"
-  Report 'VM_PREFLIGHT_PASS_NO_JAVA' $null
-} catch {
-  $failure=$_.Exception.Message
-  try { Report 'VM_PREFLIGHT_FAILED_NO_JAVA' $failure } catch { Write-Error -ErrorAction Continue "Evidence write failed: $($_.Exception.Message)" }
-  exit 2
-}
-))
-  Check 'guest_no_host_shared_mounts' ($mounts.Count -eq 0 -and $mapped -notmatch '(?i)\\\\VBOXSVR|\\\\VBOXSRV' -and $vboxExit -eq 0 -and $reportedEmpty) "mapped_drive_count=$($mounts.Count);VBoxControl_exit=$vboxExit;no_share_report=$reportedEmpty"
-  [void][IO.Directory]::CreateDirectory($root)
-  $stage=Join-Path $root 'stage-forge-preflight'
-  Check 'guest_fresh_stage' (-not (Test-Path -LiteralPath $stage)) 'stage must not preexist'
-  $user=[Security.Principal.WindowsIdentity]::GetCurrent().User
-  $security=New-Object Security.AccessControl.DirectorySecurity
-  $security.SetAccessRuleProtection($true,$false)
-  $rule=New-Object Security.AccessControl.FileSystemAccessRule($user,[Security.AccessControl.FileSystemRights]::FullControl,([Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'),[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
-  $security.AddAccessRule($rule)
-  [void][IO.Directory]::CreateDirectory($stage)
-  Set-Acl -LiteralPath $stage -AclObject $security -ErrorAction Stop
-  $actual=Get-Acl -LiteralPath $stage
-  $rules=@($actual.Access)
-  $badWrite=@($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -match '(?i)Everyone|BUILTIN\\Users|Authenticated Users' -and (([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::WriteData) -ne 0) })
-  Check 'guest_stage_acl' ($actual.AreAccessRulesProtected -and $badWrite.Count -eq 0) "acl_protected=$($actual.AreAccessRulesProtected);world_writable_entries=$($badWrite.Count)"
-  $probe=Join-Path $stage 'guest-only-write-probe.txt'
-  [IO.File]::WriteAllText($probe,'stage-write-pass',(New-Object Text.UTF8Encoding($false)))
-  Check 'guest_stage_write' (([IO.File]::ReadAllText($probe)) -eq 'stage-write-pass') 'Guest account may write only to new audited stage; unrelated filesystem restriction not inferred'
-  Check 'job_helper_present' (Test-Path -LiteralPath $JobSource -PathType Leaf) 'Local approved JobObject helper is required'
-  Add-Type -Path $JobSource -ErrorAction Stop
-  $cmd=Join-Path $env:WINDIR 'System32\cmd.exe'
-  $normal=[ForgeJobProcess]::Run($cmd,([string[]]@('/d','/c','exit','0')),$stage,10000)
-  Check 'job_normal_exit' ($normal -eq 0) "exit=$normal"
-  # Harmless Windows PowerShell grandchild without network access or Java.
-  $powershell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $marker=Join-Path $stage 'child.pid'
-  $childScript='$p=Start-Process -FilePath $env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe -ArgumentList @(''-NoProfile'',''-Command'',''Start-Sleep -Seconds 60'') -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText('''+$marker.Replace("'","''")+''',$p.Id.ToString()); Start-Sleep -Seconds 60'
-  $timedOut=$false
-  try { [void][ForgeJobProcess]::Run($powershell,([string[]]@('-NoProfile','-NonInteractive','-Command',$childScript)),$stage,5000) }
   catch [TimeoutException] { $timedOut=$true }
   Check 'job_timeout' $timedOut 'Native JobObject 5000ms timeout triggered'
   Check 'job_descendant_observed' (Test-Path -LiteralPath $marker -PathType Leaf) 'Grandchild PID marker written before timeout'
