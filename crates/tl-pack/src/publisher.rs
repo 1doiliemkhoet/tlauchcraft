@@ -27,9 +27,16 @@ fn atomic_create_new_move(stage: &Path, destination: &Path) -> Result<(), String
         fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
     }
     let from: Vec<u16> = stage.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
     if unsafe { MoveFileW(from.as_ptr(), to.as_ptr()) } == 0 {
-        return Err(format!("atomic create-new instance move failed: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "atomic create-new instance move failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     Ok(())
 }
@@ -38,14 +45,33 @@ fn atomic_create_new_move(stage: &Path, destination: &Path) -> Result<(), String
 fn atomic_create_new_move(stage: &Path, destination: &Path) -> Result<(), String> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     extern "C" {
-        fn renameat2(old_dir: i32, old_path: *const i8, new_dir: i32, new_path: *const i8, flags: u32) -> i32;
+        fn renameat2(
+            old_dir: i32,
+            old_path: *const i8,
+            new_dir: i32,
+            new_path: *const i8,
+            flags: u32,
+        ) -> i32;
     }
     const AT_FDCWD: i32 = -100;
     const RENAME_NOREPLACE: u32 = 1;
     let from = CString::new(stage.as_os_str().as_bytes()).map_err(|_| "invalid stage path")?;
-    let to = CString::new(destination.as_os_str().as_bytes()).map_err(|_| "invalid destination path")?;
-    if unsafe { renameat2(AT_FDCWD, from.as_ptr(), AT_FDCWD, to.as_ptr(), RENAME_NOREPLACE) } != 0 {
-        return Err(format!("atomic create-new instance move failed: {}", std::io::Error::last_os_error()));
+    let to =
+        CString::new(destination.as_os_str().as_bytes()).map_err(|_| "invalid destination path")?;
+    if unsafe {
+        renameat2(
+            AT_FDCWD,
+            from.as_ptr(),
+            AT_FDCWD,
+            to.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    } != 0
+    {
+        return Err(format!(
+            "atomic create-new instance move failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     Ok(())
 }

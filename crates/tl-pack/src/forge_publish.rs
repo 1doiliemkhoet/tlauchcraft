@@ -20,8 +20,7 @@ use std::{
 };
 use tl_loader::{
     forge_playable::{
-        verify_forge_runtime_for_pack, PackForgeSelection, VerifiedForgeJava,
-        VerifiedForgeLibrary,
+        verify_forge_runtime_for_pack, PackForgeSelection, VerifiedForgeJava, VerifiedForgeLibrary,
     },
     runtime::{VerifiedProcessorExecution, VerifiedProcessorJar},
 };
@@ -209,7 +208,9 @@ fn verify_original_overrides(
         } else {
             format!("{source_path}/")
         };
-        let mut entry = zip.by_name(&zip_name).map_err(|_| "missing original override")?;
+        let mut entry = zip
+            .by_name(&zip_name)
+            .map_err(|_| "missing original override")?;
         let target = root.join(&destination);
         reject_symlinks(&target)?;
         if entry.is_dir() {
@@ -373,7 +374,9 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
     }
     verify_tree_symlinks(root)?;
     let marker = root.join(FORGE_INSTALL_MARKER);
-    if fs::metadata(&marker).map_err(|_| "Forge install record missing")?.len()
+    if fs::metadata(&marker)
+        .map_err(|_| "Forge install record missing")?
+        .len()
         > MAX_RECORD_BYTES
     {
         return Err("Forge install record oversized".into());
@@ -388,7 +391,10 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
         || record.archive_sha256.len() != 64
         || !record.archive_sha256.bytes().all(|b| b.is_ascii_hexdigit())
         || record.version["id"]
-            != format!("{}-forge-{}", record.minecraft_version, record.forge_version)
+            != format!(
+                "{}-forge-{}",
+                record.minecraft_version, record.forge_version
+            )
         || record.version["mainClass"] != "cpw.mods.modlauncher.Launcher"
         || record.version["inheritsFrom"] != record.minecraft_version
         || record.version["javaVersion"]["majorVersion"] != record.required_java_major
@@ -416,7 +422,13 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
         )?;
     }
     for file in &record.verified_overrides {
-        check_file(root, &file.relative_path, file.bytes, None, Some(&file.sha256))?;
+        check_file(
+            root,
+            &file.relative_path,
+            file.bytes,
+            None,
+            Some(&file.sha256),
+        )?;
     }
     verify_natives(root, &record.natives_relative_path)?;
     let count = tl_game::vanilla_evidence::validate_install_files(&record.version, root)
