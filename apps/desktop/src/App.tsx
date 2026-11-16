@@ -37,6 +37,8 @@ export default function App() {
   const [packReceipt, setPackReceipt] = useState<StagedPackReceipt | null>(null);
   const [packOperationId, setPackOperationId] = useState<string | null>(null);
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
+  const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
+  const [forgeHostConsent, setForgeHostConsent] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -108,6 +110,7 @@ export default function App() {
     setPackReceipt(null);
     setPackOperationId(null);
     setPackManualImports([]);
+    setForgeHostConsent(false);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
   };
   const resolvePackFiles = () => {
@@ -153,6 +156,20 @@ export default function App() {
         log(`SHA-1 matched official CurseForge file ${projectId}/${fileId}; staged only, not READY.`);
       });
     })().catch(e => setError(backendError(e)));
+  };
+  const installVerifiedForge = () => {
+    if (!packArchivePath || !packOperationId || !forgeJavaPath || !selectedProfile ||
+        !forgeHostConsent || !packPreview) return;
+    void run('Install reviewed official Forge modpack', async () => {
+      const installed = await operations.installOfficialForge(
+        caps, packArchivePath, packOperationId, packPreview.name,
+        selectedProfile, forgeJavaPath, forgeHostConsent
+      );
+      log('Forge instance ' + installed.id + ' READY after hash+SQLite verification; real gameplay NOT_VERIFIED.');
+      await refresh(caps);
+      setSelectedInstance(installed.id);
+      setPage('instances');
+    });
   };
   useEffect(() => {
     if (page !== 'settings' || !selectedInstance || !caps.features.settings) {
@@ -319,7 +336,7 @@ export default function App() {
         </div>}
         {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
           <h3>CurseForge — verified file staging</h3>
-          <Notice>Staging is not a playable installation. Forge processor verification, instance publication and Play remain blocked until trusted runtime evidence exists.</Notice>
+          <Notice>Staging is not an installed game. Only the explicitly approved, release-pinned Forge adapter can run Java and publish a hash-verified instance. Minecraft gameplay remains NOT_VERIFIED until tested.</Notice>
           <div className="form-row">
             <button disabled={busy} onClick={resolvePackFiles}>Resolve official dependencies</button>
             <button className="primary" disabled={busy} onClick={stagePackFiles}>Download / Verify to private staging</button>
@@ -334,7 +351,35 @@ export default function App() {
               <span>SHA-1 verified {packReceipt.verified.length} / {packReceipt.required_total + packReceipt.optional_total} · Missing required {packReceipt.blocked_required.length} · Errors {packReceipt.failures.length}</span></div>
               {packReceipt.blocked_required.map((e, i) => <Notice key={'required'+i}>{e}</Notice>)}
               {packReceipt.failures.map((e, i) => <Notice key={'error'+i}>{e}</Notice>)}
-              <Notice>Forge runtime verification: NO. Instance publication: NO. Playable: NOT_VERIFIED.</Notice>
+              <Notice>Staged mods only: no Forge processor execution, no published instance, no gameplay evidence yet.</Notice>
+              {packPreview.game_version === '1.16.5' && packPreview.loader.version === '36.2.29'
+                ? <div className="panel">
+                    <h3>Install reviewed official Forge 1.16.5 / 36.2.29</h3>
+                    <p className="muted">The backend independently downloads and verifies official Forge/Mojang/Maven inputs, runs exactly the reviewed processors in a bounded Windows Job Object, then independently audits and publishes the modpack. The program runs under your Windows account; a Job Object DOES NOT block access to your files or network. Windows Sandbox offers stronger isolation.</p>
+                    <div className="form-row">
+                      <select aria-label="Offline identity for Forge modpack" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}>
+                        <option value="">Choose an offline profile</option>
+                        {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
+                      </select>
+                      <button disabled={busy} onClick={() => void (async () => {
+                        const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
+                        if (typeof path === 'string') setForgeJavaPath(path);
+                      })().catch(e => setError(backendError(e)))}>Select installed Java 8 .exe</button>
+                      {forgeJavaPath && <span className="mono">{forgeJavaPath}</span>}
+                    </div>
+                    <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
+                      I approve running verified official Forge processor Java on this Windows account, understanding that a Job Object is NOT a file/network sandbox.
+                    </label>
+                    <div className="form-row">
+                      <button className="primary" disabled={
+                        busy || !packOperationId || !packReceipt.complete_mod_inventory ||
+                        packReceipt.blocked_required.length !== 0 || packReceipt.blocked_optional.length !== 0 ||
+                        packReceipt.failures.length !== 0 || !selectedProfile || !forgeJavaPath || !forgeHostConsent
+                      } onClick={installVerifiedForge}>Install verified Forge instance</button>
+                    </div>
+                    <p className="muted">Only a complete source-verified mod inventory is eligible. Any missing or modified file refuses installation; no existing world is overwritten.</p>
+                  </div>
+                : <Notice>This Forge version has no reviewed host-execution adapter yet. The launcher version selector is generic, but installation for this particular version remains disabled.</Notice>}
             </div>}
             <Notice>Instance READY: NO. Existing Vanilla worlds are unchanged.</Notice>
             {packStaging.blocked.map((message, index) => <Notice key={index}>{message}</Notice>)}

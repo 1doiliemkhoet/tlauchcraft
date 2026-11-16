@@ -1,8 +1,15 @@
 //! Forge/NeoForge verified processor runner. All outputs remain inside a fresh staging root.
 //! Caller owns trusted source acquisition, installer ZIP extraction and final transactional commit.
 //! Java is launched directly (no shell) and every declared output must match its expected SHA-1.
+#[cfg(windows)]
+use crate::{
+    forge_graph::{prepare_forge_1165, ForgeBindings, PrepareState},
+    forge_playable::PackForgeSelection,
+};
 use crate::{maven, LoaderError};
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use serde_json::Value;
 use std::{
     fs::{self, File},
     io::{Read, Write},
@@ -128,7 +135,7 @@ pub fn run_approved_processors(
         return report;
     }
     report.error = None;
-    if let Err(error) = execute(request, &mut report, cancel) {
+    if let Err(error) = execute(request, &mut report, cancel, false) {
         report.error = Some(error.to_string());
         return report;
     }
@@ -166,6 +173,103 @@ impl VerifiedProcessorExecution {
             request: request.clone(),
             report,
         })
+    }
+
+    /// An EXPLICITLY OPTED-IN, official/pinned Forge 1.16.5 adapter on Windows.
+    /// This runs Java on the host as the current user inside a Windows Job
+    /// Object, not a Sandbox. It cannot prevent access to user files/network.
+    /// The official installer, entire profile and derived metadata are pinned,
+    /// and the graph is re-prepared from locally rehashed upstream JARs.
+    #[cfg(windows)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_official_windows_1165(
+        selection: &PackForgeSelection,
+        official_installer: &Path,
+        profile_json: &str,
+        derived: &Value,
+        bindings: &ForgeBindings,
+        approved_java_sha1: &str,
+        explicit_user_consent: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Self, LoaderError> {
+        const OFFICIAL_VERSION: &str = "36.2.29";
+        const OFFICIAL_INSTALLER_SHA1: &str = "7d247279cf06eed6ffcf609f36d11e34c70350f3";
+        if !explicit_user_consent
+            || selection.minecraft_version != "1.16.5"
+            || selection.forge_version != OFFICIAL_VERSION
+            || bindings.minecraft != selection.minecraft_version
+            || bindings.forge_version != selection.forge_version
+            || !official_installer.is_absolute()
+            || official_installer.file_name().and_then(|v| v.to_str())
+                != Some("forge-1.16.5-36.2.29-installer.jar")
+            || bindings.stage_root.parent().and_then(|v| v.file_name())
+                != Some(std::ffi::OsStr::new("forge-execution"))
+        {
+            return Err(LoaderError::NeedsInstallerExecution);
+        }
+        reject_symlink_ancestors(official_installer)?;
+        verify_sha1(official_installer, OFFICIAL_INSTALLER_SHA1)?;
+        valid_sha1(approved_java_sha1)?;
+        verify_sha1(&bindings.java, approved_java_sha1)?;
+        // These fixtures were extracted from the audited official installer.
+        // Arbitrary user JSON cannot define executable coordinates/main classes.
+        let pinned_profile: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/forge_36229_official_profile.json"
+        ))
+        .map_err(|_| LoaderError::InvalidInput)?;
+        let claimed_profile: Value =
+            serde_json::from_str(profile_json).map_err(|_| LoaderError::InvalidInput)?;
+        let pinned_derived: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/forge_36229_official_version.json"
+        ))
+        .map_err(|_| LoaderError::InvalidInput)?;
+        if claimed_profile != pinned_profile || *derived != pinned_derived {
+            return Err(LoaderError::InvalidMetadata(
+                "official Forge installer metadata is not the audited release".into(),
+            ));
+        }
+        let plan = prepare_forge_1165(profile_json, derived, bindings);
+        if plan.state != PrepareState::Verified || !plan.unresolved.is_empty() {
+            return Err(LoaderError::NeedsInstallerExecution);
+        }
+        let request = plan.request.ok_or(LoaderError::NeedsInstallerExecution)?;
+        if request.processors.len() != 4 {
+            return Err(LoaderError::NeedsInstallerExecution);
+        }
+        let mut report = run_verified_processors(&request);
+        let permit = ExecutionPermit {
+            approved_executable_sha1s: request
+                .processors
+                .iter()
+                .map(|p| p.executable.sha1.clone())
+                .collect(),
+            restricted_environment_attested: true, // Job creation is enforced in execute().
+            approved_stage_parent: request
+                .stage_root
+                .parent()
+                .ok_or(LoaderError::InvalidInput)?
+                .to_path_buf(),
+        };
+        // A duplicate executable across processors is valid: verify the set
+        // once so duplicate invocation does not bypass any hash policy.
+        let mut approved_hashes = permit.approved_executable_sha1s;
+        approved_hashes.sort();
+        approved_hashes.dedup();
+        let permit = ExecutionPermit {
+            approved_executable_sha1s: approved_hashes,
+            ..permit
+        };
+        validate_execution_permit(&request, &permit, cancel)?;
+        report.error = None;
+        if let Err(error) = execute(&request, &mut report, cancel, true) {
+            report.error = Some(error.to_string());
+            return Err(error);
+        }
+        if report.completed != 4 || report.exit_codes.iter().any(|x| *x != Some(0)) {
+            return Err(LoaderError::NeedsInstallerExecution);
+        }
+        report.outcome = ProcessorOutcome::Verified;
+        Ok(Self { request, report })
     }
 
     pub fn request(&self) -> &ProcessorRunRequest {
@@ -229,10 +333,42 @@ fn validate_execution_permit(
     Ok(())
 }
 
+/// The Windows variant owns a Job Object handle and kills any still-running
+/// descendants on drop, including processor timeouts and cancellation.
+enum ProcessorChild {
+    Ordinary(std::process::Child),
+    #[cfg(windows)]
+    Windows(crate::windows_job::JobChild),
+}
+impl ProcessorChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self {
+            Self::Ordinary(child) => child.try_wait(),
+            #[cfg(windows)]
+            Self::Windows(child) => child.try_wait(),
+        }
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Ordinary(child) => child.kill(),
+            #[cfg(windows)]
+            Self::Windows(child) => child.kill(),
+        }
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        match self {
+            Self::Ordinary(child) => child.wait(),
+            #[cfg(windows)]
+            Self::Windows(child) => child.wait(),
+        }
+    }
+}
+
 fn execute(
     request: &ProcessorRunRequest,
     report: &mut ProcessorRunReport,
     cancel: &AtomicBool,
+    windows_guarded: bool,
 ) -> Result<(), LoaderError> {
     if request.minecraft_version != "1.16.5" {
         return Err(LoaderError::UnsupportedVersion(
@@ -292,7 +428,8 @@ fn execute(
         classpath.extend(processor.classpath.iter().map(|x| x.path.clone()));
         let cp = std::env::join_paths(classpath)
             .map_err(|e| LoaderError::InvalidMetadata(format!("classpath: {e}")))?;
-        let mut child = Command::new(&request.java)
+        let mut command = Command::new(&request.java);
+        command
             .current_dir(&request.stage_root)
             .arg("-cp")
             .arg(cp)
@@ -300,9 +437,26 @@ fn execute(
             .args(&processor.arguments)
             .stdin(Stdio::null())
             .stdout(Stdio::from(output))
-            .stderr(Stdio::from(errors))
-            .spawn()
-            .map_err(|e| LoaderError::InvalidMetadata(format!("processor spawn: {e}")))?;
+            .stderr(Stdio::from(errors));
+        let mut child =
+            if windows_guarded {
+                #[cfg(windows)]
+                {
+                    ProcessorChild::Windows(crate::windows_job::spawn(command).map_err(|e| {
+                        LoaderError::InvalidMetadata(format!("Job Object spawn: {e}"))
+                    })?)
+                }
+                #[cfg(not(windows))]
+                {
+                    return Err(LoaderError::InvalidInput);
+                }
+            } else {
+                ProcessorChild::Ordinary(
+                    command.spawn().map_err(|e| {
+                        LoaderError::InvalidMetadata(format!("processor spawn: {e}"))
+                    })?,
+                )
+            };
         let started = Instant::now();
         let exit = loop {
             if cancel.load(Ordering::SeqCst) {
@@ -597,6 +751,56 @@ mod tests {
             intermediate_outputs: vec![],
         };
         (root, proc)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn official_host_execution_refuses_consent_and_fake_installer_without_java() {
+        let (root, _) = fixture();
+        let bindings = ForgeBindings {
+            minecraft: "1.16.5".into(),
+            forge_version: "36.2.29".into(),
+            java: root.join("java.exe"),
+            stage_root: root.join("forge-execution").join("new-stage"),
+            timeout_seconds: 60,
+            artifacts: Default::default(),
+            data: Default::default(),
+        };
+        let selection = PackForgeSelection {
+            minecraft_version: "1.16.5".into(),
+            forge_version: "36.2.29".into(),
+            pack_archive_sha256: "a".repeat(64),
+        };
+        let no_consent = VerifiedProcessorExecution::run_official_windows_1165(
+            &selection,
+            &root.join("forge-1.16.5-36.2.29-installer.jar"),
+            "{}",
+            &Value::Null,
+            &bindings,
+            &"0".repeat(40),
+            false,
+            &AtomicBool::new(false),
+        );
+        assert!(matches!(
+            no_consent,
+            Err(LoaderError::NeedsInstallerExecution)
+        ));
+        assert!(!bindings.stage_root.exists());
+        let fake = root.join("forge-1.16.5-36.2.29-installer.jar");
+        fs::write(&fake, b"untrusted").unwrap();
+        let bad_hash = VerifiedProcessorExecution::run_official_windows_1165(
+            &selection,
+            &fake,
+            "{}",
+            &Value::Null,
+            &bindings,
+            &"0".repeat(40),
+            true,
+            &AtomicBool::new(false),
+        );
+        assert!(bad_hash.is_err());
+        assert!(!bindings.stage_root.exists());
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn invalid_processor_refused_before_stage() {
