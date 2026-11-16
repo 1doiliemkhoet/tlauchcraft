@@ -145,6 +145,21 @@ fn valid_installed_version(i:&GameInstance,version:&Value)->bool {
         _=>false
     }
 }
+/// Vanilla preserves its original strict foundation gate. Forge opts into a
+/// separate identity contract and can only launch after installed receipt
+/// verification in installed_launch_metadata. No version fixture is assumed.
+fn validate_game_identity_binding(
+    instance:&GameInstance,
+    profile:&OfflineProfile,
+    request:&tl_core::LaunchRequest,
+)->Result<(),String>{
+    let outcome=match instance.loader.kind{
+        LoaderKind::Vanilla=>tl_game::foundation::validate_launch_context(instance,profile,request),
+        LoaderKind::Forge=>tl_game::foundation::validate_forge_launch_context(instance,profile,request),
+        _=>return Err("Unsupported game loader".into())
+    };
+    outcome.map_err(|e|e.to_string())
+}
 fn count_native_dlls(natives:&Path)->Result<usize,String>{
     let mut count=0;
     for entry in fs::read_dir(natives).map_err(|e|format!("Native extraction directory unreadable: {e}"))? {
@@ -350,7 +365,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
         instance_id:uuid,profile_id:profile_uuid,java_path:None,
         min_ram_mb:None,max_ram_mb:None,extra_jvm_args:None
     };
-    tl_game::foundation::validate_launch_context(&i,&profile,&req).map_err(|e|e.to_string())?;
+    validate_game_identity_binding(&i,&profile,&req)?;
     let dir=root(&i)?;
     let (version,natives)=installed_launch_metadata(&i,&dir)?;
     if !valid_installed_version(&i,&version){
@@ -387,7 +402,7 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
     }
     let profile:OfflineProfile=db()?.get_profile(request.profile_id).map_err(|e|e.to_string())?
         .ok_or("Persisted profile missing")?;
-    tl_game::foundation::validate_launch_context(&i,&profile,&request).map_err(|e|e.to_string())?;
+    validate_game_identity_binding(&i,&profile,&request)?;
     let dir=root(&i)?;
     let prefs=java_settings::read(&i.id.to_string())?;
     if request.min_ram_mb.is_some_and(|v|v!=prefs.xms_mb) || request.max_ram_mb.is_some_and(|v|v!=prefs.xmx_mb) {
