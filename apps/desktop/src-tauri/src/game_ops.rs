@@ -57,7 +57,7 @@ fn root(i:&GameInstance)->Result<PathBuf,String>{
     i.validate().map_err(|e|e.to_string())?;
     let base=default_data_dir().map_err(|e|e.to_string())?;
     if !matches!(&i.loader.kind,LoaderKind::Vanilla|LoaderKind::Forge){
-        return Err("Only Vanilla and verified published Forge 1.16.5 are supported".into())
+        return Err("Only Vanilla and independently verified published Forge are supported".into())
     }
     let root=base.join(&i.root_path);
     for part in root.ancestors().take_while(|p|p.starts_with(&base)) {
@@ -134,12 +134,13 @@ fn launch_game_dir(i:&GameInstance,root:&Path)->PathBuf {
 fn valid_installed_version(i:&GameInstance,version:&Value)->bool {
     match &i.loader.kind {
         LoaderKind::Vanilla=>version["id"]==i.minecraft_version,
-        LoaderKind::Forge=>i.minecraft_version=="1.16.5"
-            && i.loader.version.as_ref().is_some_and(|v|{
-                version["id"]==format!("1.16.5-forge-{v}")
-                    && version["inheritsFrom"]=="1.16.5"
-                    && version["mainClass"]=="cpw.mods.modlauncher.Launcher"
-                    && version["javaVersion"]["majorVersion"]==8
+        LoaderKind::Forge=>i.loader.version.as_ref().is_some_and(|v|{
+                // The loader's audited receipt gates supported Minecraft/Forge
+                // families. Desktop only checks the persisted exact selection.
+                version["id"]==format!("{}-forge-{v}",i.minecraft_version)
+                    && version["inheritsFrom"]==i.minecraft_version
+                    && version["mainClass"].as_str().is_some_and(|s| !s.is_empty())
+                    && tl_game::required_java(version).is_ok()
             }),
         _=>false
     }
@@ -499,6 +500,19 @@ mod tests {
         wrong["javaVersion"]["majorVersion"]=json!(17);
         assert!(!valid_installed_version(&forge,&wrong));
         assert_eq!(launch_game_dir(&forge,Path::new("C:/Pack")),PathBuf::from("C:/Pack"));
+        // No Minecraft-family hardcode in the common Desktop selector.
+        // A future audited Forge adapter can supply its own launch metadata.
+        let future=GameInstance::new("Future","1.20.1",LoaderSpec{
+            kind:LoaderKind::Forge,version:Some("47.3.0".into())
+        },Uuid::new_v4()).unwrap();
+        let future_meta=json!({
+            "id":"1.20.1-forge-47.3.0",
+            "inheritsFrom":"1.20.1",
+            "mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "javaVersion":{"majorVersion":17}
+        });
+        assert!(valid_installed_version(&future,&future_meta));
+
     }
     #[test]
     fn native_verifier_rejects_empty_folder(){
