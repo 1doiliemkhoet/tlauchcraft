@@ -140,6 +140,47 @@ pub fn fingerprint_installed_pack(
             gameplay: declared.gameplay,
         });
     }
+    // Prevent an undeclared extra mod from silently bypassing parity just
+    // because Chat 4's receipt omitted it. Read-only; do not delete mods.
+    let mods = base.join("mods");
+    if mods.exists() {
+        let mut pending = vec![mods];
+        let mut visited = 0usize;
+        while let Some(directory) = pending.pop() {
+            for entry in fs::read_dir(directory)? {
+                visited += 1;
+                if visited > MAX_FILES {
+                    return Err(LanError::InvalidInput(
+                        "installed mod inventory exceeds safety bound".into(),
+                    ));
+                }
+                let entry = entry?;
+                let ty = entry.file_type()?;
+                if ty.is_symlink() {
+                    return Err(LanError::InvalidInput(
+                        "symlink in installed mods directory".into(),
+                    ));
+                }
+                if ty.is_dir() {
+                    pending.push(entry.path());
+                } else if ty.is_file()
+                    && entry.path().extension().and_then(|v| v.to_str())
+                        .is_some_and(|v| v.eq_ignore_ascii_case("jar"))
+                {
+                    let name = entry.path().strip_prefix(&base)
+                        .map_err(|_| LanError::InvalidInput("mod escaped instance".into()))?
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                        .to_ascii_lowercase();
+                    if !seen.contains_key(&name) {
+                        return Err(LanError::CompatibilityConflict(vec![
+                            "undeclared installed mod JAR prevents verified parity".into(),
+                        ]));
+                    }
+                }
+            }
+        }
+    }
     Ok(PackFingerprint {
         minecraft: receipt.minecraft_version.clone(),
         loader_kind: receipt.loader_kind.clone(),
@@ -304,6 +345,18 @@ mod tests {
         peer.archive_sha256 = host.archive_sha256.clone();
         peer.instance_id = host.instance_id.clone();
         assert!(verify_two_installed_clients(temp.path(), &host, temp.path(), &peer).is_err());
+    }
+    #[test]
+    fn undeclared_extra_mod_blocks_even_when_receipt_files_match() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("mods")).unwrap();
+        fs::write(temp.path().join("mods/test.jar"), b"fixture").unwrap();
+        fs::write(temp.path().join("mods/untracked.jar"), b"extra").unwrap();
+        let digest = format!("{:x}", Sha256::digest(b"fixture"));
+        assert!(matches!(
+            fingerprint_installed_pack(temp.path(), &receipt(&digest)),
+            Err(LanError::CompatibilityConflict(_))
+        ));
     }
     #[test]
     fn unsafe_receipt_path_rejected() {
