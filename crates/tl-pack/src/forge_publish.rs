@@ -442,6 +442,29 @@ pub fn publish_forge_from_execution(
     Ok(record)
 }
 
+/// Modpacks may rewrite ordinary user configuration during gameplay.
+/// Configs are hashed against the original ZIP before READY, while later
+/// launches permit normal user edits (never changes to mods/JARs/scripts).
+fn is_mutable_user_config(relative: &str) -> bool {
+    let path = relative.to_ascii_lowercase();
+    let in_config = path.starts_with("config/") || path.starts_with("defaultconfigs/");
+    let ext_allowed = [".toml", ".cfg", ".json", ".properties", ".txt", ".yaml", ".yml"]
+        .iter()
+        .any(|ext| path.ends_with(ext));
+    (in_config && ext_allowed) || matches!(path.as_str(), "options.txt" | "optionsof.txt" | "servers.dat")
+}
+
+fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String> {
+    let rel = crate::safe_path(relative).map_err(|e| e.to_string())?;
+    let target = root.join(rel);
+    reject_symlinks(&target)?;
+    let info = fs::symlink_metadata(&target).map_err(|_| "user configuration file missing")?;
+    if !info.file_type().is_file() || info.len() > crate::MAX_SINGLE_FILE {
+        return Err("user configuration file missing or unsafe".into());
+    }
+    Ok(())
+}
+
 /// Disk read is not enough to issue a publish permit. Used only at Play time,
 /// after the corresponding persisted SQLite instance is already READY.
 pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, String> {
@@ -498,13 +521,17 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
         )?;
     }
     for file in &record.verified_overrides {
-        check_file(
-            root,
-            &file.relative_path,
-            file.bytes,
-            None,
-            Some(&file.sha256),
-        )?;
+        if is_mutable_user_config(&file.relative_path) {
+            verify_mutable_config_path(root, &file.relative_path)?;
+        } else {
+            check_file(
+                root,
+                &file.relative_path,
+                file.bytes,
+                None,
+                Some(&file.sha256),
+            )?;
+        }
     }
     verify_natives(root, &record.natives_relative_path)?;
     if record.native_dlls != collect_verified_natives(root)? {
@@ -521,6 +548,21 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn published_config_remains_user_editable_but_scripts_and_mods_do_not() {
+        assert!(is_mutable_user_config("config/modsettings.toml"));
+        assert!(is_mutable_user_config("options.txt"));
+        assert!(!is_mutable_user_config("mods/mod.jar"));
+        assert!(!is_mutable_user_config("kubejs/startup_scripts/init.js"));
+        assert!(!is_mutable_user_config("config/unsafe.jar"));
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonicalize().unwrap();
+        fs::create_dir(dir.join("config")).unwrap();
+        fs::write(dir.join("config/modsettings.toml"), b"changed by Minecraft").unwrap();
+        assert!(verify_mutable_config_path(&dir, "config/modsettings.toml").is_ok());
+        assert!(verify_mutable_config_path(&dir, "../other").is_err());
+    }
 
     #[test]
     fn absent_publish_marker_fails_closed() {
