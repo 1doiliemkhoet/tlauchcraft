@@ -50,6 +50,8 @@ pub struct ForgeInstallRecord {
     pub schema: String,
     pub minecraft_version: String,
     pub forge_version: String,
+    /// Java version from the trusted loader compatibility adapter.
+    pub required_java_major: u32,
     pub archive_sha256: String,
     pub version: Value,
     pub natives_relative_path: String,
@@ -99,8 +101,8 @@ fn verify_tree_symlinks(dir: &Path) -> Result<(), String> {
 fn file_hashes(path: &Path) -> Result<(u64, String, String), String> {
     reject_symlinks(path)?;
     let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
-    if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > crate::MAX_SINGLE_FILE {
-        return Err("missing, empty or oversized Forge file".into());
+    if !meta.file_type().is_file() || meta.len() > crate::MAX_SINGLE_FILE {
+        return Err("missing or oversized Forge file".into());
     }
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut sha1 = Sha1::new();
@@ -200,7 +202,21 @@ fn verify_original_overrides(
             return Err("duplicate override in pack manifest".into());
         }
         let source_path = format!("{prefix}/{relative}");
-        let mut entry = zip.by_name(&source_path).map_err(|_| "missing original override")?;
+        // The normalized ZIP inspector strips a trailing slash on directory
+        // entries; ZIP lookup must restore it before comparing directories.
+        let mut entry = match zip.by_name(&source_path) {
+            Ok(entry) => entry,
+            Err(_) => {
+                if !relative.ends_with('/') {
+                    // The original entry may have been a directory whose
+                    // normalized name no longer has its trailing slash.
+                    zip.by_name(&format!("{source_path}/"))
+                        .map_err(|_| "missing original override")?
+                } else {
+                    return Err("missing original override".into());
+                }
+            }
+        };
         let target = root.join(&destination);
         reject_symlinks(&target)?;
         if entry.is_dir() {
@@ -209,7 +225,7 @@ fn verify_original_overrides(
             }
             continue;
         }
-        if entry.size() == 0 || entry.size() > crate::MAX_SINGLE_FILE {
+        if entry.size() > crate::MAX_SINGLE_FILE {
             return Err("invalid original override file size".into());
         }
         let mut source_hash = Sha256::new();
@@ -284,10 +300,10 @@ pub fn publish_forge_from_execution(
     )
     .map_err(|e| format!("Forge processor verification failed: {e}"))?;
     if !runtime.execution_verified
+        || runtime.required_java_major == 0
         || runtime.instance_ready
         || runtime.game_launched
         || runtime.processor_count != 4
-        || runtime.required_java_major != 8
     {
         return Err("Forge processors not accepted by trusted runtime".into());
     }
@@ -316,7 +332,7 @@ pub fn publish_forge_from_execution(
     if version["id"] != runtime.derived_version_id
         || version["mainClass"] != "cpw.mods.modlauncher.Launcher"
         || version["inheritsFrom"] != pack.game_version
-        || version["javaVersion"]["majorVersion"] != 8
+        || version["javaVersion"]["majorVersion"] != runtime.required_java_major
     {
         return Err("inherited Forge launch metadata invalid".into());
     }
@@ -327,6 +343,7 @@ pub fn publish_forge_from_execution(
         schema: "tl-forge-published/v1".into(),
         minecraft_version: pack.game_version.clone(),
         forge_version: evidence.selection.forge_version.clone(),
+        required_java_major: runtime.required_java_major,
         archive_sha256: pack.archive_sha256.clone(),
         version,
         natives_relative_path: "natives".into(),
@@ -372,19 +389,20 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
         serde_json::from_slice(&fs::read(&marker).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
     if record.schema != "tl-forge-published/v1"
-        || record.minecraft_version != "1.16.5"
+        || record.minecraft_version.is_empty()
         || record.forge_version.is_empty()
+        || !(8..=25).contains(&record.required_java_major)
         || record.archive_sha256.len() != 64
         || !record.archive_sha256.bytes().all(|b| b.is_ascii_hexdigit())
         || record.version["id"]
-            != format!("1.16.5-forge-{}", record.forge_version)
+            != format!("{}-forge-{}", record.minecraft_version, record.forge_version)
         || record.version["mainClass"] != "cpw.mods.modlauncher.Launcher"
-        || record.version["inheritsFrom"] != "1.16.5"
-        || record.version["javaVersion"]["majorVersion"] != 8
+        || record.version["inheritsFrom"] != record.minecraft_version
+        || record.version["javaVersion"]["majorVersion"] != record.required_java_major
         || record.installed_libraries.is_empty()
         || record.installed_mods.is_empty()
     {
-        return Err("Forge installed marker is not a validated 1.16.5 runtime".into());
+        return Err("Forge installed marker is not valid for its recorded loader selection".into());
     }
     for library in &record.installed_libraries {
         check_file(
