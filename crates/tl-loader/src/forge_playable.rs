@@ -533,8 +533,12 @@ mod tests {
         assert_eq!(tl_game::main_class(&merged).unwrap(), "cpw.mods.modlauncher.Launcher");
         assert_eq!(tl_game::required_java(&merged).unwrap(), 8);
         let game_args = tl_game::game_arguments(&merged, &env).unwrap();
-        assert!(game_args.windows(2).any(|v| v == ["--launchTarget", "fmlclient"]));
-        assert!(game_args.windows(2).any(|v| v == ["--fml.forgeVersion", "36.2.29"]));
+        assert!(game_args.windows(2).any(|v| {
+            v[0] == "--launchTarget" && v[1] == "fmlclient"
+        }));
+        assert!(game_args.windows(2).any(|v| {
+            v[0] == "--fml.forgeVersion" && v[1] == "36.2.29"
+        }));
         let jvm = tl_game::jvm_arguments(&merged, &env).unwrap();
         assert!(jvm.iter().any(|x| x == "-Dparent=present"));
         assert!(jvm.iter().any(|x| x.starts_with("--add-exports=")));
