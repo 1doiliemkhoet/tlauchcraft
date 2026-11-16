@@ -1,11 +1,10 @@
 //! Version-specific audited Forge installer acquisition and approved host runner.
 //! This supports the initial pinned 1.16.5/36.2.29 adapter only. Future loaders
 //! must supply their own published version/checksum policy, not reuse this pin.
-#![cfg(windows)]
 use crate::forge_publish::ApprovedForgePublishInputs;
 use reqwest::blocking::Client;
-use sha1::{Digest, Sha1};
 use serde_json::{json, Value};
+use sha1::{Digest, Sha1};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
@@ -77,7 +76,10 @@ fn verify(path: &Path, expected: &str, size: Option<u64>, limit: u64) -> Result<
         || metadata.len() > limit
         || size.is_some_and(|s| s != metadata.len())
     {
-        return Err(format!("official Forge file size/type mismatch: {}", path.display()));
+        return Err(format!(
+            "official Forge file size/type mismatch: {}",
+            path.display()
+        ));
     }
     let mut input = File::open(path).map_err(|e| e.to_string())?;
     let mut digest = Sha1::new();
@@ -199,8 +201,12 @@ fn extract_verified_entry(
     }
     let zipfile = File::open(installer).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(zipfile).map_err(|e| e.to_string())?;
-    let mut entry = archive.by_name(name).map_err(|_| format!("official installer entry missing: {name}"))?;
-    if entry.is_dir() || entry.size() == 0 || entry.size() > limit
+    let mut entry = archive
+        .by_name(name)
+        .map_err(|_| format!("official installer entry missing: {name}"))?;
+    if entry.is_dir()
+        || entry.size() == 0
+        || entry.size() > limit
         || size.is_some_and(|n| n != entry.size())
     {
         return Err("Forge embedded entry has invalid size/type".into());
@@ -208,10 +214,13 @@ fn extract_verified_entry(
     let parent = target.parent().ok_or("no embedded target parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     no_symlink(parent)?;
-    let mut out = OpenOptions::new().create_new(true).write(true).open(target)
+    let mut out = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(target)
         .map_err(|e| e.to_string())?;
     let copy = std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string());
-    if copy.as_ref().is_err_or(|n| *n != entry.size()) {
+    if !copy.as_ref().is_ok_and(|n| *n == entry.size()) {
         drop(out);
         let _ = fs::remove_file(target);
         return Err("Forge embedded entry copy incomplete".into());
@@ -257,7 +266,9 @@ pub fn prepare_official_windows_1165(
         || selected_forge != FORGE_VERSION
         || operation_id.len() < 8
         || operation_id.len() > 64
-        || !operation_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !operation_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         || archive_sha256.len() != 64
         || !archive_sha256.bytes().all(|b| b.is_ascii_hexdigit())
     {
@@ -273,48 +284,79 @@ pub fn prepare_official_windows_1165(
     // not guessed from the modpack ZIP or frontend.
     tl_game::vanilla::install_vanilla(&version, &mojang_cache, cancelled)
         .map_err(|e| format!("Mojang client/cache preparation: {e}"))?;
-    let minecraft_client = mojang_cache.join("versions").join(FORGE_MC).join(format!("{FORGE_MC}.jar"));
+    let minecraft_client = mojang_cache
+        .join("versions")
+        .join(FORGE_MC)
+        .join(format!("{FORGE_MC}.jar"));
     let client_sha = version["downloads"]["client"]["sha1"]
-        .as_str().ok_or("missing official Mojang client SHA-1")?;
+        .as_str()
+        .ok_or("missing official Mojang client SHA-1")?;
     let client_url = version["downloads"]["client"]["url"]
-        .as_str().ok_or("missing official Mojang client URL")?;
+        .as_str()
+        .ok_or("missing official Mojang client URL")?;
     verify(&minecraft_client, client_sha, None, MAX_LIB)?;
     let client = network_client()?;
     let forge_cache = data_dir.join("cache").join("forge-official");
     fs::create_dir_all(&forge_cache).map_err(|e| e.to_string())?;
     let installer = forge_cache.join("forge-1.16.5-36.2.29-installer.jar");
-    fetch_verified(&client, &installer, FORGE_INSTALLER_URL, FORGE_INSTALLER_SHA1, None, 32 * 1024 * 1024, cancelled)?;
+    fetch_verified(
+        &client,
+        &installer,
+        FORGE_INSTALLER_URL,
+        FORGE_INSTALLER_SHA1,
+        None,
+        32 * 1024 * 1024,
+        cancelled,
+    )?;
     let profile_json = installer_json(&installer, "install_profile.json")?;
     let derived_text = installer_json(&installer, "version.json")?;
     let derived: Value = serde_json::from_str(&derived_text).map_err(|e| e.to_string())?;
     let pinned_profile: Value = serde_json::from_str(include_str!(
         "../../tl-loader/tests/fixtures/forge_36229_official_profile.json"
-    )).map_err(|e| e.to_string())?;
+    ))
+    .map_err(|e| e.to_string())?;
     let pinned_derived: Value = serde_json::from_str(include_str!(
         "../../tl-loader/tests/fixtures/forge_36229_official_version.json"
-    )).map_err(|e| e.to_string())?;
+    ))
+    .map_err(|e| e.to_string())?;
     if serde_json::from_str::<Value>(&profile_json).map_err(|e| e.to_string())? != pinned_profile
-        || derived != pinned_derived {
+        || derived != pinned_derived
+    {
         return Err("official installer metadata differs from pinned reviewed release".into());
     }
-    let audit = audit_official_forge_metadata(&profile_json, &derived)
-        .map_err(|e| e.to_string())?;
+    let audit =
+        audit_official_forge_metadata(&profile_json, &derived).map_err(|e| e.to_string())?;
     let mut artifact_map = BTreeMap::<String, VerifiedProcessorJar>::new();
     let mut artifact_targets = BTreeSet::new();
-    for req in audit.profile_libraries.iter().chain(audit.derived_libraries.iter()) {
+    for req in audit
+        .profile_libraries
+        .iter()
+        .chain(audit.derived_libraries.iter())
+    {
         if let SourceRequirement::CanonicalMaven { url } = &req.source {
             if !artifact_targets.insert((req.coordinate.clone(), req.sha1.clone())) {
                 continue;
             }
             let rel = crate::safe_path(&req.relative_path).map_err(|e| e.to_string())?;
             let destination = forge_cache.join("libraries").join(rel);
-            fetch_verified(&client, &destination, url, &req.sha1, Some(req.size_bytes), MAX_LIB, cancelled)?;
-            artifact_map.insert(req.coordinate.clone(), VerifiedProcessorJar {
-                coordinate: req.coordinate.clone(),
-                path: destination,
-                sha1: req.sha1.clone(),
-                source: url.to_owned(),
-            });
+            fetch_verified(
+                &client,
+                &destination,
+                url,
+                &req.sha1,
+                Some(req.size_bytes),
+                MAX_LIB,
+                cancelled,
+            )?;
+            artifact_map.insert(
+                req.coordinate.clone(),
+                VerifiedProcessorJar {
+                    coordinate: req.coordinate.clone(),
+                    path: destination,
+                    sha1: req.sha1.clone(),
+                    source: url.to_owned(),
+                },
+            );
         }
     }
     let java_sha = observed_sha1(java_path)?;
@@ -324,10 +366,23 @@ pub fn prepare_official_windows_1165(
     if fs::symlink_metadata(&exec_stage).is_ok() {
         return Err("Forge processor stage already exists; use a fresh operation".into());
     }
-    let extract_dir = data_dir.join("cache").join("forge-inputs").join(operation_id);
+    let extract_dir = data_dir
+        .join("cache")
+        .join("forge-inputs")
+        .join(operation_id);
+    let extract_parent = extract_dir.parent().ok_or("invalid Forge input root")?;
+    fs::create_dir_all(extract_parent).map_err(|e| e.to_string())?;
+    no_symlink(extract_parent)?;
     fs::create_dir(&extract_dir).map_err(|e| e.to_string())?;
     let patch_file = extract_dir.join("client.lzma");
-    let binpatch_sha = extract_verified_entry(&installer, "data/client.lzma", &patch_file, None, None, 32 * 1024 * 1024)?;
+    let binpatch_sha = extract_verified_entry(
+        &installer,
+        "data/client.lzma",
+        &patch_file,
+        None,
+        None,
+        32 * 1024 * 1024,
+    )?;
     let patch_report = extract_dir.join("binpatch.json");
     let report = json!({
         "status": "VERIFIED_INSTALLER_ENTRY_NOT_EXECUTED",
@@ -340,15 +395,26 @@ pub fn prepare_official_windows_1165(
     });
     fs::write(&patch_report, report.to_string()).map_err(|e| e.to_string())?;
     let mut data = BTreeMap::new();
-    data.insert("BINPATCH".into(), BoundValue::VerifiedInstallerEntry(InstallerEntryEvidence {
-        installer: installer.clone(), installer_sha1: FORGE_INSTALLER_SHA1.into(),
-        entry: "data/client.lzma".into(), extracted: patch_file,
-        extracted_sha1: binpatch_sha, report: patch_report,
-    }));
-    data.insert("MINECRAFT_JAR".into(), BoundValue::VerifiedExternal(VerifiedProcessorJar {
-        coordinate: format!("net.minecraft:client:{FORGE_MC}"),
-        path: minecraft_client, sha1: client_sha.to_owned(), source: client_url.to_owned(),
-    }));
+    data.insert(
+        "BINPATCH".into(),
+        BoundValue::VerifiedInstallerEntry(InstallerEntryEvidence {
+            installer: installer.clone(),
+            installer_sha1: FORGE_INSTALLER_SHA1.into(),
+            entry: "data/client.lzma".into(),
+            extracted: patch_file,
+            extracted_sha1: binpatch_sha,
+            report: patch_report,
+        }),
+    );
+    data.insert(
+        "MINECRAFT_JAR".into(),
+        BoundValue::VerifiedExternal(VerifiedProcessorJar {
+            coordinate: format!("net.minecraft:client:{FORGE_MC}"),
+            path: minecraft_client,
+            sha1: client_sha.to_owned(),
+            source: client_url.to_owned(),
+        }),
+    );
     for (key, rel) in [
         ("MAPPINGS", "generated/mappings.txt"),
         ("MC_SLIM", "generated/client-slim.jar"),
@@ -373,21 +439,36 @@ pub fn prepare_official_windows_1165(
         pack_archive_sha256: archive_sha256.to_owned(),
     };
     let executed = VerifiedProcessorExecution::run_official_windows_1165(
-        &selection, &installer, &profile_json, &derived, &bindings, &java_sha,
-        explicitly_approved_host_execution, cancelled,
-    ).map_err(|e| format!("official Forge processor execution refused/failed: {e}"))?;
+        &selection,
+        &installer,
+        &profile_json,
+        &derived,
+        &bindings,
+        &java_sha,
+        explicitly_approved_host_execution,
+        cancelled,
+    )
+    .map_err(|e| format!("official Forge processor execution refused/failed: {e}"))?;
     // Source-empty artifacts can only be extracted from this already checksum-
     // pinned installer (or produced with matching official output hash).
     let mut generated = Vec::new();
-    for req in audit.profile_libraries.iter().chain(audit.derived_libraries.iter()) {
+    for req in audit
+        .profile_libraries
+        .iter()
+        .chain(audit.derived_libraries.iter())
+    {
         if matches!(&req.source, SourceRequirement::VerifiedInstallerOrGenerated) {
-            let dest = exec_stage.join("libraries").join(
-                crate::safe_path(&req.relative_path).map_err(|e| e.to_string())?
-            );
+            let dest = exec_stage
+                .join("libraries")
+                .join(crate::safe_path(&req.relative_path).map_err(|e| e.to_string())?);
             if fs::symlink_metadata(&dest).is_err() {
                 extract_verified_entry(
-                    &installer, &format!("maven/{}", req.relative_path), &dest,
-                    Some(&req.sha1), Some(req.size_bytes), MAX_LIB,
+                    &installer,
+                    &format!("maven/{}", req.relative_path),
+                    &dest,
+                    Some(&req.sha1),
+                    Some(req.size_bytes),
+                    MAX_LIB,
                 )?;
             }
             verify(&dest, &req.sha1, Some(req.size_bytes), MAX_LIB)?;
@@ -404,9 +485,15 @@ pub fn prepare_official_windows_1165(
     let mut maven = artifact_map.into_values().collect::<Vec<_>>();
     maven.sort_by(|a, b| a.coordinate.cmp(&b.coordinate));
     Ok(PreparedOfficialForge {
-        selection, profile_json, derived, parent: version,
-        execution: executed, java: VerifiedForgeJava {
-            executable: java_path.to_owned(), sha1: java_sha, major: 8,
+        selection,
+        profile_json,
+        derived,
+        parent: version,
+        execution: executed,
+        java: VerifiedForgeJava {
+            executable: java_path.to_owned(),
+            sha1: java_sha,
+            major: 8,
         },
         maven,
         generated,
@@ -420,13 +507,25 @@ mod tests {
     fn no_host_execution_without_consent_and_release_adapter() {
         let dir = tempfile::tempdir().unwrap();
         let no_consent = prepare_official_windows_1165(
-            &"a".repeat(64), "1.16.5", "36.2.29", "pack-test-0001",
-            dir.path(), &dir.path().join("java.exe"), false, &AtomicBool::new(false),
+            &"a".repeat(64),
+            "1.16.5",
+            "36.2.29",
+            "pack-test-0001",
+            dir.path(),
+            &dir.path().join("java.exe"),
+            false,
+            &AtomicBool::new(false),
         );
         assert!(no_consent.is_err());
         let unsupported = prepare_official_windows_1165(
-            &"a".repeat(64), "1.20.1", "47.3.0", "pack-test-0001",
-            dir.path(), &dir.path().join("java.exe"), true, &AtomicBool::new(false),
+            &"a".repeat(64),
+            "1.20.1",
+            "47.3.0",
+            "pack-test-0001",
+            dir.path(),
+            &dir.path().join("java.exe"),
+            true,
+            &AtomicBool::new(false),
         );
         assert!(unsupported.is_err());
     }

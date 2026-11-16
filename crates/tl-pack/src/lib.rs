@@ -3,9 +3,9 @@
 pub mod artifact_audit;
 pub mod curseforge;
 pub mod fingerprint;
-pub mod forge_publish;
 #[cfg(windows)]
 pub mod forge_official;
+pub mod forge_publish;
 pub mod forge_stage;
 pub mod install;
 pub mod instance_manifest;
