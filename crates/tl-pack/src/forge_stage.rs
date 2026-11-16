@@ -27,7 +27,10 @@ pub struct ForgeStageAssembly {
 fn safe_ancestors(path: &Path) -> Result<(), String> {
     for part in path.ancestors() {
         if fs::symlink_metadata(part).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err(format!("symlinked Forge stage/cache path: {}", path.display()));
+            return Err(format!(
+                "symlinked Forge stage/cache path: {}",
+                path.display()
+            ));
         }
     }
     Ok(())
@@ -47,11 +50,16 @@ fn verify_bytes(path: &Path, sha1: &str, size: u64) -> Result<(), String> {
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         sha.update(&buf[..n]);
     }
     if format!("{:x}", sha.finalize()) != sha1.to_ascii_lowercase() {
-        return Err(format!("official file checksum mismatch: {}", path.display()));
+        return Err(format!(
+            "official file checksum mismatch: {}",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -81,13 +89,12 @@ fn copy_verified(
         .create_new(true)
         .open(&target)
         .map_err(|e| e.to_string())?;
-    let copy_result = std::io::copy(&mut input, &mut output)
-        .and_then(|count| {
-            if count != bytes {
-                return Err(std::io::Error::other("partial cache copy"));
-            }
-            output.sync_all()
-        });
+    let copy_result = std::io::copy(&mut input, &mut output).and_then(|count| {
+        if count != bytes {
+            return Err(std::io::Error::other("partial cache copy"));
+        }
+        output.sync_all()
+    });
     if let Err(e) = copy_result {
         drop(output);
         let _ = fs::remove_file(&target);
@@ -112,14 +119,21 @@ pub fn assemble_forge_stage(
         || stage == mojang_cache
         || stage.starts_with(mojang_cache)
         || mojang_cache.starts_with(stage)
-        || !stage.file_name().and_then(|x| x.to_str()).is_some_and(|s| s.ends_with(".staging"))
+        || !stage
+            .file_name()
+            .and_then(|x| x.to_str())
+            .is_some_and(|s| s.ends_with(".staging"))
         || !fs::symlink_metadata(stage).is_ok_and(|m| m.file_type().is_dir())
     {
-        return Err("existing private pack stage and distinct absolute Mojang cache required".into());
+        return Err(
+            "existing private pack stage and distinct absolute Mojang cache required".into(),
+        );
     }
     safe_ancestors(stage)?;
     safe_ancestors(mojang_cache)?;
-    if forge.instance_ready || forge.game_launched || !forge.execution_verified
+    if forge.instance_ready
+        || forge.game_launched
+        || !forge.execution_verified
         || forge.processor_count != 4
         || forge.minecraft_version != mojang_parent["id"]
         || forge.java8_launch_version["inheritsFrom"] != forge.minecraft_version
@@ -141,28 +155,38 @@ pub fn assemble_forge_stage(
     }
     let plan = plan_version(mojang_parent, mojang_cache, &Environment::current())
         .map_err(|e| e.to_string())?;
-    let index = plan.iter()
+    let index = plan
+        .iter()
         .find(|f| f.role == FileRole::AssetIndex)
         .ok_or("Mojang asset index missing")?;
-    let index_json = serde_json::from_slice(
-        &fs::read(&index.target).map_err(|e| e.to_string())?
-    ).map_err(|e| format!("Mojang asset index unreadable: {e}"))?;
+    let index_json = serde_json::from_slice(&fs::read(&index.target).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("Mojang asset index unreadable: {e}"))?;
     let assets = plan_asset_objects(&index_json, mojang_cache).map_err(|e| e.to_string())?;
     let mut installed = 0usize;
     for entry in plan.iter().chain(&assets) {
-        if cancel.load(Ordering::Relaxed) { return Err("cancelled during cache assembly".into()); }
-        let relative = entry.target.strip_prefix(mojang_cache)
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled during cache assembly".into());
+        }
+        let relative = entry
+            .target
+            .strip_prefix(mojang_cache)
             .map_err(|_| "Minecraft cached path escaped root")?
-            .to_str().ok_or("invalid cached path encoding")?
+            .to_str()
+            .ok_or("invalid cached path encoding")?
             .replace('\\', "/");
         let expected = entry.size.unwrap_or(
-            fs::metadata(&entry.target).map_err(|e| e.to_string())?.len()
+            fs::metadata(&entry.target)
+                .map_err(|e| e.to_string())?
+                .len(),
         );
         copy_verified(&entry.target, stage, &relative, &entry.sha1, expected)?;
         installed += 1;
         if entry.role == FileRole::ClientJar {
             let id = &forge.derived_version_id;
-            if !id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b)) {
+            if !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b))
+            {
                 return Err("unsafe derived Forge version identifier".into());
             }
             // Inherited Forge uses parent Minecraft's official client bytes,
@@ -172,7 +196,9 @@ pub fn assemble_forge_stage(
         }
     }
     for entry in &forge.libraries {
-        if cancel.load(Ordering::Relaxed) { return Err("cancelled during Forge library assembly".into()); }
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled during Forge library assembly".into());
+        }
         copy_verified(
             &entry.path,
             stage,
@@ -184,7 +210,9 @@ pub fn assemble_forge_stage(
     // The native extractor takes verified official Windows archives and must
     // refuse an occupied target, so existing world/game files are never replaced.
     let natives = stage.join("natives");
-    if natives.exists() { return Err("native extraction destination occupied".into()); }
+    if natives.exists() {
+        return Err("native extraction destination occupied".into());
+    }
     extract_natives(&cached.native_archives, &natives)
         .map_err(|e| format!("Windows natives extraction failed: {e}"))?;
     Ok(ForgeStageAssembly {
@@ -210,7 +238,10 @@ mod tests {
         copy_verified(&input, &stage, "libraries/library.jar", &sha, 8).unwrap();
         fs::write(stage.join("libraries/library.jar"), b"tampered").unwrap();
         assert!(copy_verified(&input, &stage, "libraries/library.jar", &sha, 8).is_err());
-        assert_eq!(fs::read(stage.join("libraries/library.jar")).unwrap(), b"tampered");
+        assert_eq!(
+            fs::read(stage.join("libraries/library.jar")).unwrap(),
+            b"tampered"
+        );
         assert!(copy_verified(&input, &stage, "../escape", &sha, 8).is_err());
     }
 
@@ -237,9 +268,13 @@ mod tests {
         };
         let cache = stage.join("official-cache");
         assert!(assemble_forge_stage(
-            &stage, &cache, &serde_json::json!({"id":"1.16.5"}),
-            &empty, &AtomicBool::new(false)
-        ).is_err());
+            &stage,
+            &cache,
+            &serde_json::json!({"id":"1.16.5"}),
+            &empty,
+            &AtomicBool::new(false)
+        )
+        .is_err());
         assert!(!cache.exists());
     }
 }
