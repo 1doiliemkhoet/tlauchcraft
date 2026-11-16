@@ -77,6 +77,8 @@ pub enum ForgeLibraryOrigin {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifiedForgeLibrary {
     pub coordinate: String,
+    /// Official immutable Maven-relative destination under Chat 4's new instance.
+    pub relative_path: String,
     pub path: PathBuf,
     pub official_sha1: String,
     pub size_bytes: u64,
@@ -407,6 +409,7 @@ pub fn verify_forge_runtime_for_pack(
                     ))
                 })?;
                 if !matches!(evidence.origin, ForgeLibraryOrigin::VerifiedInstallerOrProcessor)
+                    || evidence.relative_path != requirement.relative_path
                     || evidence.size_bytes != requirement.size_bytes
                     || !evidence.official_sha1.eq_ignore_ascii_case(&requirement.sha1)
                     || !path_is_within(&request.stage_root, &evidence.path)
@@ -421,6 +424,7 @@ pub fn verify_forge_runtime_for_pack(
         checked_file(path, requirement)?;
         libraries.push(VerifiedForgeLibrary {
             coordinate: requirement.coordinate.clone(),
+            relative_path: requirement.relative_path.clone(),
             path: path.clone(),
             official_sha1: requirement.sha1.clone(),
             size_bytes: requirement.size_bytes,
