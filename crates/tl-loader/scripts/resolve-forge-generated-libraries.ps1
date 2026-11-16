@@ -53,7 +53,10 @@ if ($profile.minecraft -ne '1.16.5' -or
     @($stage -split '[\\/]' | Where-Object { $_ -match '^(?i:worlds|saves|profiles|instances|\.minecraft)$' }).Count -gt 0) {
  Deny 'Not a matching approved private Forge processor stage'
 }
-if (Test-Path -LiteralPath $NewEvidenceJson) { Deny 'Evidence must be new, never overwrite' }
+$newEvidence=[IO.Path]::GetFullPath($NewEvidenceJson)
+if (-not $newEvidence.StartsWith($stage.TrimEnd([char[]]@('\','/'))+'\',[StringComparison]::OrdinalIgnoreCase) -or
+    [IO.Path]::GetDirectoryName($newEvidence) -cne $stage) { Deny 'Evidence output must be a new file directly inside the private stage' }
+if (Test-Path -LiteralPath $newEvidence) { Deny 'Evidence must be new, never overwrite' }
 $requirements=@()
 foreach($lib in @($profile.libraries)+@($derived.libraries)) {
  if ([string]$lib.downloads.artifact.url -ne '') { continue }
@@ -102,6 +105,6 @@ $evidence=[ordered]@{
  game_launched=$false
  java_executed_by_this_step=$false
 }
-[IO.File]::WriteAllText(([IO.Path]::GetFullPath($NewEvidenceJson)),($evidence | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText($newEvidence,($evidence | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
 $evidence | ConvertTo-Json -Depth 8
 if (-not $ready) { exit 2 }
