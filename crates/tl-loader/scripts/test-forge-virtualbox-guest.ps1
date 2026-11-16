@@ -56,7 +56,7 @@ try {
   Check 'guest_additions_shared_folder_inspection_available' (Test-Path -LiteralPath $vboxControl -PathType Leaf) 'VBoxControl.exe is needed to independently query guest shared folders'
   $sharedOutput=(& $vboxControl sharedfolder list 2>&1 | Out-String)
   $vboxExit=$LASTEXITCODE
-  $reportedEmpty=($sharedOutput -match '(?im)no shared folders|0 shared folders|0 mappings|0 shared folder mappings|Shared Folder mappings \(0\)' -or ($sharedOutput -match '(?im)^\s*Shared Folders:\s*0\s*
+  $reportedEmpty=($sharedOutput -match '(?im)No Shared Folders available|Shared Folder mappings \\(0\\):|0 shared folders|0 mappings')
   Check 'guest_no_host_shared_mounts' ($mounts.Count -eq 0 -and $mapped -notmatch '(?i)\\\\VBOXSVR|\\\\VBOXSRV' -and $vboxExit -eq 0 -and $reportedEmpty) "mapped_drive_count=$($mounts.Count);VBoxControl_exit=$vboxExit;no_share_report=$reportedEmpty"
   [void][IO.Directory]::CreateDirectory($root)
   $stage=Join-Path $root 'stage-forge-preflight'
@@ -83,9 +83,18 @@ try {
   # Harmless Windows PowerShell grandchild without network access or Java.
   $powershell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $marker=Join-Path $stage 'child.pid'
-  $childScript='$p=Start-Process -FilePath $env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe -ArgumentList @(''-NoProfile'',''-Command'',''Start-Sleep -Seconds 60'') -PassThru -WindowStyle Hidden; [IO.File]::WriteAllText('''+$marker.Replace("'","''")+''',$p.Id.ToString()); Start-Sleep -Seconds 60'
+  $grandchild=Join-Path $stage 'grandchild.ps1'
+  $driver=Join-Path $stage 'driver.ps1'
+  [IO.File]::WriteAllText($grandchild,'Start-Sleep -Seconds 60',(New-Object Text.UTF8Encoding($false)))
+  $driverText=@'
+param([string]$Grandchild,[string]$Marker)
+$p=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile','-NonInteractive','-File',$Grandchild) -PassThru -WindowStyle Hidden
+[IO.File]::WriteAllText($Marker,$p.Id.ToString())
+Start-Sleep -Seconds 60
+'@
+  [IO.File]::WriteAllText($driver,$driverText,(New-Object Text.UTF8Encoding($false)))
   $timedOut=$false
-  try { [void][ForgeJobProcess]::Run($powershell,([string[]]@('-NoProfile','-NonInteractive','-Command',$childScript)),$stage,5000) }
+  try { [void][ForgeJobProcess]::Run($powershell,([string[]]@('-NoProfile','-NonInteractive','-File',$driver,$grandchild,$marker)),$stage,5000) }
   catch [TimeoutException] { $timedOut=$true }
   Check 'job_timeout' $timedOut 'Native JobObject 5000ms timeout triggered'
   Check 'job_descendant_observed' (Test-Path -LiteralPath $marker -PathType Leaf) 'Grandchild PID marker written before timeout'
