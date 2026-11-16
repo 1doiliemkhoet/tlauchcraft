@@ -112,7 +112,7 @@ pub fn import_restricted_mod(
     }
     // Hard links (not rename) provide a no-clobber publication into staging.
     // The private temp remains until this succeeds; never overwrite on Windows.
-    if let Err(_) = fs::hard_link(&partial, &target) {
+    if fs::hard_link(&partial, &target).is_err() {
         let _ = fs::remove_file(&partial);
         return Err("manual import atomic no-clobber publish failed".into());
     }
