@@ -203,8 +203,15 @@ fn collect_verified_natives(root: &Path) -> Result<Vec<VerifiedOverride>, String
     if files.is_empty() {
         return Err("native DLL inventory empty".into());
     }
-    files.sort_by(|a, b| a.relative_path.to_ascii_lowercase().cmp(&b.relative_path.to_ascii_lowercase()));
-    if files.windows(2).any(|w| w[0].relative_path.eq_ignore_ascii_case(&w[1].relative_path)) {
+    files.sort_by(|a, b| {
+        a.relative_path
+            .to_ascii_lowercase()
+            .cmp(&b.relative_path.to_ascii_lowercase())
+    });
+    if files
+        .windows(2)
+        .any(|w| w[0].relative_path.eq_ignore_ascii_case(&w[1].relative_path))
+    {
         return Err("native DLL filename collision".into());
     }
     Ok(files)
