@@ -6,7 +6,7 @@ use crate::{
     forge_1165::{forge_1165_client_blueprint, merge_forge_1165_version},
     forge_provenance::{audit_official_forge_metadata, ArtifactRequirement, SourceRequirement},
     loader_runtime::{verification_from_execution, RuntimeState},
-    runtime::{ProcessorRunReport, ProcessorRunRequest, VerifiedProcessorJar},
+    runtime::{ProcessorRunReport, ProcessorRunRequest},
     LoaderError, LoaderKind,
 };
 use serde::{Deserialize, Serialize};
