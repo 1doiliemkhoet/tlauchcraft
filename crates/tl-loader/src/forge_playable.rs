@@ -47,6 +47,42 @@ impl PackForgeSelection {
         Ok(())
     }
 
+    /// Consume Chat 4's *verified staged instance* manifest directly. Never
+    /// infer the Forge version from the pack name, filename or a fixture.
+    /// This representation is produced after Chat4 verifies every required mod
+    /// archive hash and persists the create-new non-READY marker.
+    pub fn from_chat4_staged_manifest(manifest: &Value) -> Result<Self, LoaderError> {
+        let pack = manifest.get("pack").ok_or(LoaderError::InvalidInput)?;
+        if manifest["schema_version"].as_u64() != Some(1)
+            || manifest["ready"] != false
+            || manifest["state"] != "AWAITING_LOADER_VERIFICATION"
+            || pack["files"].as_array().is_none_or(Vec::is_empty)
+        {
+            return Err(LoaderError::InvalidMetadata(
+                "Chat4 verified nonready staged pack manifest required".into(),
+            ));
+        }
+        let required = pack["files"].as_array().ok_or(LoaderError::InvalidInput)?
+            .iter().filter(|f| f["required"] == true).count();
+        if manifest["required_verified"].as_u64() != Some(required as u64) {
+            return Err(LoaderError::InvalidMetadata(
+                "Chat4 required mod files not yet verified".into(),
+            ));
+        }
+        let pick = |field: &str| -> Result<String, LoaderError> {
+            pack[field].as_str().map(str::to_owned)
+                .ok_or_else(|| LoaderError::InvalidMetadata(format!("missing pack field: {field}")))
+        };
+        let result = Self {
+            minecraft_version: pick("minecraft_version")?,
+            loader_kind: pick("loader")?,
+            forge_version: pick("loader_version")?,
+            pack_archive_sha256: pick("archive_sha256")?,
+        };
+        result.validate()?;
+        Ok(result)
+    }
+
     pub fn version_id(&self) -> Result<String, LoaderError> {
         self.validate()?;
         Ok(format!(
@@ -410,6 +446,27 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn actual_chat4_staged_manifest_decides_forge_version_not_pack_title() {
+        let pack = serde_json::json!({
+            "schema_version":1, "state":"AWAITING_LOADER_VERIFICATION", "ready":false,
+            "required_verified":1, "pack":{
+                "name":"not-a-forge-version", "minecraft_version":"1.16.5",
+                "loader":"forge", "loader_version":"36.2.29",
+                "archive_sha256":"b".repeat(64),
+                "files":[{"target":"mods/example.jar","required":true}]
+            }
+        });
+        let selected=PackForgeSelection::from_chat4_staged_manifest(&pack).unwrap();
+        assert_eq!(selected.version_id().unwrap(),"1.16.5-forge-36.2.29");
+        let mut tampered=pack.clone();
+        tampered["pack"]["loader_version"]=serde_json::json!("36.2.34");
+        assert!(PackForgeSelection::from_chat4_staged_manifest(&tampered).is_ok());
+        let mut incomplete=pack;
+        incomplete["required_verified"]=serde_json::json!(0);
+        assert!(PackForgeSelection::from_chat4_staged_manifest(&incomplete).is_err());
+    }
+
     #[test]
     fn staging_artifacts_require_strict_official_digest_and_size() {
         let root =
