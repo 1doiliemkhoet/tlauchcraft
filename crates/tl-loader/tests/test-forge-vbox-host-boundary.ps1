@@ -41,17 +41,43 @@ try {
       $hostSource -match [regex]::Escape('@(''guestcontrol'',$Vm,''run'')')) {
     throw 'Guest audit must use detached start and bounded receipt polling, not unsupported stdout waiting'
   }
-  # 2026-11-16 real Windows WER: native guestcontrol start caused a host
-  # powershell.exe AppHangB1. The native start command must be isolated
-  # behind a killable child process with a bounded host-side wait.
-  if ($hostSource -notmatch [regex]::Escape('Start-Process -FilePath $VBoxManage') -or
+  # The real Windows PowerShell host previously hung (WER AppHangB1).
+  # The Start-Process -PassThru wrapper can also return null ExitCode when
+  # streams are redirected. Use .NET Process with async pipe readers and
+  # bounded wait, never synchronous native/pipeline guestcontrol start.
+  if ($hostSource -notmatch [regex]::Escape('$startProcess=New-Object System.Diagnostics.Process') -or
+      $hostSource -notmatch [regex]::Escape('$startInfo.RedirectStandardOutput=$true') -or
+      $hostSource -notmatch [regex]::Escape('$startInfo.RedirectStandardError=$true') -or
+      $hostSource -notmatch [regex]::Escape('$startProcess.StandardOutput.ReadToEndAsync()') -or
       $hostSource -notmatch [regex]::Escape('$startProcess.WaitForExit(35000)') -or
       $hostSource -notmatch [regex]::Escape('$startProcess.Kill()') -or
+      $hostSource -notmatch [regex]::Escape('$startExitCode=[int]$startProcess.ExitCode') -or
       $hostSource -notmatch [regex]::Escape('VBOX_GUEST_START_TIMEOUT') -or
       $hostSource -notmatch [regex]::Escape('guest-start-stderr.txt') -or
+      $hostSource -match [regex]::Escape('Start-Process -FilePath $VBoxManage') -or
       $hostSource -match [regex]::Escape('try { $guestRunOutput=@(VBox $run) }')) {
-    throw 'Guest start lacks local hard timeout or still blocks in native VBoxManage invocation'
+    throw 'Guest start process handle, native exit-code capture, hard timeout or async output missing'
   }
+  # Real process/redirect/exit-code smoke: this never accesses the VM/Java.
+  $probe=New-Object System.Diagnostics.Process
+  $probeInfo=New-Object System.Diagnostics.ProcessStartInfo
+  $probeInfo.FileName=Join-Path $env:SystemRoot 'System32\cmd.exe'
+  $probeInfo.Arguments='/d /c exit 7'
+  $probeInfo.UseShellExecute=$false
+  $probeInfo.CreateNoWindow=$true
+  $probeInfo.RedirectStandardOutput=$true
+  $probeInfo.RedirectStandardError=$true
+  $probe.StartInfo=$probeInfo
+  try {
+    if (-not $probe.Start()) { throw 'ProcessStartInfo probe did not start' }
+    $probeStdout=$probe.StandardOutput.ReadToEndAsync()
+    $probeStderr=$probe.StandardError.ReadToEndAsync()
+    if (-not $probe.WaitForExit(5000)) {
+      $probe.Kill()
+      throw 'ProcessStartInfo probe timed out'
+    }
+    if ([int]$probe.ExitCode -ne 7) { throw "ProcessStartInfo lost exit code: $($probe.ExitCode)" }
+  } finally { $probe.Dispose() }
   $capture=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-guest-capture.ps1') -Raw
   if ($capture -notmatch [regex]::Escape('Start-Process -FilePath $powershell') -or
       $capture -notmatch [regex]::Escape('-RedirectStandardError $stderr') -or
