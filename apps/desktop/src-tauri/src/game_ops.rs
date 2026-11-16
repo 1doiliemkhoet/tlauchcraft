@@ -140,7 +140,7 @@ fn valid_installed_version(i:&GameInstance,version:&Value)->bool {
                 version["id"]==format!("{}-forge-{v}",i.minecraft_version)
                     && version["inheritsFrom"]==i.minecraft_version
                     && version["mainClass"].as_str().is_some_and(|s| !s.is_empty())
-                    && tl_game::required_java(version).is_ok()
+                    && tl_game::required_java(version).is_ok_and(|major| (8..=25).contains(&major))
             }),
         _=>false
     }
