@@ -9,6 +9,7 @@ pub mod instance_manifest;
 pub mod modrinth;
 pub mod normalized;
 pub mod publisher;
+pub mod staged_receipt;
 pub mod transaction;
 pub mod validation;
 use serde::{Deserialize, Serialize};
