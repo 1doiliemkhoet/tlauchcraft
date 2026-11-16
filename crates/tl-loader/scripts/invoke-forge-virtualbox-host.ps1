@@ -93,7 +93,10 @@ try {
   foreach ($file in @($source,$job,$hostPath)) {
     if (-not [IO.File]::Exists($file)) { Fail "Host input absent: $([IO.Path]::GetFileName($file))" }
     Write-Output "VBOX_COPY_TO: $([IO.Path]::GetFileName($file))"
-    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--verbose','--no-replace',("--target-directory=$guest"),$file)) | Out-Null
+    # A unique fresh guest run directory already prevents collisions. On VBox 7.2,
+    # --no-replace with --target-directory may reject the directory itself.
+    # Keep detailed diagnostics; the only target is this new UUID directory.
+    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--verbose',("--target-directory=$guest"),$file)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
   $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
