@@ -31,7 +31,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let profile = fs::read_to_string(&argv[2])?;
     let derived = read_json(&argv[3])?;
     let parent = read_json(&argv[4])?;
-    let approved: PrepareReport = serde_json::from_slice(&fs::read(&argv[5])?)?;
+    // Accept the exact JSON produced by forge_cache_preflight (which calls
+    // the field processor_plan), or a raw trusted PrepareReport. No preflight
+    // alone can pass the later execution/finished-JAR integrity gates.
+    let approval_json = read_json(&argv[5])?;
+    let approved: PrepareReport = if let Some(preflight) = approval_json.get("prepare") {
+        serde_json::from_value(serde_json::json!({
+            "state":preflight["state"],
+            "request":preflight["processor_plan"],
+            "unresolved":preflight["unresolved"],
+            "error":preflight["error"]
+        }))?
+    } else {
+        serde_json::from_value(approval_json)?
+    };
     let execution: ProcessorRunReport = serde_json::from_slice(&fs::read(&argv[6])?)?;
     let roots: Vec<PathBuf> = serde_json::from_slice(&fs::read(&argv[7])?)?;
     let request = approved
