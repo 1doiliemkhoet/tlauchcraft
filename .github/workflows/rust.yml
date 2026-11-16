@@ -64,6 +64,9 @@ jobs:
       - name: VirtualBox evidence fail-closed regression (no VM/Java)
         shell: pwsh
         run: ./crates/tl-loader/tests/test-forge-vbox-evidence.ps1
+      - name: Forge P0 manifest/processor approval negative regression (no Java)
+        shell: pwsh
+        run: ./crates/tl-loader/tests/test-forge-p0-runtime.ps1
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
