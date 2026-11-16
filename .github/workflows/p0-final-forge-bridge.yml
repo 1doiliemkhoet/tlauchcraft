@@ -1,0 +1,89 @@
+name: P0 Forge Bridge Windows
+
+on:
+  push:
+    branches:
+      - feat/p0-final-playable-bridge
+  pull_request:
+    branches:
+      - integration/p0-playable-single-run
+    paths:
+      - 'crates/**'
+      - 'apps/desktop/**'
+      - 'Cargo.lock'
+      - '.github/workflows/p0-final-forge-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-forge-bridge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Windows Rustfmt, locked Clippy and workspace tests
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check locked dependency graph
+        run: cargo metadata --locked --format-version 1 --no-deps
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check lints (all workspace targets)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run locked workspace tests
+        run: cargo test --locked --workspace --all-targets
+
+  desktop:
+    name: Windows Desktop, Tauri checks and one NSIS artifact
+    needs: rust
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      - name: Frontend unit tests
+        working-directory: apps/desktop
+        run: npm test
+      - name: Frontend typecheck and build
+        working-directory: apps/desktop
+        run: npm run build
+      - name: Tauri locked metadata and compile
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo metadata --locked --format-version 1 --no-deps
+          cargo check --locked
+      - name: Tauri Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --locked
+      - name: Build Windows NSIS from this exact source commit
+        working-directory: apps/desktop
+        run: npm run tauri -- build --bundles nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P0-Forge-Bridge-NSIS-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
