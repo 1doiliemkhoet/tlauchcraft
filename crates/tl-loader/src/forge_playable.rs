@@ -27,6 +27,14 @@ pub struct PackForgeSelection {
     pub pack_archive_sha256: String,
 }
 
+/// Java 8 executable identity reverified from bytes before a Chat 4 handoff.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedForgeJava {
+    pub executable: PathBuf,
+    pub sha1: String,
+    pub major: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ForgeLibraryOrigin {
     /// Remote-sourceable library with canonical URL + official digest.
@@ -56,6 +64,7 @@ pub struct ForgeRuntimeReceipt {
     pub forge_version: String,
     pub derived_version_id: String,
     pub required_java_major: u32,
+    pub verified_java_sha1: String,
     pub stage_root: PathBuf,
     pub processor_count: usize,
     pub libraries: Vec<VerifiedForgeLibrary>,
@@ -139,6 +148,7 @@ pub fn verify_forge_runtime_for_pack(
     mojang_parent: &Value,
     request: &ProcessorRunRequest,
     execution: &ProcessorRunReport,
+    java_evidence: &VerifiedForgeJava,
     official_maven: &[VerifiedProcessorJar],
     installer_or_generated: &[VerifiedForgeLibrary],
 ) -> Result<ForgeRuntimeReceipt, LoaderError> {
@@ -149,9 +159,22 @@ pub fn verify_forge_runtime_for_pack(
         || !request.stage_root.is_dir()
         || !request.java.is_absolute()
         || !request.java.is_file()
+        || java_evidence.major != 8
+        || java_evidence.executable != request.java
+        || java_evidence.sha1.len() != 40
+        || !java_evidence.sha1.bytes().all(|b| b.is_ascii_hexdigit())
         || mojang_parent["id"] != selected.minecraft_version
     {
         return Err(LoaderError::InvalidInput);
+    }
+    crate::runtime::verify_sha1(&request.java, &java_evidence.sha1)?;
+    if !request.stage_root.join(".tl-loader-stage").is_file() {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    if execution.log_paths.len() != 8 || execution.log_paths.iter().any(|path| {
+        !path.starts_with(&request.stage_root) || !path.is_file()
+    }) {
+        return Err(LoaderError::NeedsInstallerExecution);
     }
     let expected_order = [
         "net.minecraftforge:installertools:1.2.6",
@@ -259,6 +282,7 @@ pub fn verify_forge_runtime_for_pack(
         forge_version: selected.forge_version.clone(),
         derived_version_id: audit.derived_version,
         required_java_major: 8,
+        verified_java_sha1: java_evidence.sha1.to_ascii_lowercase(),
         stage_root: request.stage_root.clone(),
         processor_count: 4,
         libraries,
@@ -318,7 +342,9 @@ mod tests {
         };
         let parent = json!({"id":"1.16.5"});
         assert!(verify_forge_runtime_for_pack(
-            &selected("36.2.29"), PROFILE, &derived, &parent, &request, &report, &[], &[]
+            &selected("36.2.29"), PROFILE, &derived, &parent, &request, &report,
+            &VerifiedForgeJava { executable: request.java.clone(), sha1: "0".repeat(40), major: 8 },
+            &[], &[]
         ).is_err());
         assert!(!root.exists());
     }
