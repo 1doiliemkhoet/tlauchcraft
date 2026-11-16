@@ -20,6 +20,12 @@ try {
   try { & $script -Vm 'AI-SOC-LAB' -GuestUser 'vboxuser' -VBoxManage $mock | Out-Null }
   catch { $denied=$_.Exception.Message -match 'Only the Control-reviewed win10 VM' }
   if (-not $denied) { throw 'Unapproved VM name not rejected' }
+  foreach ($name in @('test-forge-virtualbox-guest.ps1','invoke-forge-virtualbox-host.ps1')) {
+    $file=Join-Path $PSScriptRoot "../scripts/$name"
+    $tokens=$null; $errors=$null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors)
+    if (@($errors).Count -ne 0) { throw "PowerShell syntax invalid in $name : $($errors|Out-String)" }
+  }
   $guest=Get-Content (Join-Path $PSScriptRoot '../scripts/test-forge-virtualbox-guest.ps1') -Raw
   if ($guest -notmatch 'VM_PREFLIGHT_FAILED_NO_JAVA' -or
       $guest -notmatch 'VM_PREFLIGHT_PASS_NO_JAVA' -or
