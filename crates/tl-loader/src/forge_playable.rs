@@ -156,9 +156,15 @@ fn valid_sha256(value: &str) -> bool {
 
 fn checked_file(path: &Path, requirement: &ArtifactRequirement) -> Result<(), LoaderError> {
     let metadata = fs::symlink_metadata(path).map_err(|e| {
-        LoaderError::InvalidMetadata(format!("missing Forge library {}: {e}", requirement.coordinate))
+        LoaderError::InvalidMetadata(format!(
+            "missing Forge library {}: {e}",
+            requirement.coordinate
+        ))
     })?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != requirement.size_bytes {
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() != requirement.size_bytes
+    {
         return Err(LoaderError::InvalidMetadata(format!(
             "Forge library size/type mismatch: {}", requirement.coordinate
         )));
@@ -245,7 +251,7 @@ pub fn verify_forge_runtime_for_pack(
     }
     crate::runtime::verify_sha1(&request.java, &java_evidence.sha1)?;
     let marker = request.stage_root.join(".tl-loader-stage");
-    if fs::read(&marker).ok().as_deref() != Some(b"tl-loader-forge-v1") {
+    if fs::read(&marker).ok().as_deref() != Some(&b"tl-loader-forge-v1"[..]) {
         return Err(LoaderError::NeedsInstallerExecution);
     }
     if execution.log_paths.len() != 8 || execution.log_paths.iter().any(|path| {
@@ -268,7 +274,12 @@ pub fn verify_forge_runtime_for_pack(
     }
     let official_profile: Value = serde_json::from_str(profile_json)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
-    for (index, (processor, step)) in request.processors.iter().zip(&blueprint.steps).enumerate() {
+    for (index, (processor, step)) in request
+        .processors
+        .iter()
+        .zip(&blueprint.steps)
+        .enumerate()
+    {
         if processor.executable.coordinate != step.jar
             || processor.classpath.len() != step.classpath.len()
             || !processor.classpath.iter().zip(&step.classpath).all(|(actual, expected)| {
@@ -338,7 +349,9 @@ pub fn verify_forge_runtime_for_pack(
     let mut generated = BTreeMap::new();
     for item in installer_or_generated {
         if generated.insert(item.coordinate.as_str(), item).is_some() {
-            return Err(LoaderError::InvalidMetadata("duplicate generated library evidence".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "duplicate generated library evidence".into(),
+            ));
         }
     }
     for requirement in audit.profile_libraries.iter().chain(audit.derived_libraries.iter()) {
@@ -360,9 +373,14 @@ pub fn verify_forge_runtime_for_pack(
         let (path, origin) = match &requirement.source {
             SourceRequirement::CanonicalMaven { url } => {
                 let evidence = maven.get(requirement.coordinate.as_str()).ok_or_else(|| {
-                    LoaderError::InvalidMetadata(format!("missing Maven library: {}", requirement.coordinate))
+                    LoaderError::InvalidMetadata(format!(
+                        "missing Maven library: {}",
+                        requirement.coordinate
+                    ))
                 })?;
-                if evidence.source != *url || !evidence.sha1.eq_ignore_ascii_case(&requirement.sha1) {
+                if evidence.source != *url
+                    || !evidence.sha1.eq_ignore_ascii_case(&requirement.sha1)
+                {
                     return Err(LoaderError::InvalidMetadata(format!(
                         "wrong Maven provenance: {}", requirement.coordinate
                     )));
@@ -372,7 +390,8 @@ pub fn verify_forge_runtime_for_pack(
             SourceRequirement::VerifiedInstallerOrGenerated => {
                 let evidence = generated.get(requirement.coordinate.as_str()).ok_or_else(|| {
                     LoaderError::InvalidMetadata(format!(
-                        "installer/generated Forge library still missing: {}", requirement.coordinate
+                        "installer/generated Forge library still missing: {}",
+                        requirement.coordinate
                     ))
                 })?;
                 if !matches!(evidence.origin, ForgeLibraryOrigin::VerifiedInstallerOrProcessor)
@@ -442,7 +461,12 @@ mod tests {
             validate_forge_pack_selection(&selected("36.2.34"), PROFILE, &derived),
             Err(LoaderError::CompatibilityConflict)
         ));
-        assert!(validate_forge_pack_selection(&selected("36.2.29"), PROFILE, &json!({"id":"fake"})).is_err());
+        assert!(validate_forge_pack_selection(
+            &selected("36.2.29"),
+            PROFILE,
+            &json!({"id":"fake"})
+        )
+        .is_err());
         let mut bad = selected("36.2.29");
         bad.pack_archive_sha256 = "x".repeat(64);
         assert!(validate_forge_pack_selection(&bad, PROFILE, &derived).is_err());
@@ -523,7 +547,10 @@ mod tests {
     fn plan_only_must_never_produce_execution_receipt() {
         use crate::runtime::{ProcessorOutcome, ProcessorRunReport};
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
-        let root = std::env::temp_dir().join(format!("forge-receipt-plan-only-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "forge-receipt-plan-only-{}",
+            std::process::id()
+        ));
         let request = ProcessorRunRequest {
             minecraft_version: "1.16.5".into(),
             java: root.join("java.exe"),
@@ -543,7 +570,11 @@ mod tests {
         let parent = json!({"id":"1.16.5"});
         assert!(verify_forge_runtime_for_pack(
             &selected("36.2.29"), PROFILE, &derived, &parent, &request, &report,
-            &VerifiedForgeJava { executable: request.java.clone(), sha1: "0".repeat(40), major: 8 },
+            &VerifiedForgeJava {
+                executable: request.java.clone(),
+                sha1: "0".repeat(40),
+                major: 8,
+            },
             &[], &[]
         ).is_err());
         assert!(!root.exists());
