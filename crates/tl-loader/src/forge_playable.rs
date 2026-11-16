@@ -98,10 +98,56 @@ pub struct ForgeRuntimeReceipt {
     pub stage_root: PathBuf,
     pub processor_count: usize,
     pub libraries: Vec<VerifiedForgeLibrary>,
+    /// Unmodified merged Mojang+Forge metadata for independent auditing.
     pub inherited_version: Value,
+    /// Java 8-compatible launch view; Chat 4 supplies this to tl-game.
+    pub java8_launch_version: Value,
     pub execution_verified: bool,
     pub instance_ready: bool,
     pub game_launched: bool,
+}
+
+/// Preserve official metadata for provenance but strip only Java 9+ module
+/// options from the Java 8 launch view. Forge's main class and game arguments
+/// remain unchanged. This does not launch a JVM or modify a player instance.
+pub fn forge_java8_launch_version(merged: &Value) -> Result<Value, LoaderError> {
+    if merged["mainClass"] != "cpw.mods.modlauncher.Launcher"
+        || merged["javaVersion"]["majorVersion"] != 8
+    {
+        return Err(LoaderError::CompatibilityConflict);
+    }
+    let mut launch = merged.clone();
+    let entries = launch["arguments"]["jvm"]
+        .as_array_mut()
+        .ok_or_else(|| LoaderError::InvalidMetadata("inherited JVM arguments missing".into()))?;
+    let mut filtered = Vec::new();
+    let mut skip_value = false;
+    for item in entries.iter() {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        let Some(text) = item.as_str() else {
+            // Preserve Mojang rule objects so tl-game can evaluate OS rules.
+            filtered.push(item.clone());
+            continue;
+        };
+        if matches!(text, "--add-exports" | "--add-opens" | "--add-reads" | "--add-modules") {
+            skip_value = true;
+            continue;
+        }
+        if [
+            "--add-exports=", "--add-opens=", "--add-reads=", "--add-modules="
+        ].iter().any(|prefix| text.starts_with(prefix)) {
+            continue;
+        }
+        filtered.push(item.clone());
+    }
+    if skip_value {
+        return Err(LoaderError::InvalidMetadata("trailing Java module option".into()));
+    }
+    *entries = filtered;
+    Ok(launch)
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -367,6 +413,7 @@ pub fn verify_forge_runtime_for_pack(
         stage_root: request.stage_root.clone(),
         processor_count: 4,
         libraries,
+        java8_launch_version: forge_java8_launch_version(&inherited)?,
         inherited_version: inherited,
         execution_verified: true,
         instance_ready: false,
@@ -458,6 +505,18 @@ mod tests {
         assert!(tl_game::libraries(&merged, &env).iter().any(|x| {
             x["name"] == "net.minecraftforge:forge:1.16.5-36.2.29"
         }));
+        let launch = forge_java8_launch_version(&merged).unwrap();
+        assert_eq!(tl_game::main_class(&launch).unwrap(), "cpw.mods.modlauncher.Launcher");
+        assert_eq!(tl_game::game_arguments(&launch, &env).unwrap(), game_args);
+        let launch_jvm = tl_game::jvm_arguments(&launch, &env).unwrap();
+        assert!(launch_jvm.iter().any(|x| x == "-Dparent=present"));
+        assert!(!launch_jvm.iter().any(|x| x.starts_with("--add-exports")
+            || x.starts_with("--add-opens")
+            || x.starts_with("--add-modules")));
+        assert!(forge_java8_launch_version(&json!({
+            "mainClass":"net.minecraft.Main", "javaVersion":{"majorVersion":8},
+            "arguments":{"jvm":[]}
+        })).is_err());
     }
 
     #[test]
