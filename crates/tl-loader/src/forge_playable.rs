@@ -60,6 +60,8 @@ impl PackForgeSelection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForgeInstalledArtifact {
     pub coordinate: String,
+    /// Original official download path, including zip/classifier suffix.
+    pub relative_path: String,
     pub path: PathBuf,
     pub sha1: String,
     pub size_bytes: u64,
@@ -264,6 +266,7 @@ pub fn build_forge_playable_handoff(
         }
         let item = ForgeInstalledArtifact {
             coordinate: requirement.coordinate.clone(),
+            relative_path: requirement.relative_path.clone(),
             path: target,
             sha1: requirement.sha1.clone(),
             size_bytes: requirement.size_bytes,
