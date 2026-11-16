@@ -122,25 +122,55 @@ try {
     $item=[string]$_
     if ($item -match '[\s"]') { '"' + $item.Replace('"','\"') + '"' } else { $item }
   }) -join ' '
-  $startProcess=$null
+  # Start-Process -PassThru with redirected streams may lose the process
+  # handle / report a null ExitCode on Windows. Use System.Diagnostics.Process
+  # directly so a true exit code is never silently mistaken for a failure.
+  # Read both streams asynchronously to avoid pipe-buffer deadlock.
+  $startProcess=New-Object System.Diagnostics.Process
+  $startInfo=New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName=$VBoxManage
+  $startInfo.Arguments=$startArgs
+  $startInfo.UseShellExecute=$false
+  $startInfo.CreateNoWindow=$true
+  $startInfo.RedirectStandardOutput=$true
+  $startInfo.RedirectStandardError=$true
+  $startProcess.StartInfo=$startInfo
+  $stdoutTask=$null
+  $stderrTask=$null
+  $startExitCode=$null
+  $processFinished=$false
   try {
-    $startProcess=Start-Process -FilePath $VBoxManage -ArgumentList $startArgs -RedirectStandardOutput $guestRunLog -RedirectStandardError $guestRunErr -WindowStyle Hidden -PassThru -ErrorAction Stop
-    if (-not $startProcess.WaitForExit(35000)) {
+    if (-not $startProcess.Start()) { Fail 'VBOX_GUEST_START_FAILED: could not start VBoxManage child' }
+    $stdoutTask=$startProcess.StandardOutput.ReadToEndAsync()
+    $stderrTask=$startProcess.StandardError.ReadToEndAsync()
+    $processFinished=$startProcess.WaitForExit(35000)
+    if (-not $processFinished) {
       try { $startProcess.Kill() } catch {}
-      [void]$startProcess.WaitForExit(5000)
+      $processFinished=$startProcess.WaitForExit(5000)
       Fail 'VBOX_GUEST_START_TIMEOUT: VBoxManage exceeded 35 seconds; guest status UNKNOWN; no Forge execution authorized'
     }
-    if ($startProcess.ExitCode -ne 0) {
-      $detail=''
-      if ([IO.File]::Exists($guestRunErr)) {
-        $detail=(Get-Content -LiteralPath $guestRunErr -Tail 15 -ErrorAction SilentlyContinue) -join ' | '
-      }
-      Fail "VBOX_GUEST_START_FAILED: VBoxManage exit $($startProcess.ExitCode); stderr: $detail"
-    }
-    Write-Output 'VBOX_GUEST_START_RETURNED: VBoxManage exit 0; waiting for guest receipt'
+    $startExitCode=[int]$startProcess.ExitCode
   } finally {
-    if ($null -ne $startProcess) { $startProcess.Dispose() }
+    # A child killed by the watchdog may never close both streams: do not
+    # wait indefinitely to read their tasks if termination was unsuccessful.
+    if ($null -ne $stdoutTask -and $stdoutTask.IsCompleted -and -not $stdoutTask.IsFaulted) {
+      [IO.File]::WriteAllText($guestRunLog,$stdoutTask.Result,(New-Object Text.UTF8Encoding($false)))
+    } elseif (-not [IO.File]::Exists($guestRunLog)) {
+      [IO.File]::WriteAllText($guestRunLog,'',(New-Object Text.UTF8Encoding($false)))
+    }
+    if ($null -ne $stderrTask -and $stderrTask.IsCompleted -and -not $stderrTask.IsFaulted) {
+      [IO.File]::WriteAllText($guestRunErr,$stderrTask.Result,(New-Object Text.UTF8Encoding($false)))
+    } elseif (-not [IO.File]::Exists($guestRunErr)) {
+      [IO.File]::WriteAllText($guestRunErr,'',(New-Object Text.UTF8Encoding($false)))
+    }
+    $startProcess.Dispose()
   }
+  if ($null -eq $startExitCode) { Fail 'VBOX_GUEST_START_UNKNOWN_EXIT: child exit code unavailable; no Forge execution authorized' }
+  if ($startExitCode -ne 0) {
+    $detail=(Get-Content -LiteralPath $guestRunErr -Tail 15 -ErrorAction SilentlyContinue) -join ' | '
+    Fail "VBOX_GUEST_START_FAILED: VBoxManage exit $startExitCode; stderr: $detail"
+  }
+  Write-Output 'VBOX_GUEST_START_RETURNED: VBoxManage exit 0; waiting for guest receipt'
   $guestReceiptPath=Join-Path $guest 'guest-launch-receipt.json'
   function GuestFileExists([string]$path) {
     # Absence is expected while the detached guest child is working.
