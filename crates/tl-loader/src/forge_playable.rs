@@ -13,7 +13,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -179,7 +179,7 @@ pub fn verify_forge_runtime_for_pack(
     }
     let audit = audit_official_forge_metadata(profile_json, derived)?;
     let mut libraries = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut seen = BTreeMap::<String, (String, u64, String)>::new();
     let mut maven = BTreeMap::new();
     for item in official_maven {
         if maven.insert(item.coordinate.as_str(), item).is_some() {
@@ -193,9 +193,20 @@ pub fn verify_forge_runtime_for_pack(
         }
     }
     for requirement in audit.profile_libraries.iter().chain(audit.derived_libraries.iter()) {
-        if !seen.insert(requirement.coordinate.as_str()) {
-            return Err(LoaderError::InvalidMetadata("duplicate official Forge coordinate".into()));
+        let descriptor = (
+            requirement.sha1.clone(),
+            requirement.size_bytes,
+            requirement.relative_path.clone(),
+        );
+        if let Some(previous) = seen.get(&requirement.coordinate) {
+            if previous != &descriptor {
+                return Err(LoaderError::InvalidMetadata(format!(
+                    "conflicting Forge inventory record: {}", requirement.coordinate
+                )));
+            }
+            continue;
         }
+        seen.insert(requirement.coordinate.clone(), descriptor);
         let (path, origin) = match &requirement.source {
             SourceRequirement::CanonicalMaven { url } => {
                 let evidence = maven.get(requirement.coordinate.as_str()).ok_or_else(|| {
