@@ -245,10 +245,14 @@ pub fn build_forge_playable_handoff(
     let unsafe_part = |path: &Path| {
         path.ancestors().any(|part| {
             part.is_symlink()
-                || part.file_name().and_then(|x| x.to_str()).is_some_and(|name| {
-                    ["saves", "worlds", "instances", "profiles", ".minecraft"]
-                        .iter().any(|denied| name.eq_ignore_ascii_case(denied))
-                })
+                || part
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|name| {
+                        ["saves", "worlds", "instances", "profiles", ".minecraft"]
+                            .iter()
+                            .any(|denied| name.eq_ignore_ascii_case(denied))
+                    })
         })
     };
     if unsafe_part(&processor_request.stage_root) {
