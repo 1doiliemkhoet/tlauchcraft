@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::{env, fs, fs::OpenOptions, io::Write, path::PathBuf};
 use tl_loader::{
     forge_graph::PrepareReport,
-    forge_playable::{build_forge_playable_handoff, PackForgeSelection},
+    forge_playable::{build_forge_playable_handoff, ApprovedForgeExecution, PackForgeSelection},
     runtime::ProcessorRunReport,
 };
 
@@ -39,7 +39,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .ok_or("approved processor request missing")?;
     let receipt = build_forge_playable_handoff(
-        &selection, &profile, &derived, &parent, &approved, request, &execution, &roots,
+        &selection, &profile, &derived, &parent,
+        &ApprovedForgeExecution {
+            approved_prepare: &approved,
+            request,
+            report: &execution,
+        },
+        &roots,
     )?;
     if !receipt.can_stage_new_instance || receipt.instance_ready {
         return Err("receipt did not satisfy Chat4 staged-but-not-ready contract".into());
