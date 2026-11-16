@@ -454,10 +454,22 @@ pub fn publish_forge_from_execution(
 fn is_mutable_user_config(relative: &str) -> bool {
     let path = relative.to_ascii_lowercase();
     let in_config = path.starts_with("config/") || path.starts_with("defaultconfigs/");
-    let ext_allowed = [".toml", ".cfg", ".json", ".properties", ".txt", ".yaml", ".yml"]
-        .iter()
-        .any(|ext| path.ends_with(ext));
-    (in_config && ext_allowed) || matches!(path.as_str(), "options.txt" | "optionsof.txt" | "servers.dat")
+    let ext_allowed = [
+        ".toml",
+        ".cfg",
+        ".json",
+        ".properties",
+        ".txt",
+        ".yaml",
+        ".yml",
+    ]
+    .iter()
+    .any(|ext| path.ends_with(ext));
+    (in_config && ext_allowed)
+        || matches!(
+            path.as_str(),
+            "options.txt" | "optionsof.txt" | "servers.dat"
+        )
 }
 
 fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String> {
