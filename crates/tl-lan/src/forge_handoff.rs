@@ -164,10 +164,15 @@ pub fn fingerprint_installed_pack(
                 if ty.is_dir() {
                     pending.push(entry.path());
                 } else if ty.is_file()
-                    && entry.path().extension().and_then(|v| v.to_str())
+                    && entry
+                        .path()
+                        .extension()
+                        .and_then(|v| v.to_str())
                         .is_some_and(|v| v.eq_ignore_ascii_case("jar"))
                 {
-                    let name = entry.path().strip_prefix(&base)
+                    let name = entry
+                        .path()
+                        .strip_prefix(&base)
                         .map_err(|_| LanError::InvalidInput("mod escaped instance".into()))?
                         .to_string_lossy()
                         .replace('\\', "/")
