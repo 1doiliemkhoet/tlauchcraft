@@ -38,6 +38,14 @@ pub fn java8_compatible_forge_version(
     {
         return Err(LoaderError::CompatibilityConflict);
     }
+    // Legacy 1.16.5 can omit javaVersion; an explicitly incompatible or
+    // malformed major version must never be silently rewritten to Java 8.
+    if version
+        .get("javaVersion")
+        .is_some_and(|item| item["majorVersion"].as_u64() != Some(8))
+    {
+        return Err(LoaderError::CompatibilityConflict);
+    }
     let obj = version.as_object_mut().ok_or(LoaderError::InvalidInput)?;
     obj.insert(
         "javaVersion".into(),
@@ -49,11 +57,33 @@ pub fn java8_compatible_forge_version(
         .and_then(|args| args.get_mut("jvm"))
         .and_then(Value::as_array_mut)
     {
-        items.retain(|item| {
-            !item
-                .as_str()
-                .is_some_and(|v| v.starts_with("--add-opens=") || v.starts_with("--add-exports="))
-        });
+        let mut filtered = Vec::new();
+        let mut skip_value = false;
+        for item in items.iter() {
+            if skip_value {
+                skip_value = false;
+                continue;
+            }
+            if let Some(flag) = item.as_str() {
+                if matches!(flag, "--add-opens" | "--add-exports" | "--add-reads" | "--add-modules") {
+                    skip_value = true;
+                    continue;
+                }
+                if ["--add-opens=", "--add-exports=", "--add-reads=", "--add-modules="]
+                    .iter()
+                    .any(|prefix| flag.starts_with(prefix))
+                {
+                    continue;
+                }
+            }
+            filtered.push(item.clone());
+        }
+        if skip_value {
+            return Err(LoaderError::InvalidMetadata(
+                "trailing Java 9+ module option in inherited Forge JVM arguments".into(),
+            ));
+        }
+        *items = filtered;
     }
     Ok(version)
 }
@@ -202,6 +232,11 @@ mod tests {
             valid["arguments"]["jvm"],
             json!(["-XX:+IgnoreUnrecognizedVMOptions"])
         );
+        let mut malformed = report.clone();
+        malformed.resolved_version["javaVersion"] = json!({"majorVersion":17});
+        assert!(java8_compatible_forge_version(&malformed).is_err());
+        malformed.resolved_version["javaVersion"] = json!({"majorVersion":"8"});
+        assert!(java8_compatible_forge_version(&malformed).is_err());
         let mut false_ready = report;
         false_ready.instance_ready = true;
         assert!(java8_compatible_forge_version(&false_ready).is_err());
