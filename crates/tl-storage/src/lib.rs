@@ -118,9 +118,7 @@ impl SqliteStore {
             .map_err(db_err)?
             .ok_or(CoreError::NotFound)?;
         let instance: GameInstance = decode(payload)?;
-        if instance.loader.kind != LoaderKind::Forge
-            || instance.state != InstanceState::Verifying
-        {
+        if instance.loader.kind != LoaderKind::Forge || instance.state != InstanceState::Verifying {
             return Err(CoreError::CompatibilityConflict);
         }
         tx.execute(

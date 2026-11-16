@@ -491,7 +491,6 @@ fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String>
     Ok(())
 }
 
-
 fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Result<(), String> {
     let mods_dir = root.join("mods");
     reject_symlinks(&mods_dir)?;
@@ -547,7 +546,10 @@ fn verify_receipt_anchor(bytes: &[u8], trusted_sha256: &str) -> Result<(), Strin
 
 /// Disk read is not enough to issue a publish permit. Used only at Play time,
 /// after the corresponding persisted SQLite instance is already READY.
-pub fn reverify_published_forge(root: &Path, trusted_sha256: &str) -> Result<ForgeInstallRecord, String> {
+pub fn reverify_published_forge(
+    root: &Path,
+    trusted_sha256: &str,
+) -> Result<ForgeInstallRecord, String> {
     if !root.is_absolute() {
         return Err("published Forge path must be absolute".into());
     }
@@ -695,7 +697,9 @@ mod tests {
         fs::remove_file(mods_dir.join("extra.jar")).unwrap();
         let mut case_duplicate = original.clone();
         case_duplicate.relative_path = "mods/main.JAR".into();
-        assert!(verify_exact_mod_inventory(temp.path(), &[original.clone(), case_duplicate]).is_err());
+        assert!(
+            verify_exact_mod_inventory(temp.path(), &[original.clone(), case_duplicate]).is_err()
+        );
         fs::remove_file(mods_dir.join("Main.jar")).unwrap();
         assert!(verify_exact_mod_inventory(temp.path(), &[original]).is_err());
     }
@@ -709,5 +713,4 @@ mod tests {
         assert!(verify_receipt_anchor(forged, &digest).is_err());
         assert!(verify_receipt_anchor(trusted, "").is_err());
     }
-
 }

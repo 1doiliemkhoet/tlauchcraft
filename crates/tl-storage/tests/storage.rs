@@ -315,10 +315,7 @@ fn forge_receipt_anchor_is_immutable_and_requires_verifying_intent() {
         Err(CoreError::InvalidInput)
     );
     store.insert_forge_receipt_anchor(forge.id, &sha).unwrap();
-    assert_eq!(
-        store.get_forge_receipt_anchor(forge.id).unwrap(),
-        Some(sha)
-    );
+    assert_eq!(store.get_forge_receipt_anchor(forge.id).unwrap(), Some(sha));
     assert_eq!(
         store.insert_forge_receipt_anchor(forge.id, &"b".repeat(64)),
         Err(CoreError::AlreadyExists)
