@@ -207,15 +207,64 @@ pub fn verify_forge_runtime_for_pack(
     }) {
         return Err(LoaderError::NeedsInstallerExecution);
     }
-    let expected_order = [
-        "net.minecraftforge:installertools:1.2.6",
-        "net.minecraftforge:jarsplitter:1.1.4",
-        "net.md-5:SpecialSource:1.8.5",
-        "net.minecraftforge:binarypatcher:1.0.12",
-    ];
-    for (processor, expected) in request.processors.iter().zip(expected_order) {
-        if processor.executable.coordinate != expected {
-            return Err(LoaderError::InvalidMetadata("wrong Forge processor graph/order".into()));
+    // Reconstruct the actual four-step official Forge client graph and compare
+    // every executable, ordered classpath and literal argument before accepting
+    // execution evidence supplied by the approved external runner.
+    let blueprint = crate::forge_1165::forge_1165_client_blueprint(
+        profile_json,
+        derived,
+        &selected.forge_version,
+    )?;
+    if blueprint.steps.len() != 4 {
+        return Err(LoaderError::InvalidMetadata(
+            "unsupported Forge processor graph length".into(),
+        ));
+    }
+    let official_profile: Value = serde_json::from_str(profile_json)
+        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    for (index, (processor, step)) in request.processors.iter().zip(&blueprint.steps).enumerate() {
+        if processor.executable.coordinate != step.jar
+            || processor.classpath.len() != step.classpath.len()
+            || !processor.classpath.iter().zip(&step.classpath).all(|(actual, expected)| {
+                actual.coordinate == *expected
+            })
+            || processor.arguments.len() != step.args.len()
+            || !processor.arguments.iter().zip(&step.args).all(|(actual, expected)| {
+                if expected.starts_with('{') || expected.starts_with('[') {
+                    !actual.is_empty() && !actual.contains('{') && !actual.contains('[')
+                } else {
+                    actual == expected
+                }
+            })
+        {
+            return Err(LoaderError::InvalidMetadata(format!(
+                "processor {index} differs from official executable/classpath/argument graph"
+            )));
+        }
+        crate::runtime::validate_processor(processor)?;
+        if processor.outputs.len() != step.outputs.len()
+            || processor.intermediate_outputs.len() != usize::from(step.outputs.is_empty())
+        {
+            return Err(LoaderError::InvalidMetadata(format!(
+                "processor {index} missing official outputs or intermediate dependencies"
+            )));
+        }
+        for hash_token in step.outputs.values() {
+            let key = hash_token
+                .strip_prefix('{')
+                .and_then(|x| x.strip_suffix('}'))
+                .ok_or(LoaderError::InvalidInput)?;
+            let expected_sha1 = official_profile["data"][key]["client"]
+                .as_str()
+                .ok_or(LoaderError::InvalidInput)?
+                .trim_matches('\'');
+            if !processor.outputs.iter().any(|output| {
+                output.sha1.eq_ignore_ascii_case(expected_sha1)
+            }) {
+                return Err(LoaderError::InvalidMetadata(format!(
+                    "processor {index} output hash differs from official client SHA-1"
+                )));
+            }
         }
     }
     let runtime = verification_from_execution(
