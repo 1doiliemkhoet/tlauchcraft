@@ -10,3 +10,10 @@ name = "tl_lan"
 path = "src/lib.rs"
 
 [dependencies]
+tl-core = { path = "../tl-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+tempfile = { workspace = true }

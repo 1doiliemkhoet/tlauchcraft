@@ -17,6 +17,20 @@ export type LaunchPreflight = { instance_id: string; java_path: string; required
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
 export type NewVanillaInstance = { name: string; version: string; profile_id: string };
 export type PackMetadata = { name: string; source: 'curseforge_zip' | 'modrinth_mrpack' | 'prism_zip'; game_version: string; loader: { kind: string; version: string | null }; archive_sha256: string; archive_entries: number; uncompressed_bytes: number; warnings: string[]; files: unknown[]; overrides: string[] };
+export type CurseForgeResolvedFile = {
+  project_id: number; file_id: number; required: boolean; file_name: string | null;
+  download_url: string | null; sha1: string | null; expected_size: number | null;
+  availability: 'available' | 'needs_manual_download' | 'permission_denied' | 'not_found' | 'invalid_metadata' | 'network_failure';
+  reason: string;
+};
+export type CurseForgeResolveReport = {
+  files: CurseForgeResolvedFile[]; resolved_count: number; needs_action_count: number; ready: false;
+};
+export type CurseForgeStageReport = {
+  status: 'needs_action' | 'failed' | 'cancelled';
+  installed: { project_id: number; file_id: number; relative_path: string; actual_sha256: string; bytes: number }[];
+  blocked: string[]; failures: string[]; staging_path: string; ready: false;
+};
 export const FEATURE_NAMES: Feature[] = ['profiles', 'instances', 'versions', 'modpacks', 'pack_inspection', 'skins', 'lan', 'game', 'settings', 'downloads'];
 export const EMPTY_CAPABILITIES: Capabilities = { schema_version: 1, provider: 'unavailable', features: Object.fromEntries(FEATURE_NAMES.map(f => [f, false])) as Record<Feature, boolean> };
 
@@ -59,6 +73,9 @@ export const operations = {
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
+  resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
+  stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
+  cancelPackStage: (c: Capabilities, operationId: string) => call<void>(c, 'pack_inspection', 'pack_cancel', { operationId }),
   launch: (c: Capabilities, request: LaunchRequest) => call<LaunchProcess>(c, 'game', 'game_launch', { request }),
   cancel: (c: Capabilities, operationId: string) => call<void>(c, 'downloads', 'operation_cancel', { operationId }),
   listSkins: (c: Capabilities) => call<unknown[]>(c, 'skins', 'skin_list'),

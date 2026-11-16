@@ -43,6 +43,20 @@ fn curseforge_requires_authorized_resolution() {
     );
 }
 #[test]
+fn curseforge_rejects_same_project_with_two_file_versions() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("duplicate-project.zip");
+    create_zip(
+        &path,
+        &[(
+            "manifest.json",
+            r#"{"name":"Bad","minecraft":{"version":"1.16.5","modLoaders":[{"id":"forge-36.2.34","primary":true}]},"files":[{"projectID":101,"fileID":201},{"projectID":101,"fileID":202}]}"#,
+        )],
+    );
+    assert!(inspect_archive(&path).is_err());
+}
+
+#[test]
 fn modrinth_hashes_and_side_are_parsed() {
     let temp = tempdir().unwrap();
     let input = temp.path().join("pack.mrpack");
