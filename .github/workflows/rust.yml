@@ -58,6 +58,9 @@ jobs:
       - name: Windows Maven flat-cache normalizer integrity tests (no Java)
         shell: pwsh
         run: ./crates/tl-loader/tests/test-forge-cache-normalizer.ps1
+      - name: VirtualBox host fail-closed preflight policy regression (no VM/Java)
+        shell: pwsh
+        run: ./crates/tl-loader/tests/test-forge-vbox-host-boundary.ps1
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace --all-targets
