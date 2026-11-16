@@ -204,19 +204,12 @@ fn verify_original_overrides(
         let source_path = format!("{prefix}/{relative}");
         // The normalized ZIP inspector strips a trailing slash on directory
         // entries; ZIP lookup must restore it before comparing directories.
-        let mut entry = match zip.by_name(&source_path) {
-            Ok(entry) => entry,
-            Err(_) => {
-                if !relative.ends_with('/') {
-                    // The original entry may have been a directory whose
-                    // normalized name no longer has its trailing slash.
-                    zip.by_name(&format!("{source_path}/"))
-                        .map_err(|_| "missing original override")?
-                } else {
-                    return Err("missing original override".into());
-                }
-            }
+        let zip_name = if zip.file_names().any(|name| name == source_path) {
+            source_path
+        } else {
+            format!("{source_path}/")
         };
+        let mut entry = zip.by_name(&zip_name).map_err(|_| "missing original override")?;
         let target = root.join(&destination);
         reject_symlinks(&target)?;
         if entry.is_dir() {
