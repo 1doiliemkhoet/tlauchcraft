@@ -1303,6 +1303,9 @@ dependencies = [
 name = "tl-lan"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "sha2",
+ "tempfile",
  "tl-core",
 ]
 
