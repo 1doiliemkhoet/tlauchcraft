@@ -9,6 +9,12 @@ try {
   # An invalid host VBoxManage must fail BEFORE prompting guest credentials,
   # writing secrets, or touching the VM.
   $script=Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-host.ps1'
+  # VirtualBox 7.2 copyto positional operands are HOST sources only.
+  # The guest path must be passed via --target-directory, or VERR_PATH_NOT_FOUND occurs.
+  $hostSource=Get-Content -LiteralPath $script -Raw
+  if ($hostSource -notmatch [regex]::Escape('("--target-directory=$guest"),$file')) {
+    throw 'Guest copyto must use --target-directory rather than treating guest path as host source'
+  }
   $denied=$false
   try { & $script -Vm 'win10' -GuestUser 'vboxuser' -VBoxManage $mock -OutputDirectory (Join-Path $dir 'never-created') | Out-Null }
   catch { $denied=$_.Exception.Message -match 'VBoxManage not found' }
