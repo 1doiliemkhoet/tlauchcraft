@@ -11,13 +11,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha1::{Digest, Sha1};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::Read,
     path::{Component, Path, PathBuf},
 };
-use sha1::{Digest, Sha1};
 
 /// Fields originate in Chat4's normalized, verified pack *manifest*, not a
 /// hardcoded Forge test fixture or an untrusted display name.
@@ -35,7 +35,10 @@ impl PackForgeSelection {
         if self.minecraft_version != "1.16.5"
             || !self.loader_kind.eq_ignore_ascii_case("forge")
             || self.pack_archive_sha256.len() != 64
-            || !self.pack_archive_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+            || !self
+                .pack_archive_sha256
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
         {
             return Err(LoaderError::CompatibilityConflict);
         }
@@ -45,7 +48,10 @@ impl PackForgeSelection {
 
     pub fn version_id(&self) -> Result<String, LoaderError> {
         self.validate()?;
-        Ok(format!("{}-forge-{}", self.minecraft_version, self.forge_version))
+        Ok(format!(
+            "{}-forge-{}",
+            self.minecraft_version, self.forge_version
+        ))
     }
 }
 
@@ -88,35 +94,52 @@ fn check_artifact(path: &Path, digest: &str, length: u64) -> Result<(), LoaderEr
         || !digest.bytes().all(|b| b.is_ascii_hexdigit())
         || length == 0
     {
-        return Err(LoaderError::InvalidMetadata("generated Forge artifact missing or invalid".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "generated Forge artifact missing or invalid".into(),
+        ));
     }
     if path.ancestors().any(|component| component.is_symlink()) {
-        return Err(LoaderError::InvalidMetadata("symlink in Forge artifact path".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "symlink in Forge artifact path".into(),
+        ));
     }
-    let actual = fs::metadata(path)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let actual = fs::metadata(path).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     if actual.len() != length {
-        return Err(LoaderError::InvalidMetadata(format!("Forge artifact size mismatch: {}", path.display())));
+        return Err(LoaderError::InvalidMetadata(format!(
+            "Forge artifact size mismatch: {}",
+            path.display()
+        )));
     }
     let mut source = File::open(path).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let mut buf = [0u8; 65536];
     let mut sha = Sha1::new();
     loop {
-        let n = source.read(&mut buf).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
-        if n == 0 { break; }
+        let n = source
+            .read(&mut buf)
+            .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
         sha.update(&buf[..n]);
     }
     if format!("{:x}", sha.finalize()) != digest.to_ascii_lowercase() {
-        return Err(LoaderError::InvalidMetadata(format!("Forge artifact SHA-1 mismatch: {}", path.display())));
+        return Err(LoaderError::InvalidMetadata(format!(
+            "Forge artifact SHA-1 mismatch: {}",
+            path.display()
+        )));
     }
     Ok(())
 }
 
 fn safe_maven_path(relative: &str) -> Result<PathBuf, LoaderError> {
     let p = Path::new(relative);
-    if relative.is_empty() || p.is_absolute() ||
-        p.components().any(|c| !matches!(c, Component::Normal(_))) {
-        return Err(LoaderError::InvalidMetadata("unsafe official Maven artifact path".into()));
+    if relative.is_empty()
+        || p.is_absolute()
+        || p.components().any(|c| !matches!(c, Component::Normal(_)))
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "unsafe official Maven artifact path".into(),
+        ));
     }
     Ok(p.to_owned())
 }
@@ -136,8 +159,10 @@ pub fn build_forge_playable_handoff(
     maven_roots: &[PathBuf],
 ) -> Result<ForgePlayableHandoff, LoaderError> {
     let expected_id = selected.version_id()?;
-    let blueprint = forge_1165_client_blueprint(installer_profile, derived, &selected.forge_version)?;
-    if blueprint.version_id != expected_id || processor_request.minecraft_version != selected.minecraft_version
+    let blueprint =
+        forge_1165_client_blueprint(installer_profile, derived, &selected.forge_version)?;
+    if blueprint.version_id != expected_id
+        || processor_request.minecraft_version != selected.minecraft_version
         || processor_request.processors.len() != blueprint.steps.len()
         || blueprint.steps.len() != 4
         || !processor_request.stage_root.is_absolute()
@@ -145,8 +170,11 @@ pub fn build_forge_playable_handoff(
         return Err(LoaderError::CompatibilityConflict);
     }
     let checked = verification_from_execution(
-        LoaderKind::Forge, &selected.minecraft_version, &selected.forge_version,
-        processor_request, execution,
+        LoaderKind::Forge,
+        &selected.minecraft_version,
+        &selected.forge_version,
+        processor_request,
+        execution,
     );
     if checked.state != RuntimeState::ProcessorsVerified
         || checked.completed_processors != 4
@@ -156,27 +184,50 @@ pub fn build_forge_playable_handoff(
     }
     // Explicitly bind every step to the manifest-specified *official* blueprint,
     // not just four arbitrary Java commands reporting exit 0.
-    for (step, canonical) in processor_request.processors.iter().zip(blueprint.steps.iter()) {
-        if step.executable.coordinate != canonical.jar || step.classpath.iter()
-            .map(|lib| lib.coordinate.as_str())
-            .ne(canonical.classpath.iter().map(String::as_str)) {
-            return Err(LoaderError::InvalidMetadata("processor graph differs from verified installer".into()));
+    for (step, canonical) in processor_request
+        .processors
+        .iter()
+        .zip(blueprint.steps.iter())
+    {
+        if step.executable.coordinate != canonical.jar
+            || step
+                .classpath
+                .iter()
+                .map(|lib| lib.coordinate.as_str())
+                .ne(canonical.classpath.iter().map(String::as_str))
+        {
+            return Err(LoaderError::InvalidMetadata(
+                "processor graph differs from verified installer".into(),
+            ));
         }
     }
     let audit = audit_official_forge_metadata(installer_profile, derived)?;
-    if audit.derived_version != expected_id || audit.minecraft_version != selected.minecraft_version {
+    if audit.derived_version != expected_id || audit.minecraft_version != selected.minecraft_version
+    {
         return Err(LoaderError::CompatibilityConflict);
     }
-    if maven_roots.is_empty() || maven_roots.len() > 16 ||
-        maven_roots.iter().any(|p| !p.is_absolute() || !p.is_dir() || p.ancestors().any(|a| a.is_symlink())) {
+    if maven_roots.is_empty()
+        || maven_roots.len() > 16
+        || maven_roots
+            .iter()
+            .any(|p| !p.is_absolute() || !p.is_dir() || p.ancestors().any(|a| a.is_symlink()))
+    {
         return Err(LoaderError::InvalidInput);
     }
     let mut all = BTreeMap::<String, ArtifactRequirement>::new();
-    for entry in audit.profile_libraries.iter().chain(&audit.derived_libraries) {
+    for entry in audit
+        .profile_libraries
+        .iter()
+        .chain(&audit.derived_libraries)
+    {
         if let Some(prior) = all.insert(entry.coordinate.clone(), entry.clone()) {
-            if prior.sha1 != entry.sha1 || prior.size_bytes != entry.size_bytes
-                || prior.relative_path != entry.relative_path {
-                return Err(LoaderError::InvalidMetadata("conflicting official Forge Maven artifacts".into()));
+            if prior.sha1 != entry.sha1
+                || prior.size_bytes != entry.size_bytes
+                || prior.relative_path != entry.relative_path
+            {
+                return Err(LoaderError::InvalidMetadata(
+                    "conflicting official Forge Maven artifacts".into(),
+                ));
             }
         }
     }
@@ -189,25 +240,40 @@ pub fn build_forge_playable_handoff(
         let mut found = None;
         for root in maven_roots {
             let target = root.join(&relative);
-            if !target.exists() { continue; }
-            if found.is_some() { return Err(LoaderError::InvalidMetadata("duplicate Maven path in multiple roots".into())); }
+            if !target.exists() {
+                continue;
+            }
+            if found.is_some() {
+                return Err(LoaderError::InvalidMetadata(
+                    "duplicate Maven path in multiple roots".into(),
+                ));
+            }
             check_artifact(&target, &requirement.sha1, requirement.size_bytes)?;
             found = Some(target);
         }
-        let target = found.ok_or_else(|| LoaderError::InvalidMetadata(
-            format!("missing verified Forge runtime/library: {}", requirement.coordinate)
-        ))?;
+        let target = found.ok_or_else(|| {
+            LoaderError::InvalidMetadata(format!(
+                "missing verified Forge runtime/library: {}",
+                requirement.coordinate
+            ))
+        })?;
         if !claimed_files.insert(target.clone()) {
-            return Err(LoaderError::InvalidMetadata("same file claimed by multiple Forge artifacts".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "same file claimed by multiple Forge artifacts".into(),
+            ));
         }
         let item = ForgeInstalledArtifact {
-            coordinate: requirement.coordinate.clone(), path: target,
-            sha1: requirement.sha1.clone(), size_bytes: requirement.size_bytes,
+            coordinate: requirement.coordinate.clone(),
+            path: target,
+            sha1: requirement.sha1.clone(),
+            size_bytes: requirement.size_bytes,
         };
         match &requirement.source {
             SourceRequirement::CanonicalMaven { url } => {
                 if !url.starts_with("https://") {
-                    return Err(LoaderError::InvalidMetadata("unapproved Maven source URL".into()));
+                    return Err(LoaderError::InvalidMetadata(
+                        "unapproved Maven source URL".into(),
+                    ));
                 }
                 official.push(item);
             }
@@ -218,15 +284,21 @@ pub fn build_forge_playable_handoff(
         }
     }
     if generated_count != 2 {
-        return Err(LoaderError::InvalidMetadata("expected both Forge derived and universal JARs from installer/execution".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "expected both Forge derived and universal JARs from installer/execution".into(),
+        ));
     }
     // Parent must itself be authentic verified Mojang 1.16.5 metadata. The
     // caller (Chat 4) must separately verify parent assets/natives and stage.
     if mojang_parent["id"].as_str() != Some(selected.minecraft_version.as_str())
-        || mojang_parent["downloads"]["client"]["sha1"].as_str().is_none()
+        || mojang_parent["downloads"]["client"]["sha1"]
+            .as_str()
+            .is_none()
         || mojang_parent["assetIndex"]["sha1"].as_str().is_none()
     {
-        return Err(LoaderError::InvalidMetadata("missing trusted Mojang parent client/asset metadata".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "missing trusted Mojang parent client/asset metadata".into(),
+        ));
     }
     let merged = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
     if merged["mainClass"] != "cpw.mods.modlauncher.Launcher"
@@ -260,15 +332,25 @@ mod tests {
     const PROFILE: &str = include_str!("../tests/fixtures/forge_36229_official_profile.json");
     const DERIVED: &str = include_str!("../tests/fixtures/forge_36229_official_version.json");
     fn selection(version: &str) -> PackForgeSelection {
-        PackForgeSelection { minecraft_version: "1.16.5".into(), loader_kind: "forge".into(),
-            forge_version: version.into(), pack_archive_sha256: "a".repeat(64) }
+        PackForgeSelection {
+            minecraft_version: "1.16.5".into(),
+            loader_kind: "forge".into(),
+            forge_version: version.into(),
+            pack_archive_sha256: "a".repeat(64),
+        }
     }
     #[test]
     fn accepts_only_manifest_version_and_matching_upstream_metadata() {
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
-        assert_eq!(selection("36.2.29").version_id().unwrap(), "1.16.5-forge-36.2.29");
+        assert_eq!(
+            selection("36.2.29").version_id().unwrap(),
+            "1.16.5-forge-36.2.29"
+        );
         assert!(selection("36.2.34").version_id().is_ok());
-        assert!(selection("36.2.34").version_id().unwrap().ends_with("36.2.34"));
+        assert!(selection("36.2.34")
+            .version_id()
+            .unwrap()
+            .ends_with("36.2.34"));
         assert!(forge_1165_client_blueprint(PROFILE, &derived, "36.2.34").is_err());
         assert!(selection("47.1.0").validate().is_err());
         assert!(selection("36.2.29").validate().is_ok());
@@ -276,23 +358,42 @@ mod tests {
     #[test]
     fn plan_only_never_yields_publish_receipt() {
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
-        let request = ProcessorRunRequest { minecraft_version:"1.16.5".into(),
-            java: PathBuf::from("C:/Java8/java.exe"), stage_root:PathBuf::from("C:/fresh-stage"),
-            processors: vec![], timeout_seconds:120 };
-        let report=ProcessorRunReport {outcome:crate::runtime::ProcessorOutcome::Verified,
-            completed:0,exit_codes:vec![],log_paths:vec![],verified_outputs:vec![],
-            intermediate_evidence:vec![],error:None};
-        assert!(build_forge_playable_handoff(&selection("36.2.29"),PROFILE,&derived,
-            &serde_json::json!({"id":"1.16.5"}),&request,&report,&[]).is_err());
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: PathBuf::from("C:/Java8/java.exe"),
+            stage_root: PathBuf::from("C:/fresh-stage"),
+            processors: vec![],
+            timeout_seconds: 120,
+        };
+        let report = ProcessorRunReport {
+            outcome: crate::runtime::ProcessorOutcome::Verified,
+            completed: 0,
+            exit_codes: vec![],
+            log_paths: vec![],
+            verified_outputs: vec![],
+            intermediate_evidence: vec![],
+            error: None,
+        };
+        assert!(build_forge_playable_handoff(
+            &selection("36.2.29"),
+            PROFILE,
+            &derived,
+            &serde_json::json!({"id":"1.16.5"}),
+            &request,
+            &report,
+            &[]
+        )
+        .is_err());
     }
     #[test]
     fn staging_artifacts_require_strict_official_digest_and_size() {
-        let root = std::env::temp_dir().join(format!("tl03-playable-artifact-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("tl03-playable-artifact-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let file=root.join("fake.jar");
-        std::fs::write(&file,b"bad").unwrap();
-        assert!(check_artifact(&file,"0123456789012345678901234567890123456789",3).is_err());
-        assert!(check_artifact(&file,"0123456789012345678901234567890123456789",4).is_err());
+        let file = root.join("fake.jar");
+        std::fs::write(&file, b"bad").unwrap();
+        assert!(check_artifact(&file, "0123456789012345678901234567890123456789", 3).is_err());
+        assert!(check_artifact(&file, "0123456789012345678901234567890123456789", 4).is_err());
         assert!(safe_maven_path("../world/saves").is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
