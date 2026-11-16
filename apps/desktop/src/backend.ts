@@ -58,7 +58,7 @@ export async function call<T>(caps: Capabilities, feature: Feature, command: str
 export type StagedPackReceipt = {
   source: string; minecraft_version: string; loader_kind: string; loader_version: string;
   archive_sha256: string; required_total: number; optional_total: number;
-  verified: (InstalledPackMod & { required: boolean; upstream_sha1: string; observed_sha256: string })[];
+  verified: { project_id: number; file_id: number; required: boolean; relative_path: string; bytes: number; upstream_sha1: string; observed_sha256: string }[];
   blocked_required: string[]; blocked_optional: string[]; failures: string[];
   complete_mod_inventory: boolean; forge_runtime_verified: false; instance_ready: false;
 };
