@@ -398,7 +398,12 @@ mod tests {
             PROFILE,
             &derived,
             &serde_json::json!({"id":"1.16.5"}),
-            &PrepareReport { state: PrepareState::Verified, request: Some(request.clone()), unresolved: vec![], error: None },
+            &PrepareReport {
+                state: PrepareState::Verified,
+                request: Some(request.clone()),
+                unresolved: vec![],
+                error: None
+            },
             &request,
             &report,
             &[]

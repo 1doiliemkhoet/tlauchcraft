@@ -62,7 +62,9 @@ fn canonical_path(root: &Path, relative: &str) -> Result<PathBuf, LoaderError> {
     let path = Path::new(relative);
     if relative.is_empty()
         || path.is_absolute()
-        || path.components().any(|part| !matches!(part, std::path::Component::Normal(_)))
+        || path
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
     {
         return Err(LoaderError::InvalidMetadata(
             "unsafe official Maven classpath relative path".into(),
