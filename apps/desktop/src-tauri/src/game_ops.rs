@@ -477,6 +477,30 @@ mod tests {
         assert!(!first.to_string_lossy().contains("natives-"));
     }
     #[test]
+    fn forge_launch_requires_exact_persisted_loader_and_merged_metadata(){
+        let profile=OfflineProfile::new("PeerOne").unwrap();
+        let forge=GameInstance::new("Pack","1.16.5",LoaderSpec{
+            kind:LoaderKind::Forge,version:Some("36.2.34".into())
+        },profile.id).unwrap();
+        let correct=json!({
+            "id":"1.16.5-forge-36.2.34",
+            "inheritsFrom":"1.16.5",
+            "mainClass":"cpw.mods.modlauncher.Launcher",
+            "javaVersion":{"majorVersion":8}
+        });
+        assert!(valid_installed_version(&forge,&correct));
+        let mut wrong=correct.clone();
+        wrong["id"]=json!("1.16.5-forge-36.2.29");
+        assert!(!valid_installed_version(&forge,&wrong));
+        wrong=correct.clone();
+        wrong["mainClass"]=json!("net.minecraft.client.main.Main");
+        assert!(!valid_installed_version(&forge,&wrong));
+        wrong=correct;
+        wrong["javaVersion"]["majorVersion"]=json!(17);
+        assert!(!valid_installed_version(&forge,&wrong));
+        assert_eq!(launch_game_dir(&forge,Path::new("C:/Pack")),PathBuf::from("C:/Pack"));
+    }
+    #[test]
     fn native_verifier_rejects_empty_folder(){
         let path=std::env::temp_dir().join(format!("tl-native-check-{}",Uuid::new_v4()));
         fs::create_dir(&path).unwrap();
