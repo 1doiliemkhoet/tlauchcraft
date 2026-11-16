@@ -15,6 +15,11 @@ try {
   if ($hostSource -notmatch [regex]::Escape('("--target-directory=$guest"),$file')) {
     throw 'Guest copyto must use --target-directory rather than treating guest path as host source'
   }
+  # Regression: VBox 7.2 rejects an existing destination directory when
+  # --no-replace is combined with --target-directory in this guest copy path.
+  if ($hostSource -match [regex]::Escape("'--no-replace',(`"--target-directory=`$guest`"),`$file")) {
+    throw 'copyto must not use --no-replace on the already-created guest run directory'
+  }
   $denied=$false
   try { & $script -Vm 'win10' -GuestUser 'vboxuser' -VBoxManage $mock -OutputDirectory (Join-Path $dir 'never-created') | Out-Null }
   catch { $denied=$_.Exception.Message -match 'VBoxManage not found' }
