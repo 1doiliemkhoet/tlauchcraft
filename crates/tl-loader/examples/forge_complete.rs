@@ -34,16 +34,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let approved: PrepareReport = serde_json::from_slice(&fs::read(&argv[5])?)?;
     let execution: ProcessorRunReport = serde_json::from_slice(&fs::read(&argv[6])?)?;
     let roots: Vec<PathBuf> = serde_json::from_slice(&fs::read(&argv[7])?)?;
-    let request = approved.request.as_ref().ok_or("approved processor request missing")?;
+    let request = approved
+        .request
+        .as_ref()
+        .ok_or("approved processor request missing")?;
     let receipt = build_forge_playable_handoff(
-        &selection, &profile, &derived, &parent,
-        &approved, request, &execution, &roots,
+        &selection, &profile, &derived, &parent, &approved, request, &execution, &roots,
     )?;
     if !receipt.can_stage_new_instance || receipt.instance_ready {
         return Err("receipt did not satisfy Chat4 staged-but-not-ready contract".into());
     }
     let bytes = serde_json::to_vec_pretty(&receipt)?;
-    let mut output = OpenOptions::new().create_new(true).write(true).open(&argv[8])?;
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&argv[8])?;
     output.write_all(&bytes)?;
     output.sync_all()?;
     println!(

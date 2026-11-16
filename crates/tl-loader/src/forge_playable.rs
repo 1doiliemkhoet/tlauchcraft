@@ -62,15 +62,21 @@ impl PackForgeSelection {
                 "Chat4 verified nonready staged pack manifest required".into(),
             ));
         }
-        let required = pack["files"].as_array().ok_or(LoaderError::InvalidInput)?
-            .iter().filter(|f| f["required"] == true).count();
+        let required = pack["files"]
+            .as_array()
+            .ok_or(LoaderError::InvalidInput)?
+            .iter()
+            .filter(|f| f["required"] == true)
+            .count();
         if manifest["required_verified"].as_u64() != Some(required as u64) {
             return Err(LoaderError::InvalidMetadata(
                 "Chat4 required mod files not yet verified".into(),
             ));
         }
         let pick = |field: &str| -> Result<String, LoaderError> {
-            pack[field].as_str().map(str::to_owned)
+            pack[field]
+                .as_str()
+                .map(str::to_owned)
                 .ok_or_else(|| LoaderError::InvalidMetadata(format!("missing pack field: {field}")))
         };
         let result = Self {
@@ -457,13 +463,13 @@ mod tests {
                 "files":[{"target":"mods/example.jar","required":true}]
             }
         });
-        let selected=PackForgeSelection::from_chat4_staged_manifest(&pack).unwrap();
-        assert_eq!(selected.version_id().unwrap(),"1.16.5-forge-36.2.29");
-        let mut tampered=pack.clone();
-        tampered["pack"]["loader_version"]=serde_json::json!("36.2.34");
+        let selected = PackForgeSelection::from_chat4_staged_manifest(&pack).unwrap();
+        assert_eq!(selected.version_id().unwrap(), "1.16.5-forge-36.2.29");
+        let mut tampered = pack.clone();
+        tampered["pack"]["loader_version"] = serde_json::json!("36.2.34");
         assert!(PackForgeSelection::from_chat4_staged_manifest(&tampered).is_ok());
-        let mut incomplete=pack;
-        incomplete["required_verified"]=serde_json::json!(0);
+        let mut incomplete = pack;
+        incomplete["required_verified"] = serde_json::json!(0);
         assert!(PackForgeSelection::from_chat4_staged_manifest(&incomplete).is_err());
     }
 
