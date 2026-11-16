@@ -1,12 +1,15 @@
 //! Forge/NeoForge verified processor runner. All outputs remain inside a fresh staging root.
 //! Caller owns trusted source acquisition, installer ZIP extraction and final transactional commit.
 //! Java is launched directly (no shell) and every declared output must match its expected SHA-1.
-use crate::{maven, LoaderError};
 #[cfg(windows)]
-use crate::{forge_graph::{prepare_forge_1165, ForgeBindings, PrepareState}, forge_playable::PackForgeSelection};
+use crate::{
+    forge_graph::{prepare_forge_1165, ForgeBindings, PrepareState},
+    forge_playable::PackForgeSelection,
+};
+use crate::{maven, LoaderError};
+use serde::{Deserialize, Serialize};
 #[cfg(windows)]
 use serde_json::Value;
-use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
     io::{Read, Write},
@@ -172,7 +175,6 @@ impl VerifiedProcessorExecution {
         })
     }
 
-
     /// An EXPLICITLY OPTED-IN, official/pinned Forge 1.16.5 adapter on Windows.
     /// This runs Java on the host as the current user inside a Windows Job
     /// Object, not a Sandbox. It cannot prevent access to user files/network.
@@ -215,8 +217,8 @@ impl VerifiedProcessorExecution {
             "../tests/fixtures/forge_36229_official_profile.json"
         ))
         .map_err(|_| LoaderError::InvalidInput)?;
-        let claimed_profile: Value = serde_json::from_str(profile_json)
-            .map_err(|_| LoaderError::InvalidInput)?;
+        let claimed_profile: Value =
+            serde_json::from_str(profile_json).map_err(|_| LoaderError::InvalidInput)?;
         let pinned_derived: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/forge_36229_official_version.json"
         ))
@@ -236,11 +238,17 @@ impl VerifiedProcessorExecution {
         }
         let mut report = run_verified_processors(&request);
         let permit = ExecutionPermit {
-            approved_executable_sha1s: request.processors.iter()
-                .map(|p| p.executable.sha1.clone()).collect(),
+            approved_executable_sha1s: request
+                .processors
+                .iter()
+                .map(|p| p.executable.sha1.clone())
+                .collect(),
             restricted_environment_attested: true, // Job creation is enforced in execute().
-            approved_stage_parent: request.stage_root.parent()
-                .ok_or(LoaderError::InvalidInput)?.to_path_buf(),
+            approved_stage_parent: request
+                .stage_root
+                .parent()
+                .ok_or(LoaderError::InvalidInput)?
+                .to_path_buf(),
         };
         // A duplicate executable across processors is valid: verify the set
         // once so duplicate invocation does not bypass any hash policy.
@@ -324,7 +332,6 @@ fn validate_execution_permit(
     }
     Ok(())
 }
-
 
 /// The Windows variant owns a Job Object handle and kills any still-running
 /// descendants on drop, including processor timeouts and cancellation.
@@ -431,20 +438,25 @@ fn execute(
             .stdin(Stdio::null())
             .stdout(Stdio::from(output))
             .stderr(Stdio::from(errors));
-        let mut child = if windows_guarded {
-            #[cfg(windows)]
-            {
-                ProcessorChild::Windows(crate::windows_job::spawn(command)
-                    .map_err(|e| LoaderError::InvalidMetadata(format!("Job Object spawn: {e}")))?)
-            }
-            #[cfg(not(windows))]
-            {
-                return Err(LoaderError::InvalidInput);
-            }
-        } else {
-            ProcessorChild::Ordinary(command.spawn()
-                .map_err(|e| LoaderError::InvalidMetadata(format!("processor spawn: {e}")))?)
-        };
+        let mut child =
+            if windows_guarded {
+                #[cfg(windows)]
+                {
+                    ProcessorChild::Windows(crate::windows_job::spawn(command).map_err(|e| {
+                        LoaderError::InvalidMetadata(format!("Job Object spawn: {e}"))
+                    })?)
+                }
+                #[cfg(not(windows))]
+                {
+                    return Err(LoaderError::InvalidInput);
+                }
+            } else {
+                ProcessorChild::Ordinary(
+                    command.spawn().map_err(|e| {
+                        LoaderError::InvalidMetadata(format!("processor spawn: {e}"))
+                    })?,
+                )
+            };
         let started = Instant::now();
         let exit = loop {
             if cancel.load(Ordering::SeqCst) {
@@ -760,17 +772,31 @@ mod tests {
             pack_archive_sha256: "a".repeat(64),
         };
         let no_consent = VerifiedProcessorExecution::run_official_windows_1165(
-            &selection, &root.join("forge-1.16.5-36.2.29-installer.jar"),
-            "{}", &Value::Null, &bindings, &"0".repeat(40),
-            false, &AtomicBool::new(false)
+            &selection,
+            &root.join("forge-1.16.5-36.2.29-installer.jar"),
+            "{}",
+            &Value::Null,
+            &bindings,
+            &"0".repeat(40),
+            false,
+            &AtomicBool::new(false),
         );
-        assert!(matches!(no_consent, Err(LoaderError::NeedsInstallerExecution)));
+        assert!(matches!(
+            no_consent,
+            Err(LoaderError::NeedsInstallerExecution)
+        ));
         assert!(!bindings.stage_root.exists());
         let fake = root.join("forge-1.16.5-36.2.29-installer.jar");
         fs::write(&fake, b"untrusted").unwrap();
         let bad_hash = VerifiedProcessorExecution::run_official_windows_1165(
-            &selection, &fake, "{}", &Value::Null, &bindings, &"0".repeat(40),
-            true, &AtomicBool::new(false)
+            &selection,
+            &fake,
+            "{}",
+            &Value::Null,
+            &bindings,
+            &"0".repeat(40),
+            true,
+            &AtomicBool::new(false),
         );
         assert!(bad_hash.is_err());
         assert!(!bindings.stage_root.exists());

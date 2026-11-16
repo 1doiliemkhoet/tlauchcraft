@@ -182,9 +182,9 @@ mod tests {
     #[test]
     fn benign_process_runs_under_job_object() {
         // CI contract test: never downloads or runs Java/Forge.
-        let mut command = Command::new(std::env::var("ComSpec").unwrap_or_else(|_| {
-            r"C:\Windows\System32\cmd.exe".to_owned()
-        }));
+        let mut command = Command::new(
+            std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_owned()),
+        );
         command.args(["/d", "/c", "exit", "0"]);
         let mut child = spawn(command).expect("suspended child assigned to Job Object");
         assert!(child.wait().unwrap().success());
