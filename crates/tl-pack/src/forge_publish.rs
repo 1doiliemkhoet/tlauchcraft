@@ -1,5 +1,6 @@
 //! Trusted Forge 1.16.5 publication boundary.
-//! Only the in-process tl-loader verifier can provide a publication permit.
+//! Only execution proof sealed by tl-loader's actual guarded runner can reach
+//! the in-process verifier and permit issuer.
 //! This module NEVER executes processors, downloads mods or trusts frontend
 //! claims of readiness. A caller must provide actual approved execution inputs.
 use crate::{
@@ -22,7 +23,7 @@ use tl_loader::{
         verify_forge_runtime_for_pack, PackForgeSelection, VerifiedForgeJava,
         VerifiedForgeLibrary,
     },
-    runtime::{ProcessorRunReport, ProcessorRunRequest, VerifiedProcessorJar},
+    runtime::{VerifiedProcessorExecution, VerifiedProcessorJar},
 };
 
 pub const FORGE_INSTALL_MARKER: &str = ".tlauchcraft-forge-install.json";
@@ -63,8 +64,7 @@ pub struct ApprovedForgePublishInputs<'a> {
     pub profile_json: &'a str,
     pub derived: &'a Value,
     pub mojang_parent: &'a Value,
-    pub processor_request: &'a ProcessorRunRequest,
-    pub processor_report: &'a ProcessorRunReport,
+    pub processor_execution: &'a VerifiedProcessorExecution,
     pub java: &'a VerifiedForgeJava,
     pub maven: &'a [VerifiedProcessorJar],
     pub installer_or_generated: &'a [VerifiedForgeLibrary],
@@ -276,8 +276,8 @@ pub fn publish_forge_from_execution(
         evidence.profile_json,
         evidence.derived,
         evidence.mojang_parent,
-        evidence.processor_request,
-        evidence.processor_report,
+        evidence.processor_execution.request(),
+        evidence.processor_execution.report(),
         evidence.java,
         evidence.maven,
         evidence.installer_or_generated,
