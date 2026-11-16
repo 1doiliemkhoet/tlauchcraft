@@ -440,6 +440,9 @@ pub fn publish_forge_from_execution(
     out.write_all(&bytes)
         .and_then(|_| out.sync_all())
         .map_err(|e| e.to_string())?;
+    // Windows rename cannot reliably move a directory with an open receipt
+    // handle. The durable file must be flushed AND closed before MoveFileW.
+    drop(out);
     publish_verified(
         stage,
         destination,
