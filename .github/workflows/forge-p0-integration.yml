@@ -1,0 +1,34 @@
+name: Forge P0 Integration Windows
+on:
+  pull_request:
+    branches:
+      - integration/p0-playable-single-run
+    paths:
+      - 'crates/tl-loader/**'
+      - '.github/workflows/forge-p0-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  forge:
+    name: Forge P0 Rust checks (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify Forge-only changes preserve locked integration workspace
+        shell: pwsh
+        run: |
+          cargo metadata --locked --format-version 1 --no-deps | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+      - name: Clippy all targets
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Workspace tests
+        run: cargo test --locked --workspace --all-targets
