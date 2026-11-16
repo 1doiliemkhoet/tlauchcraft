@@ -300,6 +300,133 @@ async fn pack_staged_receipt(
     }).await.map_err(|_| "pack verification worker failed".to_string())?
 }
 
+
+/// User-opted-in official Forge install: only a release-pinned adapter may run
+/// Java on the Windows host. Job Object is NOT a file/network sandbox.
+#[tauri::command]
+async fn pack_install_official_forge(
+    app: AppHandle,
+    archive_path: String,
+    operation_id: String,
+    display_name: String,
+    profile_id: String,
+    java_path: String,
+    host_execution_consent: bool,
+) -> Result<GameInstance, String> {
+    if !host_execution_consent {
+        return Err("Explicit approval is required for official Forge Java host execution".into());
+    }
+    if operation_id.len() < 8
+        || operation_id.len() > 64
+        || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+    {
+        return Err("Invalid staged pack operation ID".into());
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut jobs = pack_jobs().lock().map_err(|_| "pack operation registry unavailable")?;
+        if jobs.contains_key(&operation_id) {
+            return Err("this staged operation is already active".into());
+        }
+        jobs.insert(operation_id.clone(), cancel.clone());
+    }
+    let key = operation_id.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<GameInstance, String> {
+        #[cfg(not(windows))]
+        {
+            let _ = (app, archive_path, display_name, profile_id, java_path, cancel);
+            Err("Official Forge host execution is only supported by the audited Windows adapter".into())
+        }
+        #[cfg(windows)]
+        {
+            let archive = Path::new(&archive_path);
+            let java = Path::new(&java_path);
+            if !archive.is_absolute() || !archive.is_file()
+                || !java.is_absolute() || !java.is_file()
+            {
+                return Err("modpack archive and Java executable must be existing absolute files".into());
+            }
+            let profile_uuid = uuid::Uuid::parse_str(&profile_id)
+                .map_err(|_| "Invalid offline profile UUID")?;
+            let metadata = inspect_archive(archive).map_err(|e| e.to_string())?;
+            if metadata.source != tl_pack::PackSource::CurseforgeZip
+                || metadata.loader.kind != "forge"
+            {
+                return Err("Official Forge install requires a CurseForge Forge pack".into());
+            }
+            let loader_version = metadata.loader.version.as_deref()
+                .ok_or("Original pack manifest has no selected Forge version")?;
+            if metadata.game_version != "1.16.5" || loader_version != "36.2.29" {
+                return Err(format!(
+                    "No approved Windows host processor adapter for Minecraft {} / Forge {}; keep this pack staged",
+                    metadata.game_version, loader_version
+                ));
+            }
+            let base = default_data_dir().map_err(|e| e.to_string())?;
+            let root = isolated_data_dir(&base.join("instances")).map_err(|e| e.to_string())?;
+            let stage = root.join(format!("{}.staging", key));
+            if !stage.is_dir() {
+                return Err("Private pack staging missing; stage and rehash mods first".into());
+            }
+            emit_pack_progress(&app, &key, "VERIFYING", "pack.rehash_official_mods", None);
+            let api_key = configured_api_key().map_err(|e| e.to_string())?;
+            let resolved = resolve_curseforge_files(&metadata, &OfficialApiClient, &api_key)
+                .map_err(|e| e.to_string())?;
+            let receipt = tl_pack::staged_receipt::audit_curseforge_staging(
+                &stage, &metadata, &resolved
+            )?;
+            if !receipt.complete_mod_inventory
+                || !receipt.blocked_optional.is_empty()
+                || !receipt.blocked_required.is_empty()
+                || !receipt.failures.is_empty()
+                || receipt.verified.len() != metadata.files.len()
+            {
+                return Err("Staged CurseForge mod inventory is incomplete; cannot execute Forge".into());
+            }
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Forge install cancelled before host processor execution".into());
+            }
+            emit_pack_progress(&app, &key, "VERIFYING", "forge.pinned_mojang_maven", None);
+            let prepared = tl_pack::forge_official::prepare_official_windows_1165(
+                &metadata.archive_sha256,
+                &metadata.game_version,
+                loader_version,
+                &key,
+                &base,
+                java,
+                host_execution_consent,
+                &cancel,
+            )?;
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Forge install cancelled before private instance publication".into());
+            }
+            emit_pack_progress(&app, &key, "VERIFYING", "forge.processor_output_verified", None);
+            let installed = game_ops::finalize_approved_forge_instance(
+                display_name, profile_uuid, archive, &stage, &resolved,
+                prepared.approved(), &cancel,
+            )?;
+            // Persist exactly the reviewed Java executable for subsequent Play.
+            let instance_id = installed.id.to_string();
+            let settings = java_settings::read(&instance_id)?;
+            java_settings::save(
+                &instance_id,
+                settings.xms_mb,
+                settings.xmx_mb,
+                java_path,
+                settings.revision,
+            ).map_err(|e| format!(
+                "Forge published and verified, but Java selection must be fixed in Settings: {e}"
+            ))?;
+            emit_pack_progress(&app, &key, "INSTALLED", "forge.ready_after_independent_audit", None);
+            Ok(installed)
+        }
+    }).await;
+    if let Ok(mut jobs) = pack_jobs().lock() {
+        jobs.remove(&operation_id);
+    }
+    outcome.map_err(|e| format!("Forge installer worker panicked or was interrupted: {e}"))?
+}
+
 /// Cancel a running staging transfer without deleting unrelated user data.
 #[tauri::command]
 fn pack_cancel(operation_id: String) -> Result<(), String> {
@@ -323,6 +450,7 @@ fn main() {
             pack_stage_curseforge,
             pack_import_restricted,
             pack_staged_receipt,
+            pack_install_official_forge,
             pack_cancel,
             java_settings_get,
             java_settings_save,
