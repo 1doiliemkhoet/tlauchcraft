@@ -20,6 +20,16 @@ try {
   if ($hostSource -match [regex]::Escape('("--target-directory=$guest"),$file')) {
     throw 'copyto must never use an already-existing guest directory as the file destination'
   }
+  # The guest report must be verified in guest before host copyfrom, and
+  # copyfrom must target a NEW complete local filename (not an existing dir).
+  if ($hostSource -notmatch [regex]::Escape("VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestEvidencePath))") -or
+      $hostSource -notmatch [regex]::Escape('("--target-directory=$guestReport"),$guestEvidencePath') -or
+      $hostSource -notmatch [regex]::Escape('$($_.Exception.Message); run error: $guestError')) {
+    throw 'Guest result stat, copyfrom target-file semantics or diagnostic chaining missing'
+  }
+  if ($hostSource -match [regex]::Escape('"$guest\\virtualbox-preflight.json",$guestReport')) {
+    throw 'Legacy positional copyfrom masked guest report transport errors'
+  }
   $denied=$false
   try { & $script -Vm 'win10' -GuestUser 'vboxuser' -VBoxManage $mock -OutputDirectory (Join-Path $dir 'never-created') | Out-Null }
   catch { $denied=$_.Exception.Message -match 'VBoxManage not found' }
