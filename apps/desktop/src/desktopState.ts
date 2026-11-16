@@ -18,7 +18,7 @@ export function canCancelInstall(status: GameStatus | undefined): boolean {
 }
 export function canPlayInstance(instance: GameInstance | undefined, profileId: string,
   ready: LaunchPreflight | null, status?: GameStatus): boolean {
-  return Boolean(instance?.state === 'ready' && instance.loader.kind === 'vanilla' &&
+  return Boolean(instance?.state === 'ready' && (instance.loader.kind === 'vanilla' || instance.loader.kind === 'forge') &&
     instance.profile_id === profileId && ready?.instance_id === instance.id &&
     (!status || (!status.installing && status.process_state !== 'running' &&
       status.process_state !== 'crashed')));
