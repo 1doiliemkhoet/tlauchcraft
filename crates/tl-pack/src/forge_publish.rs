@@ -52,6 +52,7 @@ pub struct ForgeInstallRecord {
     pub forge_version: String,
     /// Java version from the trusted loader compatibility adapter.
     pub required_java_major: u32,
+    pub verified_main_class: String,
     pub archive_sha256: String,
     pub version: Value,
     pub natives_relative_path: String,
@@ -399,7 +400,8 @@ pub fn publish_forge_from_execution(
     let native_dlls = collect_verified_natives(stage)?;
     let version = runtime.java8_launch_version;
     if version["id"] != runtime.derived_version_id
-        || version["mainClass"] != "cpw.mods.modlauncher.Launcher"
+        || version["mainClass"] != runtime.inherited_version["mainClass"]
+        || version["mainClass"].as_str().is_none_or(str::is_empty)
         || version["inheritsFrom"] != pack.game_version
         || version["javaVersion"]["majorVersion"] != runtime.required_java_major
     {
@@ -413,6 +415,10 @@ pub fn publish_forge_from_execution(
         minecraft_version: pack.game_version.clone(),
         forge_version: evidence.selection.forge_version.clone(),
         required_java_major: runtime.required_java_major,
+        verified_main_class: runtime.inherited_version["mainClass"]
+            .as_str()
+            .ok_or("verified Forge main class missing")?
+            .to_owned(),
         archive_sha256: pack.archive_sha256.clone(),
         version,
         natives_relative_path: "natives".into(),
@@ -494,7 +500,8 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
                 "{}-forge-{}",
                 record.minecraft_version, record.forge_version
             )
-        || record.version["mainClass"] != "cpw.mods.modlauncher.Launcher"
+        || record.verified_main_class.is_empty()
+        || record.version["mainClass"] != record.verified_main_class
         || record.version["inheritsFrom"] != record.minecraft_version
         || record.version["javaVersion"]["majorVersion"] != record.required_java_major
         || record.installed_libraries.is_empty()
