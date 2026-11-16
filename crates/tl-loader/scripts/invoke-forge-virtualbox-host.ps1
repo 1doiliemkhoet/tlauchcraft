@@ -47,8 +47,9 @@ if (Test-Path -LiteralPath $out) { Fail 'OutputDirectory must not exist; no over
 $cred=Get-Credential -UserName $GuestUser -Message 'VirtualBox guestcontrol password; never put it in the command line'
 if ($null -eq $cred -or $cred.UserName -cne $GuestUser) { Fail 'Guest authentication cancelled or mismatched' }
 $source=Join-Path $PSScriptRoot 'test-forge-virtualbox-guest.ps1'
+$launcher=Join-Path $PSScriptRoot 'invoke-forge-virtualbox-guest-capture.ps1'
 $job=Join-Path $PSScriptRoot 'ForgeJobProcess.cs'
-foreach($file in @($source,$job)) { if (-not [IO.File]::Exists($file)) { Fail "Missing repo harness: $file" } }
+foreach($file in @($source,$launcher,$job)) { if (-not [IO.File]::Exists($file)) { Fail "Missing repo harness: $file" } }
 $runtime=Join-Path ([IO.Path]::GetTempPath()) ('forge-vbox-auth-'+[guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($runtime)
 $who=[Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -90,7 +91,7 @@ try {
   VBox (@('guestcontrol',$Vm,'mkdir')+$common+@('--parents',$guest)) | Out-Null
   # A successful mkdir command is not proof that guest file permissions work.
   VBox (@('guestcontrol',$Vm,'stat')+$common+@($guest)) | Out-Null
-  foreach ($file in @($source,$job,$hostPath)) {
+  foreach ($file in @($source,$launcher,$job,$hostPath)) {
     if (-not [IO.File]::Exists($file)) { Fail "Host input absent: $([IO.Path]::GetFileName($file))" }
     Write-Output "VBOX_COPY_TO: $([IO.Path]::GetFileName($file))"
     # VBoxManage's CopyToGuest forwards an existing destination directory to
@@ -103,38 +104,53 @@ try {
     VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestFile)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
-  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--verbose','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
-  # Guest process failures and report transport failures are distinct gates.
-  # A VBoxManage exit 0 is not by itself proof the guest returned PASS.
+  # Some Guest Additions builds report "waiting flag not supported" and
+  # suppress stdout/stderr. An in-guest wrapper records the real child outcome,
+  # PowerShell stderr and a separate receipt without relying on stream support.
+  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\invoke-forge-virtualbox-guest-capture.ps1")
   $guestError=$null
+  Write-Output 'VBOX_GUEST_RUN: starting no-Java audit with guest-local capture'
   $guestRunOutput=@()
-  Write-Output 'VBOX_GUEST_RUN: starting no-Java audit'
-  try { $guestRunOutput=@(VBox $run) }
-  catch { $guestError=$_.Exception.Message }
+  try { $guestRunOutput=@(VBox $run) } catch { $guestError=$_.Exception.Message }
   $guestRunLog=Join-Path $out 'guest-run-output.txt'
   [IO.File]::WriteAllText($guestRunLog,($guestRunOutput -join [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
   if ($guestError) { Write-Output "VBOX_GUEST_RUN_FAILED: $guestError" }
-  $guestReport=Join-Path $out 'virtualbox-preflight.json'
-  $guestEvidencePath="$guest\virtualbox-preflight.json"
-  $guestStatError=$null
-  try { VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestEvidencePath)) | Out-Null }
-  catch { $guestStatError=$_.Exception.Message }
-  if ($guestStatError) {
-    Fail "Guest JSON not found; run error: $guestError; stat error: $guestStatError; guest stdout saved at $guestRunLog"
-  }
-  Write-Output 'VBOX_COPY_FROM: virtualbox-preflight.json'
-  try {
-    # The target is a NEW HOST FILE, not the already-existing $out directory.
-    # This mirrors the proven copyto fix; retain no-replace against overwrite.
-    VBox (@('guestcontrol',$Vm,'copyfrom')+$common+@('--verbose','--no-replace',("--target-directory=$guestReport"),$guestEvidencePath)) | Out-Null
-  }
-  catch {
-    Fail "Guest JSON transfer failed: $($_.Exception.Message); run error: $guestError; guest stdout saved at $guestRunLog"
-  }
-  if (-not [IO.File]::Exists($guestReport)) { Fail "Guest JSON not retrieved despite copyfrom success: $guestReport" }
-  $body=Get-Content -LiteralPath $guestReport -Raw | ConvertFrom-Json
+  # Recheck isolation even when guest script failed or produced no JSON.
   $after=HostSnapshot
   [IO.File]::WriteAllText((Join-Path $out 'host-after.json'),($after|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+  function Copy-GuestAuditFile([string]$guestBasename,[string]$hostBasename) {
+    $guestPath=Join-Path $guest $guestBasename
+    $hostPathNew=Join-Path $out $hostBasename
+    VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestPath)) | Out-Null
+    # Use a NEW full target filename, not the existing output directory.
+    VBox (@('guestcontrol',$Vm,'copyfrom')+$common+@('--verbose','--no-replace',("--target-directory=$hostPathNew"),$guestPath)) | Out-Null
+    if (-not [IO.File]::Exists($hostPathNew)) { Fail "Copyfrom did not create: $hostBasename" }
+  }
+  try { Copy-GuestAuditFile 'guest-launch-receipt.json' 'guest-launch-receipt.json' }
+  catch {
+    Fail "Guest launcher did not produce a retrievable receipt: $($_.Exception.Message); run error: $guestError; run log: $guestRunLog"
+  }
+  $receipt=Get-Content -LiteralPath (Join-Path $out 'guest-launch-receipt.json') -Raw | ConvertFrom-Json
+  if ($receipt.schema -ne 'tl-forge-vbox-guest-launch/v1') { Fail 'Unexpected guest launcher receipt schema' }
+  if ($receipt.stdout_exists -eq $true) {
+    try { Copy-GuestAuditFile 'guest-preflight-stdout.txt' 'guest-preflight-stdout.txt' }
+    catch { Fail "Could not retrieve guest stdout: $($_.Exception.Message)" }
+  }
+  if ($receipt.stderr_exists -eq $true) {
+    try { Copy-GuestAuditFile 'guest-preflight-stderr.txt' 'guest-preflight-stderr.txt' }
+    catch { Fail "Could not retrieve guest stderr: $($_.Exception.Message)" }
+  }
+  $guestReport=Join-Path $out 'virtualbox-preflight.json'
+  if ($receipt.evidence_exists -eq $true) {
+    try { Copy-GuestAuditFile 'virtualbox-preflight.json' 'virtualbox-preflight.json' }
+    catch { Fail "Guest reported evidence exists, but transfer failed: $($_.Exception.Message)" }
+  }
+  if ($guestError -or $receipt.status -ne 'GUEST_CHILD_PREFLIGHT_COMPLETED' -or
+      $receipt.child_exit_code -ne 0) {
+    Fail "Guest audit did not finish successfully; child_exit=$($receipt.child_exit_code); reason=$($receipt.error); guest error=$guestError. See $out for guest-preflight-stderr.txt and receipt."
+  }
+  if (-not [IO.File]::Exists($guestReport)) { Fail "Guest child exited 0 but required JSON evidence missing. See $out" }
+  $body=Get-Content -LiteralPath $guestReport -Raw | ConvertFrom-Json
   if ($after.status -ne 'VBOX_HOST_CONFIG_PASS_NO_JAVA' -or $guestError -or $body.status -ne 'VM_PREFLIGHT_PASS_NO_JAVA' -or
       @($body.checks | Where-Object { $_.state -ne 'PASS' }).Count -ne 0 -or $body.java_executed -ne $false -or $body.forge_execution_verified -ne $false) {
     Fail "Guest/host evidence rejected; result=$($body.status); guestError=$guestError. Review $out"
