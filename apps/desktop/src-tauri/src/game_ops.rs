@@ -153,7 +153,7 @@ fn validate_game_identity_binding(
     profile:&OfflineProfile,
     request:&tl_core::LaunchRequest,
 )->Result<(),String>{
-    let outcome=match instance.loader.kind{
+    let outcome=match &instance.loader.kind{
         LoaderKind::Vanilla=>tl_game::foundation::validate_launch_context(instance,profile,request),
         LoaderKind::Forge=>tl_game::foundation::validate_forge_launch_context(instance,profile,request),
         _=>return Err("Unsupported game loader".into())
