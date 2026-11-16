@@ -173,14 +173,33 @@ try {
   Write-Output 'VBOX_GUEST_START_RETURNED: VBoxManage exit 0; waiting for guest receipt'
   $guestReceiptPath=Join-Path $guest 'guest-launch-receipt.json'
   function GuestFileExists([string]$path) {
-    # Absence is expected while the detached guest child is working.
-    # Never print passwordfile path, user secrets or argument array.
-    $previous=$ErrorActionPreference
+    # WER confirmed host powershell.exe AppHangB1 during guestcontrol
+    # supervision. Bound EACH probe too; never run native VBoxManage in
+    # this polling loop synchronously inside the parent PowerShell.
+    $probeArgs=(@('guestcontrol',$Vm,'stat')+$common+@($path) | ForEach-Object {
+      $item=[string]$_
+      if ($item -match '[\s"]') { '"' + $item.Replace('"','\"') + '"' } else { $item }
+    }) -join ' '
+    $probe=New-Object System.Diagnostics.Process
+    $info=New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName=$VBoxManage
+    $info.Arguments=$probeArgs
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true
+    $info.RedirectStandardError=$true
+    $probe.StartInfo=$info
     try {
-      $ErrorActionPreference='Continue'
-      $null=@(& $VBoxManage guestcontrol $Vm stat @common $path 2>&1)
-      return ($LASTEXITCODE -eq 0)
-    } finally { $ErrorActionPreference=$previous }
+      if (-not $probe.Start()) { Fail 'VBOX_GUEST_STAT_FAILED: process failed to start' }
+      $outTask=$probe.StandardOutput.ReadToEndAsync()
+      $errTask=$probe.StandardError.ReadToEndAsync()
+      if (-not $probe.WaitForExit(5000)) {
+        try { $probe.Kill() } catch {}
+        [void]$probe.WaitForExit(2000)
+        Fail 'VBOX_GUEST_STAT_TIMEOUT: a single guest receipt probe exceeded 5 seconds; guest status UNKNOWN'
+      }
+      return ($probe.ExitCode -eq 0)
+    } finally { $probe.Dispose() }
   }
   $receiptPresent=$false
   foreach($attempt in 1..45) {
