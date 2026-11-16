@@ -83,7 +83,7 @@ pub fn fingerprint_installed_pack(root: &Path, receipt: &InstalledPackReceipt) -
     for declared in &receipt.files {
         let relative = Path::new(&declared.relative_path);
         if declared.relative_path.contains('\\') || declared.relative_path.contains(':')
-            || declared.relative_path.contains('//') || declared.relative_path.contains('\0')
+            || declared.relative_path.contains("//") || declared.relative_path.contains('\0')
             || relative.components().any(|c| !matches!(c, Component::Normal(_)))
             || !valid_sha256(&declared.sha256)
         {
