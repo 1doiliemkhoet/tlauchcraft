@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: p0-forge-bridge-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   rust:
