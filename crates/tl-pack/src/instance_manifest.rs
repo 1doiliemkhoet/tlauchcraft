@@ -59,11 +59,37 @@ pub fn persist_staged_manifest(
     {
         return Err("invalid archive identity".into());
     }
-    let required = pack.files.iter().filter(|f| f.required).count();
-    let expected_required = expected.iter().filter(|f| f.required).count();
-    if expected_required < required {
-        return Err("expected inventory omits required manifest entries".into());
+    // Exact inventory identity is required. Count-only comparisons can be
+    // bypassed by duplicating one good mod to hide a different missing mod.
+    let mut planned = std::collections::HashMap::new();
+    for file in &pack.files {
+        let key = file.target.to_ascii_lowercase();
+        if planned.insert(key, file).is_some() {
+            return Err("duplicate normalized mod path".into());
+        }
     }
+    let mut observed = std::collections::HashSet::new();
+    for artifact in expected {
+        let key = artifact.relative_path.to_ascii_lowercase();
+        if !observed.insert(key.clone()) {
+            return Err("duplicate expected artifact path".into());
+        }
+        let file = planned.get(&key).ok_or("unexpected staged artifact identity")?;
+        if file.required != artifact.required
+            || file.sha1.as_ref().is_some_and(|h| {
+                artifact.upstream_sha1.as_ref().is_none_or(|v| !v.eq_ignore_ascii_case(h))
+            })
+            || file.sha512.as_ref().is_some_and(|h| {
+                artifact.upstream_sha512.as_ref().is_none_or(|v| !v.eq_ignore_ascii_case(h))
+            })
+        {
+            return Err("staged artifact does not match normalized plan".into());
+        }
+    }
+    if observed.len() != planned.len() {
+        return Err("expected inventory omits manifest entries".into());
+    }
+    let expected_required = expected.iter().filter(|f| f.required).count();
     let target = stage.join(INSTALL_MANIFEST_NAME);
     if fs::symlink_metadata(&target).is_ok() {
         return Err("staged manifest already exists; never overwrite".into());
@@ -172,6 +198,31 @@ mod tests {
         assert!(persist_staged_manifest(&stage, &pack(), &[expected()], launch()).is_err());
         assert!(!stage.join(INSTALL_MANIFEST_NAME).exists());
         assert_eq!(fs::read(stage.join("saves/level.dat")).unwrap(), b"world");
+    }
+    #[test]
+    fn same_count_wrong_identity_or_missing_required_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stage = tmp.path().canonicalize().unwrap();
+        fs::create_dir(stage.join("mods")).unwrap();
+        fs::write(stage.join("mods/a.jar"), b"fixture").unwrap();
+        let mut wrong = expected();
+        wrong.relative_path = "mods/other.jar".into();
+        assert!(persist_staged_manifest(&stage, &pack(), &[wrong], launch()).is_err());
+        assert!(!stage.join(INSTALL_MANIFEST_NAME).exists());
+    }
+    #[test]
+    fn upstream_hash_or_required_flag_must_match_normalized_plan() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stage = tmp.path().canonicalize().unwrap();
+        fs::create_dir(stage.join("mods")).unwrap();
+        fs::write(stage.join("mods/a.jar"), b"fixture").unwrap();
+        let mut wrong = expected();
+        wrong.upstream_sha1 = Some("0".repeat(40));
+        assert!(persist_staged_manifest(&stage, &pack(), &[wrong], launch()).is_err());
+        let mut wrong = expected();
+        wrong.required = false;
+        assert!(persist_staged_manifest(&stage, &pack(), &[wrong], launch()).is_err());
+        assert!(!stage.join(INSTALL_MANIFEST_NAME).exists());
     }
     #[test]
     fn unsupported_ram_or_missing_inventory_never_writes_manifest() {
