@@ -5,7 +5,8 @@ use tl_core::{CoreError, GameInstance, OfflineProfile, CONTRACT_VERSION};
 use tl_storage::{default_data_dir, isolated_data_dir, InstanceStore, ProfileStore, SqliteStore};
 use tl_pack::{inspect_archive, PackMetadata};
 use tl_pack::curseforge::{configured_api_key, resolve_curseforge_files, CurseForgeResolveReport, OfficialApiClient};
-use tl_pack::install::{stage_curseforge_downloads, InstallStatus, StageReport};
+use tl_pack::install::{InstallStatus, StageReport};
+use tl_pack::transaction::{stage_transaction, TransactionState};
 use std::sync::{Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -171,12 +172,29 @@ async fn pack_stage_curseforge(
         let root = isolated_data_dir(
             &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
         ).map_err(|e| e.to_string())?;
-        let stage = root.join(format!("{id}.staging"));
-        let report = stage_curseforge_downloads(
-            archive, &metadata, &resolved, &stage, &cancel,
-        ).map_err(|e| e.to_string())?;
-        emit_pack_progress(&app, &id, "NEEDS_ACTION", "pack.not_ready", Some(100.0));
-        Ok(report)
+        // A durable journal is written BEFORE any network or extraction I/O.
+        // Re-running the same ID is refused and recovery never treats a
+        // previous private stage as a verified playable installation.
+        let staged = stage_transaction(&root, &id, archive, &metadata, &resolved, &cancel)?;
+        let status = match staged.journal.state {
+            TransactionState::Cancelled => InstallStatus::Cancelled,
+            TransactionState::Failed => InstallStatus::Failed,
+            _ => InstallStatus::NeedsAction,
+        };
+        let phase = match status {
+            InstallStatus::Cancelled => "CANCELLED",
+            InstallStatus::Failed => "FAILED",
+            InstallStatus::NeedsAction => "NEEDS_ACTION",
+        };
+        emit_pack_progress(&app, &id, phase, "pack.awaiting_verified_forge", None);
+        Ok(StageReport {
+            status,
+            installed: staged.installed,
+            blocked: staged.blocked,
+            failures: staged.failures,
+            staging_path: staged.staging_path.display().to_string(),
+            ready: false,
+        })
     }).await;
     if let Ok(mut jobs) = pack_jobs().lock() {
         jobs.remove(&operation_id);
