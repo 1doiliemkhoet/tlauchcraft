@@ -125,6 +125,18 @@ try {
  }
  [void][IO.Directory]::CreateDirectory($stage)
  $stageCreated=$true
+ # The stage is freshly created. Prepare only declared output parent paths;
+ # Forge tools may require directories to exist before writing mappings/JARs.
+ foreach($step in @($plan.processors)) {
+   foreach($entry in @($step.outputs)) {
+     $target=StageChild $stage ([string]$entry.relative_path)
+     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+   }
+   foreach($relative in @($step.intermediate_outputs)) {
+     $target=StageChild $stage ([string]$relative)
+     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+   }
+ }
  $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User
  $acl=New-Object Security.AccessControl.DirectorySecurity
  $acl.SetAccessRuleProtection($true,$false)
