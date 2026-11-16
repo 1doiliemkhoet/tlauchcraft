@@ -447,19 +447,22 @@ mod tests {
             intermediate_evidence: vec![],
             error: None,
         };
+        let approved = PrepareReport {
+            state: PrepareState::Verified,
+            request: Some(request.clone()),
+            unresolved: vec![],
+            error: None,
+        };
         assert!(build_forge_playable_handoff(
             &selection("36.2.29"),
             PROFILE,
             &derived,
             &serde_json::json!({"id":"1.16.5"}),
-            &PrepareReport {
-                state: PrepareState::Verified,
-                request: Some(request.clone()),
-                unresolved: vec![],
-                error: None
+            &ApprovedForgeExecution {
+                approved_prepare: &approved,
+                request: &request,
+                report: &report,
             },
-            &request,
-            &report,
             &[]
         )
         .is_err());
