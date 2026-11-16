@@ -40,8 +40,8 @@ function Report([string]$status,[string]$errorText) {
   Write-Output $json
 }
 try {
-  $host = Get-Content -LiteralPath $HostAttestation -Raw | ConvertFrom-Json
-  Check 'host_vm_configuration' ($host.status -eq 'VBOX_HOST_CONFIG_PASS_NO_JAVA' -and $host.vm -eq 'win10') 'Host evidence must prove all 8 adapters none, clipboard/dragdrop disabled, USB and VRDE off, zero configured shared folders'
+  $hostEvidence = Get-Content -LiteralPath $HostAttestation -Raw | ConvertFrom-Json
+  Check 'host_vm_configuration' ($hostEvidence.status -eq 'VBOX_HOST_CONFIG_PASS_NO_JAVA' -and $hostEvidence.vm -eq 'win10') 'Host evidence must prove all 8 adapters none, clipboard/dragdrop disabled, USB and VRDE off, zero configured shared folders'
   $root=[IO.Path]::GetFullPath($StageParent)
   $out=[IO.Path]::GetFullPath($EvidencePath)
   $bad = @($root -split '[\\/]' | Where-Object { $_ -match '^(?i:saves|worlds|profiles|instances|\.minecraft)$' })
