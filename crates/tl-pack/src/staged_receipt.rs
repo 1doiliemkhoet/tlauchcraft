@@ -1,10 +1,7 @@
 //! Read-only inventory evidence for a private CurseForge stage.
 //! All claims are based on official provider IDs, upstream SHA-1 and actual
 //! disk bytes. This is NOT a Forge execution or Minecraft READY receipt.
-use crate::{
-    curseforge::CurseForgeResolveReport,
-    PackMetadata, PackSource,
-};
+use crate::{curseforge::CurseForgeResolveReport, PackMetadata, PackSource};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
@@ -241,7 +238,10 @@ pub fn audit_curseforge_staging(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{curseforge::{CurseForgeFile, FileAvailability}, Loader, PlannedFile};
+    use crate::{
+        curseforge::{CurseForgeFile, FileAvailability},
+        Loader, PlannedFile,
+    };
     fn fixture(bytes: &[u8]) -> (PackMetadata, CurseForgeResolveReport) {
         let file = PlannedFile {
             path: "mods/official.jar".into(),
