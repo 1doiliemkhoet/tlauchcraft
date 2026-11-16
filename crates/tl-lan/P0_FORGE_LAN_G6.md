@@ -61,3 +61,68 @@ Hash changes across saves are expected. Verify the **same player UUID filename**
 - **C / G6:** two independently launched modded clients in same LAN world, peer reconnects, inventory and world persist — PASS only after Control examines actual two-client evidence.
 
 **Fail closed** if different loader versions, modpack manifest hashes, installed bytes, offline usernames, isolation stage or LAN binding. G6 remains NOT_VERIFIED even if unit tests, a loopback probe or two snapshots pass.
+
+## Automated Control preflight (one command, no network activity)
+
+Chat 4 should create a machine-readable JSON file (e.g. `lan-gate.json`) **from actually verified published host/peer installations**, not hand-written flags. The file contains:
+
+```json
+{
+  "host_private_ipv4": "192.168.1.10",
+  "port": 51234,
+  "acknowledged_offline_risk": false,
+  "confirmed_private_network": false,
+  "host": {
+    "root": "C:/TLaunchCraft-Test/host-instance",
+    "profile_id": "PROFILE_ID_A",
+    "original_username": "PlayerA",
+    "join_username": "PlayerA",
+    "effective_game_uuid": "CANONICAL_CHAT1_UUID_A",
+    "offline_server_uuid": "CANONICAL_CHAT1_UUID_A",
+    "receipt": {
+      "run_id": "SHARED_RUN_ID",
+      "instance_id": "HOST_INSTANCE_ID",
+      "archive_sha256": "64_HEX_CHARACTERS_FROM_PACK_MANIFEST",
+      "minecraft_version": "1.16.5",
+      "loader_kind": "forge",
+      "loader_version": "EXACT_MANIFEST_FORGE_VERSION",
+      "installed_and_verified": false,
+      "loader_execution_verified": false,
+      "files": [
+        { "relative_path": "mods/verified-example.jar", "sha256": "REAL_SHA256", "side": "both", "gameplay": true }
+      ]
+    }
+  },
+  "peer": {
+    "root": "C:/TLaunchCraft-Test/peer-instance",
+    "profile_id": "PROFILE_ID_B",
+    "original_username": "PlayerB",
+    "join_username": "PlayerB",
+    "effective_game_uuid": "CANONICAL_CHAT1_UUID_B",
+    "offline_server_uuid": "CANONICAL_CHAT1_UUID_B",
+    "receipt": {
+      "run_id": "SHARED_RUN_ID",
+      "instance_id": "PEER_INSTANCE_ID",
+      "archive_sha256": "64_HEX_CHARACTERS_FROM_PACK_MANIFEST",
+      "minecraft_version": "1.16.5",
+      "loader_kind": "forge",
+      "loader_version": "EXACT_MANIFEST_FORGE_VERSION",
+      "installed_and_verified": false,
+      "loader_execution_verified": false,
+      "files": [
+        { "relative_path": "mods/verified-example.jar", "sha256": "REAL_SHA256", "side": "both", "gameplay": true }
+      ]
+    }
+  }
+}
+```
+
+All placeholders and `false` receipt fields deliberately make this sample fail closed. Chat 4 must populate the real file from verified runtime evidence; Control must explicitly acknowledge trusted Private network/offline spoofing risk before setting the two network fields true. Never manually mark processor execution verified just to pass.
+
+On Windows, one command:
+
+```powershell
+cargo run --locked -p tl-lan --example forge_lan_gate -- .\lan-gate.json
+```
+
+It validates user identity, private bind, different peer identities, same actual manifest and SHA-256 of every listed installed file. `LAN_PREFLIGHT_PASS` means **read-only preflight only**; `G6_NOT_VERIFIED` remains until two real clients join, play and reconnect. No firewall changes, network sockets, user world edits, or publication occur in the example.
