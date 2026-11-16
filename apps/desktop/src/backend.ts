@@ -55,6 +55,14 @@ export async function call<T>(caps: Capabilities, feature: Feature, command: str
   // Missing backend command MUST reject, not return a mock success.
   return invoke<T>(command, args);
 }
+export type StagedPackReceipt = {
+  source: string; minecraft_version: string; loader_kind: string; loader_version: string;
+  archive_sha256: string; required_total: number; optional_total: number;
+  verified: { project_id: number; file_id: number; required: boolean; relative_path: string; bytes: number; upstream_sha1: string; observed_sha256: string }[];
+  blocked_required: string[]; blocked_optional: string[]; failures: string[];
+  complete_mod_inventory: boolean; forge_runtime_verified: false; instance_ready: false;
+};
+export type InstalledPackMod = { project_id: number; file_id: number; relative_path: string; actual_sha256: string; bytes: number };
 export const operations = {
   listProfiles: (c: Capabilities) => call<OfflineProfile[]>(c, 'profiles', 'profile_list'),
   createProfile: (c: Capabilities, username: string) => call<OfflineProfile>(c, 'profiles', 'profile_create', { username }),
@@ -75,6 +83,8 @@ export const operations = {
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
   stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
+  stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
+  importRestrictedPackMod: (c: Capabilities, archivePath: string, operationId: string, projectId: number, fileId: number, localPath: string) => call<InstalledPackMod>(c, 'pack_inspection', 'pack_import_restricted', { archivePath, operationId, projectId, fileId, localPath }),
   cancelPackStage: (c: Capabilities, operationId: string) => call<void>(c, 'pack_inspection', 'pack_cancel', { operationId }),
   launch: (c: Capabilities, request: LaunchRequest) => call<LaunchProcess>(c, 'game', 'game_launch', { request }),
   cancel: (c: Capabilities, operationId: string) => call<void>(c, 'downloads', 'operation_cancel', { operationId }),

@@ -1,0 +1,30 @@
+name: Chat 5 LAN integration (Windows)
+on:
+  pull_request:
+    branches:
+      - integration/p0-playable-single-run
+    paths:
+      - 'crates/tl-lan/**'
+      - '.github/workflows/lan-integration-windows.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lan:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Workspace lock metadata
+        run: cargo metadata --locked --format-version 1 --no-deps
+      - name: Windows Cargo fmt
+        run: cargo fmt --all -- --check
+      - name: Windows Cargo Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Windows Cargo tests
+        run: cargo test --locked --workspace --all-targets

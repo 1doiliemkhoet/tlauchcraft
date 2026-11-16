@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
-import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
+import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
 const navigation = [
@@ -31,6 +31,12 @@ export default function App() {
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [packPreview, setPackPreview] = useState<PackMetadata | null>(null);
+  const [packArchivePath, setPackArchivePath] = useState<string | null>(null);
+  const [packResolution, setPackResolution] = useState<CurseForgeResolveReport | null>(null);
+  const [packStaging, setPackStaging] = useState<CurseForgeStageReport | null>(null);
+  const [packReceipt, setPackReceipt] = useState<StagedPackReceipt | null>(null);
+  const [packOperationId, setPackOperationId] = useState<string | null>(null);
+  const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -96,7 +102,57 @@ export default function App() {
     if (!input) return;
     if (!safeArchive(input)) { setError('Chỉ nhận .zip hoặc .mrpack. Backend sẽ kiểm tra nội dung archive.'); return; }
     setPackPreview(null);
-    await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); });
+    setPackArchivePath(null);
+    setPackResolution(null);
+    setPackStaging(null);
+    setPackReceipt(null);
+    setPackOperationId(null);
+    setPackManualImports([]);
+    await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
+  };
+  const resolvePackFiles = () => {
+    if (!packArchivePath || packPreview?.source !== 'curseforge_zip') return;
+    void run('Resolve authorized CurseForge files', async () => {
+      const plan = await operations.resolveCurseForge(caps, packArchivePath);
+      setPackResolution(plan);
+      log(`Official resolver: ${plan.resolved_count} downloadable, ${plan.needs_action_count} needing action. No mods installed.`);
+    });
+  };
+  const stagePackFiles = () => {
+    if (!packArchivePath || packPreview?.source !== 'curseforge_zip') return;
+    const operationId = `pack-${crypto.randomUUID()}`;
+    setPackOperationId(operationId);
+    setPackStaging(null);
+    setPackReceipt(null);
+    setPackManualImports([]);
+    void run('Download and verify to private staging', async () => {
+      const staged = await operations.stageCurseForge(caps, packArchivePath, operationId);
+      setPackStaging(staged);
+      log(`Staged ${staged.installed.length} independently checked mod files. Blocked: ${staged.blocked.length}; failed: ${staged.failures.length}. PLAY IS NOT READY.`);
+    });
+  };
+  const verifyPackInventory = () => {
+    if (!packArchivePath || !packOperationId) return;
+    void run('Rehash staged pack inventory', async () => {
+      const evidence = await operations.stagedPackReceipt(caps, packArchivePath, packOperationId);
+      setPackReceipt(evidence);
+      log(`On-disk SHA-1 rehash: ${evidence.verified.length} files, missing required ${evidence.blocked_required.length}, errors ${evidence.failures.length}. Forge is not verified.`);
+    });
+  };
+  const importManualMod = (projectId: number, fileId: number) => {
+    if (!packArchivePath || !packOperationId) return;
+    void (async () => {
+      const path = await open({ multiple: false, filters: [{ name: 'Provider-authenticated mod', extensions: ['jar'] }] });
+      if (typeof path !== 'string') return;
+      await run('Verify manual restricted mod', async () => {
+        const verified = await operations.importRestrictedPackMod(
+          caps, packArchivePath, packOperationId, projectId, fileId, path
+        );
+        setPackManualImports(current => [...current, verified]);
+        setPackReceipt(null);
+        log(`SHA-1 matched official CurseForge file ${projectId}/${fileId}; staged only, not READY.`);
+      });
+    })().catch(e => setError(backendError(e)));
   };
   useEffect(() => {
     if (page !== 'settings' || !selectedInstance || !caps.features.settings) {
@@ -261,7 +317,34 @@ export default function App() {
           </Notice>)}
           {!caps.features.game && <Unavailable feature="game"/>}
         </div>}
-        {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation is unavailable until a real verified backend is integrated.</Notice>}</div>}
+        {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
+          <h3>CurseForge — verified file staging</h3>
+          <Notice>Staging is not a playable installation. Forge processor verification, instance publication and Play remain blocked until trusted runtime evidence exists.</Notice>
+          <div className="form-row">
+            <button disabled={busy} onClick={resolvePackFiles}>Resolve official dependencies</button>
+            <button className="primary" disabled={busy} onClick={stagePackFiles}>Download / Verify to private staging</button>
+            <button disabled={!packOperationId || !busy} onClick={() => void operations.cancelPackStage(caps, packOperationId!).catch(e => setError(backendError(e)))}>Cancel staging</button>
+          </div>
+          {packResolution && <div className="item"><strong>Official API plan</strong><span>{packResolution.resolved_count} downloadable · {packResolution.needs_action_count} need action</span></div>}
+          {packStaging && <div className="panel">
+            <div className="item"><strong>Staging: {packStaging.status}</strong><span>Verified {packStaging.installed.length} · Blocked {packStaging.blocked.length} · Failed {packStaging.failures.length} · Manually verified {packManualImports.length}</span></div>
+            <div className="form-row"><button disabled={busy} onClick={verifyPackInventory}>Rehash all installed mods / review receipt</button></div>
+            {packReceipt && <div className="panel">
+              <div className="item"><strong>Installed-mod inventory: {packReceipt.complete_mod_inventory ? 'COMPLETE (mods only)' : 'INCOMPLETE'}</strong>
+              <span>SHA-1 verified {packReceipt.verified.length} / {packReceipt.required_total + packReceipt.optional_total} · Missing required {packReceipt.blocked_required.length} · Errors {packReceipt.failures.length}</span></div>
+              {packReceipt.blocked_required.map((e, i) => <Notice key={'required'+i}>{e}</Notice>)}
+              {packReceipt.failures.map((e, i) => <Notice key={'error'+i}>{e}</Notice>)}
+              <Notice>Forge runtime verification: NO. Instance publication: NO. Playable: NOT_VERIFIED.</Notice>
+            </div>}
+            <Notice>Instance READY: NO. Existing Vanilla worlds are unchanged.</Notice>
+            {packStaging.blocked.map((message, index) => <Notice key={index}>{message}</Notice>)}
+            {packStaging.failures.map((message, index) => <Notice key={'failed-'+index}>{message}</Notice>)}
+            {packResolution?.files.filter(file => file.availability !== 'available').map(file => <div className="item" key={file.project_id+'-'+file.file_id}>
+              <span>{file.project_id}/{file.file_id}: {file.reason}</span>
+              <button disabled={busy || !file.sha1 || !file.expected_size || packManualImports.some(m => m.project_id===file.project_id && m.file_id===file.file_id)} onClick={() => importManualMod(file.project_id, file.file_id)}>Select and verify local JAR</button>
+            </div>)}
+          </div>}
+        </div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation and Play still require trusted Forge execution, instance audit and atomic publication.</Notice>}</div>}
         {page === 'skins' && <div className="panel"><h3>Skin studio</h3><p className="muted">Classic / Slim · PNG library · pixel editor · 3D preview · cape compatibility</p><div className="placeholder-grid"><div className="skin-silhouette"><Palette size={44}/><span>3D render waiting for SkinService</span></div><div><h3>Visibility matters</h3><p>Launcher preview, your in-game appearance and skins visible to LAN peers are separate verification states.</p><div className="item">Launcher preview <span>Unverified</span></div><div className="item">Singleplayer provider <span>Unverified</span></div><div className="item">LAN peer visibility <span>Unverified</span></div></div></div><Unavailable feature="skins"/></div>}
         {page === 'lan' && <div className="panel"><h3>Trusted LAN multiplayer</h3><p className="muted">Host / Join will require modpack and loader compatibility checks, stable offline identity and trusted LAN binding.</p><Notice>Never expose an offline-mode dedicated server to the public Internet. Verify world and inventory persistence on two physical machines.</Notice><div className="form-row"><button disabled={!caps.features.lan || busy} onClick={() => void run('LAN status', async () => { const value = await operations.lanStatus(caps); log(JSON.stringify(value)); })}>Check LAN status</button><button disabled>Host server · awaiting contract</button><button disabled>Join server · awaiting contract</button></div>{!caps.features.lan && <Unavailable feature="lan"/>}</div>}
         {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Live backend phases and polled SQLite state. No artificial percentages: the downloader has no verified byte-count callback yet.</p>{Object.values(gameStatusById).map(status => <div className="item" key={status.instance_id}><strong>{status.install_state}</strong><span>{status.instance_id}</span><span>{isInstallPending(status) ? 'Worker active / pending' : status.process_state}</span>{status.last_error && <span role="alert">{status.last_error}</span>}</div>)}{events.length ? visibleEvents.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small>{typeof event.details.downloaded_files === 'number' && <small>Verified downloads: {event.details.downloaded_files}</small>}{typeof event.details.verified_files === 'number' && <small>SHA-1 verified files: {event.details.verified_files}</small>}{typeof event.details.native_dll_count === 'number' && <small>Extracted DLLs: {event.details.native_dll_count}</small>}</div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !canCancelInstall(gameStatusById[event.instance_id])}

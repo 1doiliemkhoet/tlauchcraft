@@ -5,7 +5,8 @@ use tl_core::{CoreError, GameInstance, OfflineProfile, CONTRACT_VERSION};
 use tl_storage::{default_data_dir, isolated_data_dir, InstanceStore, ProfileStore, SqliteStore};
 use tl_pack::{inspect_archive, PackMetadata};
 use tl_pack::curseforge::{configured_api_key, resolve_curseforge_files, CurseForgeResolveReport, OfficialApiClient};
-use tl_pack::install::{stage_curseforge_downloads, InstallStatus, StageReport};
+use tl_pack::install::{InstallStatus, StageReport};
+use tl_pack::transaction::{stage_transaction, TransactionState};
 use std::sync::{Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -171,17 +172,111 @@ async fn pack_stage_curseforge(
         let root = isolated_data_dir(
             &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
         ).map_err(|e| e.to_string())?;
-        let stage = root.join(format!("{id}.staging"));
-        let report = stage_curseforge_downloads(
-            archive, &metadata, &resolved, &stage, &cancel,
-        ).map_err(|e| e.to_string())?;
-        emit_pack_progress(&app, &id, "NEEDS_ACTION", "pack.not_ready", Some(100.0));
-        Ok(report)
+        // A durable journal is written BEFORE any network or extraction I/O.
+        // Re-running the same ID is refused and recovery never treats a
+        // previous private stage as a verified playable installation.
+        let staged = stage_transaction(&root, &id, archive, &metadata, &resolved, &cancel)?;
+        let status = match staged.journal.state {
+            TransactionState::Cancelled => InstallStatus::Cancelled,
+            TransactionState::Failed => InstallStatus::Failed,
+            _ => InstallStatus::NeedsAction,
+        };
+        let phase = match status {
+            InstallStatus::Cancelled => "CANCELLED",
+            InstallStatus::Failed => "FAILED",
+            InstallStatus::NeedsAction => "NEEDS_ACTION",
+        };
+        emit_pack_progress(&app, &id, phase, "pack.awaiting_verified_forge", None);
+        Ok(StageReport {
+            status,
+            installed: staged.installed,
+            blocked: staged.blocked,
+            failures: staged.failures,
+            staging_path: staged.staging_path.display().to_string(),
+            ready: false,
+        })
     }).await;
     if let Ok(mut jobs) = pack_jobs().lock() {
         jobs.remove(&operation_id);
     }
     worker.map_err(|_| "pack staging task failed".to_string())?
+}
+
+/// Verify and import a user-selected restricted mod into an existing private
+/// staging operation. Official API provenance is fetched again in the backend;
+/// UI-supplied hashes/file metadata are NEVER trusted.
+#[tauri::command]
+async fn pack_import_restricted(
+    archive_path: String,
+    operation_id: String,
+    project_id: u64,
+    file_id: u64,
+    local_path: String,
+) -> Result<tl_pack::install::InstalledMod, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if operation_id.len() < 8 || operation_id.len() > 64
+            || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err("invalid staging operation ID".into());
+        }
+        let archive = Path::new(&archive_path);
+        if !archive.is_absolute() || !archive.is_file() {
+            return Err("source pack ZIP must be an existing absolute file".into());
+        }
+        let manifest = inspect_archive(archive).map_err(|e| e.to_string())?;
+        if !manifest.files.iter().any(|f| {
+            f.project_id == Some(project_id) && f.file_id == Some(file_id)
+        }) {
+            return Err("restricted mod does not belong to original pack manifest".into());
+        }
+        let key = configured_api_key().map_err(|e| e.to_string())?;
+        let plan = resolve_curseforge_files(&manifest, &OfficialApiClient, &key)
+            .map_err(|e| e.to_string())?;
+        let approved = plan.files.iter().find(|f| f.project_id == project_id && f.file_id == file_id)
+            .ok_or("official API did not confirm this project/file pair")?;
+        if approved.availability == tl_pack::curseforge::FileAvailability::Available {
+            return Err("file is available through approved CDN; manual import not necessary".into());
+        }
+        let root = isolated_data_dir(
+            &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
+        ).map_err(|e| e.to_string())?;
+        let stage = root.join(format!("{operation_id}.staging"));
+        tl_pack::manual_import::import_restricted_mod(
+            Path::new(&local_path), &stage, approved, &AtomicBool::new(false),
+        )
+    }).await.map_err(|_| "restricted import worker failed".to_string())?
+}
+
+/// Independently re-hash every staged mod using freshly resolved official
+/// CurseForge metadata. The result never claims loader or instance READY.
+#[tauri::command]
+async fn pack_staged_receipt(
+    archive_path: String,
+    operation_id: String,
+) -> Result<tl_pack::staged_receipt::StagedPackReceipt, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if operation_id.len() < 8 || operation_id.len() > 64
+            || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err("invalid pack operation ID".into());
+        }
+        let archive = Path::new(&archive_path);
+        if !archive.is_absolute() || !archive.is_file() {
+            return Err("source archive must be an existing absolute file".into());
+        }
+        let manifest = inspect_archive(archive).map_err(|e| e.to_string())?;
+        let key = configured_api_key().map_err(|e| e.to_string())?;
+        let approved = resolve_curseforge_files(&manifest, &OfficialApiClient, &key)
+            .map_err(|e| e.to_string())?;
+        let root = isolated_data_dir(
+            &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
+        ).map_err(|e| e.to_string())?;
+        tl_pack::staged_receipt::audit_curseforge_staging(
+            &root.join(format!("{operation_id}.staging")),
+            &manifest,
+            &approved,
+        )
+    }).await.map_err(|_| "pack verification worker failed".to_string())?
 }
 
 /// Cancel a running staging transfer without deleting unrelated user data.
@@ -205,6 +300,8 @@ fn main() {
             pack_inspect,
             pack_resolve,
             pack_stage_curseforge,
+            pack_import_restricted,
+            pack_staged_receipt,
             pack_cancel,
             java_settings_get,
             java_settings_save,
