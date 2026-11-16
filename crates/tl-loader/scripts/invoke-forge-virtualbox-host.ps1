@@ -103,14 +103,35 @@ try {
     VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestFile)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
-  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
-  # Failed preflight must remain a failure even if JSON can be retrieved.
+  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--verbose','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
+  # Guest process failures and report transport failures are distinct gates.
+  # A VBoxManage exit 0 is not by itself proof the guest returned PASS.
   $guestError=$null
-  try { VBox $run | Out-Null } catch { $guestError=$_.Exception.Message }
+  $guestRunOutput=@()
+  Write-Output 'VBOX_GUEST_RUN: starting no-Java audit'
+  try { $guestRunOutput=@(VBox $run) }
+  catch { $guestError=$_.Exception.Message }
+  $guestRunLog=Join-Path $out 'guest-run-output.txt'
+  [IO.File]::WriteAllText($guestRunLog,($guestRunOutput -join [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+  if ($guestError) { Write-Output "VBOX_GUEST_RUN_FAILED: $guestError" }
   $guestReport=Join-Path $out 'virtualbox-preflight.json'
-  try { VBox (@('guestcontrol',$Vm,'copyfrom')+$common+@('--no-replace',"$guest\virtualbox-preflight.json",$guestReport)) | Out-Null }
-  catch { Fail "Could not retrieve guest JSON evidence; guest run error: $guestError" }
-  if (-not [IO.File]::Exists($guestReport)) { Fail 'Guest JSON evidence not retrieved' }
+  $guestEvidencePath="$guest\virtualbox-preflight.json"
+  $guestStatError=$null
+  try { VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestEvidencePath)) | Out-Null }
+  catch { $guestStatError=$_.Exception.Message }
+  if ($guestStatError) {
+    Fail "Guest JSON not found; run error: $guestError; stat error: $guestStatError; guest stdout saved at $guestRunLog"
+  }
+  Write-Output 'VBOX_COPY_FROM: virtualbox-preflight.json'
+  try {
+    # The target is a NEW HOST FILE, not the already-existing $out directory.
+    # This mirrors the proven copyto fix; retain no-replace against overwrite.
+    VBox (@('guestcontrol',$Vm,'copyfrom')+$common+@('--verbose','--no-replace',("--target-directory=$guestReport"),$guestEvidencePath)) | Out-Null
+  }
+  catch {
+    Fail "Guest JSON transfer failed: $($_.Exception.Message); run error: $guestError; guest stdout saved at $guestRunLog"
+  }
+  if (-not [IO.File]::Exists($guestReport)) { Fail "Guest JSON not retrieved despite copyfrom success: $guestReport" }
   $body=Get-Content -LiteralPath $guestReport -Raw | ConvertFrom-Json
   $after=HostSnapshot
   [IO.File]::WriteAllText((Join-Path $out 'host-after.json'),($after|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
