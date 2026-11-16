@@ -45,16 +45,14 @@ try {
       $source -notmatch 'FORGE_EXECUTION_FAILED_NO_INSTANCE' -or
       $source -notmatch 'ForgeJobProcess' -or
       $source -notmatch 'File-Sha1') { throw 'Processor execution approval and output checks missing' }
-  $approved=$false
-  try { & $runner -PreflightJson (Join-Path $dir 'missing.json') -VmEvidenceJson (Join-Path $dir 'no-guest.json') -ControlApprovalJson (Join-Path $dir 'no-approval.json') -ReportNewJson (Join-Path $dir 'no-report.json') | Out-Null }
-  catch { $approved=$true }
-  # An absent approval and preflight may never produce Forge execution success.
-  if (-not $approved -and (Test-Path (Join-Path $dir 'no-report.json'))) {
-    $body=Get-Content (Join-Path $dir 'no-report.json') -Raw | ConvertFrom-Json
-    if ($body.status -ne 'FORGE_EXECUTION_FAILED_NO_INSTANCE' -or $body.java_executed -ne $false) {
-      throw 'Missing approval incorrectly reported Forge execution success'
-    }
+  $report=Join-Path $dir 'no-report.json'
+  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner -PreflightJson (Join-Path $dir 'missing.json') -VmEvidenceJson (Join-Path $dir 'no-guest.json') -ControlApprovalJson (Join-Path $dir 'no-approval.json') -ReportNewJson $report | Out-Null
+  if ($LASTEXITCODE -ne 2) { throw "Missing guest/approval must exit 2, got $LASTEXITCODE" }
+  if (Test-Path -LiteralPath $report) {
+    $body=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+    if ($body.status -ne 'FORGE_EXECUTION_FAILED_NO_INSTANCE' -or $body.java_executed -ne $false) { throw 'Missing approval produced false Forge PASS' }
   }
+  $global:LASTEXITCODE=0
   Write-Output 'VBOX_HOST_FAIL_CLOSED_AND_GUEST_POLICY_SOURCE_REGRESSION_PASS_NO_JAVA'
 } finally {
   [IO.Directory]::Delete($dir,$true)
