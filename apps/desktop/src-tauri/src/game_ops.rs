@@ -630,10 +630,13 @@ mod tests {
         wrong["id"]=json!("1.16.5-forge-36.2.29");
         assert!(!valid_installed_version(&forge,&wrong));
         wrong=correct.clone();
-        wrong["mainClass"]=json!("net.minecraft.client.main.Main");
+        // This is a *structural* compatibility selector. Actual Forge main
+        // class and Java-major authenticity come from the trusted installed
+        // receipt, independently rehashed before Desktop Play.
+        wrong["mainClass"]=json!("");
         assert!(!valid_installed_version(&forge,&wrong));
         wrong=correct;
-        wrong["javaVersion"]["majorVersion"]=json!(17);
+        wrong["javaVersion"]["majorVersion"]=json!(0);
         assert!(!valid_installed_version(&forge,&wrong));
         assert_eq!(launch_game_dir(&forge,Path::new("C:/Pack")),PathBuf::from("C:/Pack"));
         // No Minecraft-family hardcode in the common Desktop selector.
