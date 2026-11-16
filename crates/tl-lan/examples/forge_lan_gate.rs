@@ -68,7 +68,10 @@ fn run(args: &[String]) -> Result<(), String> {
     checked_identity(&input.host)?;
     checked_identity(&input.peer)?;
     if input.host.profile_id == input.peer.profile_id
-        || input.host.join_username.eq_ignore_ascii_case(&input.peer.join_username)
+        || input
+            .host
+            .join_username
+            .eq_ignore_ascii_case(&input.peer.join_username)
         || input.host.offline_server_uuid == input.peer.offline_server_uuid
     {
         return Err("two clients must have distinct profiles, nicknames and server UUIDs".into());
