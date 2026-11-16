@@ -128,7 +128,7 @@ pub fn import_restricted_mod(
         }
         output
             .sync_all()
-            .map_err(|_| "manual stage sync failed".into())?;
+            .map_err(|_| "manual stage sync failed".to_owned())?;
         Ok(())
     })();
     drop(output);
