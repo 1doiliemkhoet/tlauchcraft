@@ -331,7 +331,7 @@ fn execute(
     Ok(())
 }
 
-fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> {
+pub(crate) fn validate_processor(processor: &ApprovedProcessor) -> Result<(), LoaderError> {
     if (processor.outputs.is_empty() && processor.intermediate_outputs.is_empty())
         || processor.outputs.len() > 64
         || processor.intermediate_outputs.len() > 64
