@@ -297,7 +297,7 @@ pub fn build_forge_playable_handoff(
         || maven_roots.len() > 16
         || maven_roots
             .iter()
-            .any(|p| !p.is_absolute() || !p.is_dir() || p.ancestors().any(|a| a.is_symlink()))
+            .any(|p| !p.is_absolute() || !p.is_dir() || unsafe_part(p))
     {
         return Err(LoaderError::InvalidInput);
     }
