@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
-import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
+import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
 const navigation = [
@@ -34,6 +34,7 @@ export default function App() {
   const [packArchivePath, setPackArchivePath] = useState<string | null>(null);
   const [packResolution, setPackResolution] = useState<CurseForgeResolveReport | null>(null);
   const [packStaging, setPackStaging] = useState<CurseForgeStageReport | null>(null);
+  const [packReceipt, setPackReceipt] = useState<StagedPackReceipt | null>(null);
   const [packOperationId, setPackOperationId] = useState<string | null>(null);
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
@@ -104,6 +105,7 @@ export default function App() {
     setPackArchivePath(null);
     setPackResolution(null);
     setPackStaging(null);
+    setPackReceipt(null);
     setPackOperationId(null);
     setPackManualImports([]);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
@@ -121,11 +123,20 @@ export default function App() {
     const operationId = `pack-${crypto.randomUUID()}`;
     setPackOperationId(operationId);
     setPackStaging(null);
+    setPackReceipt(null);
     setPackManualImports([]);
     void run('Download and verify to private staging', async () => {
       const staged = await operations.stageCurseForge(caps, packArchivePath, operationId);
       setPackStaging(staged);
       log(`Staged ${staged.installed.length} independently checked mod files. Blocked: ${staged.blocked.length}; failed: ${staged.failures.length}. PLAY IS NOT READY.`);
+    });
+  };
+  const verifyPackInventory = () => {
+    if (!packArchivePath || !packOperationId) return;
+    void run('Rehash staged pack inventory', async () => {
+      const evidence = await operations.stagedPackReceipt(caps, packArchivePath, packOperationId);
+      setPackReceipt(evidence);
+      log(`On-disk SHA-1 rehash: ${evidence.verified.length} files, missing required ${evidence.blocked_required.length}, errors ${evidence.failures.length}. Forge is not verified.`);
     });
   };
   const importManualMod = (projectId: number, fileId: number) => {
@@ -138,6 +149,7 @@ export default function App() {
           caps, packArchivePath, packOperationId, projectId, fileId, path
         );
         setPackManualImports(current => [...current, verified]);
+        setPackReceipt(null);
         log(`SHA-1 matched official CurseForge file ${projectId}/${fileId}; staged only, not READY.`);
       });
     })().catch(e => setError(backendError(e)));
@@ -316,6 +328,14 @@ export default function App() {
           {packResolution && <div className="item"><strong>Official API plan</strong><span>{packResolution.resolved_count} downloadable · {packResolution.needs_action_count} need action</span></div>}
           {packStaging && <div className="panel">
             <div className="item"><strong>Staging: {packStaging.status}</strong><span>Verified {packStaging.installed.length} · Blocked {packStaging.blocked.length} · Failed {packStaging.failures.length} · Manually verified {packManualImports.length}</span></div>
+            <div className="form-row"><button disabled={busy} onClick={verifyPackInventory}>Rehash all installed mods / review receipt</button></div>
+            {packReceipt && <div className="panel">
+              <div className="item"><strong>Installed-mod inventory: {packReceipt.complete_mod_inventory ? 'COMPLETE (mods only)' : 'INCOMPLETE'}</strong>
+              <span>SHA-1 verified {packReceipt.verified.length} / {packReceipt.required_total + packReceipt.optional_total} · Missing required {packReceipt.blocked_required.length} · Errors {packReceipt.failures.length}</span></div>
+              {packReceipt.blocked_required.map((e, i) => <Notice key={'required'+i}>{e}</Notice>)}
+              {packReceipt.failures.map((e, i) => <Notice key={'error'+i}>{e}</Notice>)}
+              <Notice>Forge runtime verification: NO. Instance publication: NO. Playable: NOT_VERIFIED.</Notice>
+            </div>}
             <Notice>Instance READY: NO. Existing Vanilla worlds are unchanged.</Notice>
             {packStaging.blocked.map((message, index) => <Notice key={index}>{message}</Notice>)}
             {packStaging.failures.map((message, index) => <Notice key={'failed-'+index}>{message}</Notice>)}
