@@ -3,9 +3,7 @@
 //! Does not run Java, install game files, mutate existing worlds or publish instances.
 use crate::{
     forge_1165::merge_forge_1165_version,
-    forge_provenance::{
-        audit_official_forge_metadata, ArtifactRequirement, SourceRequirement,
-    },
+    forge_provenance::{audit_official_forge_metadata, ArtifactRequirement, SourceRequirement},
     loader_runtime::{verification_from_execution, RuntimeState},
     runtime::{ProcessorRunReport, ProcessorRunRequest, VerifiedProcessorJar},
     LoaderError, LoaderKind,
@@ -39,9 +37,9 @@ impl PackForgeSelection {
                 .as_str()
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
-                .ok_or_else(|| LoaderError::InvalidMetadata(format!(
-                    "normalized Forge pack missing {key}"
-                )))
+                .ok_or_else(|| {
+                    LoaderError::InvalidMetadata(format!("normalized Forge pack missing {key}"))
+                })
         };
         let selection = Self {
             minecraft_version: read("minecraft_version")?,
@@ -146,19 +144,30 @@ pub fn forge_java8_launch_version(merged: &Value) -> Result<Value, LoaderError> 
             filtered.push(item.clone());
             continue;
         };
-        if matches!(text, "--add-exports" | "--add-opens" | "--add-reads" | "--add-modules") {
+        if matches!(
+            text,
+            "--add-exports" | "--add-opens" | "--add-reads" | "--add-modules"
+        ) {
             skip_value = true;
             continue;
         }
         if [
-            "--add-exports=", "--add-opens=", "--add-reads=", "--add-modules="
-        ].iter().any(|prefix| text.starts_with(prefix)) {
+            "--add-exports=",
+            "--add-opens=",
+            "--add-reads=",
+            "--add-modules=",
+        ]
+        .iter()
+        .any(|prefix| text.starts_with(prefix))
+        {
             continue;
         }
         filtered.push(item.clone());
     }
     if skip_value {
-        return Err(LoaderError::InvalidMetadata("trailing Java module option".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "trailing Java module option".into(),
+        ));
     }
     *entries = filtered;
     Ok(launch)
@@ -180,7 +189,8 @@ fn checked_file(path: &Path, requirement: &ArtifactRequirement) -> Result<(), Lo
         || metadata.len() != requirement.size_bytes
     {
         return Err(LoaderError::InvalidMetadata(format!(
-            "Forge library size/type mismatch: {}", requirement.coordinate
+            "Forge library size/type mismatch: {}",
+            requirement.coordinate
         )));
     }
     crate::runtime::verify_sha1(path, &requirement.sha1)
@@ -217,14 +227,9 @@ pub fn validate_forge_pack_selection(
     }
     // The audited runtime implementation currently supports exactly this
     // Minecraft family; other releases need a dedicated reviewed adapter.
-    crate::loader_runtime::forge_adapter_for(
-        &selected.minecraft_version,
-        &selected.forge_version,
-    )?;
+    crate::loader_runtime::forge_adapter_for(&selected.minecraft_version, &selected.forge_version)?;
     let audit = audit_official_forge_metadata(profile_json, derived)?;
-    if audit.minecraft_version != selected.minecraft_version
-        || audit.derived_version != expected
-    {
+    if audit.minecraft_version != selected.minecraft_version || audit.derived_version != expected {
         return Err(LoaderError::CompatibilityConflict);
     }
     Ok(())
@@ -268,9 +273,12 @@ pub fn verify_forge_runtime_for_pack(
     if fs::read(&marker).ok().as_deref() != Some(&b"tl-loader-forge-v1"[..]) {
         return Err(LoaderError::NeedsInstallerExecution);
     }
-    if execution.log_paths.len() != 8 || execution.log_paths.iter().any(|path| {
-        !path.starts_with(&request.stage_root) || !path.is_file()
-    }) {
+    if execution.log_paths.len() != 8
+        || execution
+            .log_paths
+            .iter()
+            .any(|path| !path.starts_with(&request.stage_root) || !path.is_file())
+    {
         return Err(LoaderError::NeedsInstallerExecution);
     }
     // Reconstruct the actual four-step official Forge client graph and compare
@@ -288,25 +296,26 @@ pub fn verify_forge_runtime_for_pack(
     }
     let official_profile: Value = serde_json::from_str(profile_json)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
-    for (index, (processor, step)) in request
-        .processors
-        .iter()
-        .zip(&blueprint.steps)
-        .enumerate()
-    {
+    for (index, (processor, step)) in request.processors.iter().zip(&blueprint.steps).enumerate() {
         if processor.executable.coordinate != step.jar
             || processor.classpath.len() != step.classpath.len()
-            || !processor.classpath.iter().zip(&step.classpath).all(|(actual, expected)| {
-                actual.coordinate == *expected
-            })
+            || !processor
+                .classpath
+                .iter()
+                .zip(&step.classpath)
+                .all(|(actual, expected)| actual.coordinate == *expected)
             || processor.arguments.len() != step.args.len()
-            || !processor.arguments.iter().zip(&step.args).all(|(actual, expected)| {
-                if expected.starts_with('{') || expected.starts_with('[') {
-                    !actual.is_empty() && !actual.contains('{') && !actual.contains('[')
-                } else {
-                    actual == expected
-                }
-            })
+            || !processor
+                .arguments
+                .iter()
+                .zip(&step.args)
+                .all(|(actual, expected)| {
+                    if expected.starts_with('{') || expected.starts_with('[') {
+                        !actual.is_empty() && !actual.contains('{') && !actual.contains('[')
+                    } else {
+                        actual == expected
+                    }
+                })
         {
             return Err(LoaderError::InvalidMetadata(format!(
                 "processor {index} differs from official executable/classpath/argument graph"
@@ -329,9 +338,11 @@ pub fn verify_forge_runtime_for_pack(
                 .as_str()
                 .ok_or(LoaderError::InvalidInput)?
                 .trim_matches('\'');
-            if !processor.outputs.iter().any(|output| {
-                output.sha1.eq_ignore_ascii_case(expected_sha1)
-            }) {
+            if !processor
+                .outputs
+                .iter()
+                .any(|output| output.sha1.eq_ignore_ascii_case(expected_sha1))
+            {
                 return Err(LoaderError::InvalidMetadata(format!(
                     "processor {index} output hash differs from official client SHA-1"
                 )));
@@ -357,7 +368,9 @@ pub fn verify_forge_runtime_for_pack(
     let mut maven = BTreeMap::new();
     for item in official_maven {
         if maven.insert(item.coordinate.as_str(), item).is_some() {
-            return Err(LoaderError::InvalidMetadata("duplicate Maven evidence".into()));
+            return Err(LoaderError::InvalidMetadata(
+                "duplicate Maven evidence".into(),
+            ));
         }
     }
     let mut generated = BTreeMap::new();
@@ -368,7 +381,11 @@ pub fn verify_forge_runtime_for_pack(
             ));
         }
     }
-    for requirement in audit.profile_libraries.iter().chain(audit.derived_libraries.iter()) {
+    for requirement in audit
+        .profile_libraries
+        .iter()
+        .chain(audit.derived_libraries.iter())
+    {
         let descriptor = (
             requirement.sha1.clone(),
             requirement.size_bytes,
@@ -378,7 +395,8 @@ pub fn verify_forge_runtime_for_pack(
         if let Some(previous) = seen.get(&requirement.coordinate) {
             if previous != &descriptor {
                 return Err(LoaderError::InvalidMetadata(format!(
-                    "conflicting Forge inventory record: {}", requirement.coordinate
+                    "conflicting Forge inventory record: {}",
+                    requirement.coordinate
                 )));
             }
             continue;
@@ -392,33 +410,43 @@ pub fn verify_forge_runtime_for_pack(
                         requirement.coordinate
                     ))
                 })?;
-                if evidence.source != *url
-                    || !evidence.sha1.eq_ignore_ascii_case(&requirement.sha1)
+                if evidence.source != *url || !evidence.sha1.eq_ignore_ascii_case(&requirement.sha1)
                 {
                     return Err(LoaderError::InvalidMetadata(format!(
-                        "wrong Maven provenance: {}", requirement.coordinate
+                        "wrong Maven provenance: {}",
+                        requirement.coordinate
                     )));
                 }
                 (&evidence.path, ForgeLibraryOrigin::OfficialMaven)
             }
             SourceRequirement::VerifiedInstallerOrGenerated => {
-                let evidence = generated.get(requirement.coordinate.as_str()).ok_or_else(|| {
-                    LoaderError::InvalidMetadata(format!(
-                        "installer/generated Forge library still missing: {}",
-                        requirement.coordinate
-                    ))
-                })?;
-                if !matches!(evidence.origin, ForgeLibraryOrigin::VerifiedInstallerOrProcessor)
-                    || evidence.relative_path != requirement.relative_path
+                let evidence = generated
+                    .get(requirement.coordinate.as_str())
+                    .ok_or_else(|| {
+                        LoaderError::InvalidMetadata(format!(
+                            "installer/generated Forge library still missing: {}",
+                            requirement.coordinate
+                        ))
+                    })?;
+                if !matches!(
+                    evidence.origin,
+                    ForgeLibraryOrigin::VerifiedInstallerOrProcessor
+                ) || evidence.relative_path != requirement.relative_path
                     || evidence.size_bytes != requirement.size_bytes
-                    || !evidence.official_sha1.eq_ignore_ascii_case(&requirement.sha1)
+                    || !evidence
+                        .official_sha1
+                        .eq_ignore_ascii_case(&requirement.sha1)
                     || !path_is_within(&request.stage_root, &evidence.path)
                 {
                     return Err(LoaderError::InvalidMetadata(format!(
-                        "unverified generated Forge provenance/stage: {}", requirement.coordinate
+                        "unverified generated Forge provenance/stage: {}",
+                        requirement.coordinate
                     )));
                 }
-                (&evidence.path, ForgeLibraryOrigin::VerifiedInstallerOrProcessor)
+                (
+                    &evidence.path,
+                    ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
+                )
             }
         };
         checked_file(path, requirement)?;
@@ -431,9 +459,7 @@ pub fn verify_forge_runtime_for_pack(
             origin,
         });
     }
-    let inherited = merge_forge_1165_version(
-        mojang_parent, derived, &selected.forge_version,
-    )?;
+    let inherited = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
     if inherited["mainClass"] != "cpw.mods.modlauncher.Launcher" {
         return Err(LoaderError::CompatibilityConflict);
     }
@@ -534,23 +560,29 @@ mod tests {
             os_version: String::new(),
             features: std::collections::HashMap::new(),
         };
-        assert_eq!(tl_game::main_class(&merged).unwrap(), "cpw.mods.modlauncher.Launcher");
+        assert_eq!(
+            tl_game::main_class(&merged).unwrap(),
+            "cpw.mods.modlauncher.Launcher"
+        );
         assert_eq!(tl_game::required_java(&merged).unwrap(), 8);
         let game_args = tl_game::game_arguments(&merged, &env).unwrap();
-        assert!(game_args.windows(2).any(|v| {
-            v[0] == "--launchTarget" && v[1] == "fmlclient"
-        }));
-        assert!(game_args.windows(2).any(|v| {
-            v[0] == "--fml.forgeVersion" && v[1] == "36.2.29"
-        }));
+        assert!(game_args
+            .windows(2)
+            .any(|v| { v[0] == "--launchTarget" && v[1] == "fmlclient" }));
+        assert!(game_args
+            .windows(2)
+            .any(|v| { v[0] == "--fml.forgeVersion" && v[1] == "36.2.29" }));
         let jvm = tl_game::jvm_arguments(&merged, &env).unwrap();
         assert!(jvm.iter().any(|x| x == "-Dparent=present"));
         assert!(jvm.iter().any(|x| x.starts_with("--add-exports=")));
-        assert!(tl_game::libraries(&merged, &env).iter().any(|x| {
-            x["name"] == "net.minecraftforge:forge:1.16.5-36.2.29"
-        }));
+        assert!(tl_game::libraries(&merged, &env)
+            .iter()
+            .any(|x| { x["name"] == "net.minecraftforge:forge:1.16.5-36.2.29" }));
         let launch = forge_java8_launch_version(&merged).unwrap();
-        assert_eq!(tl_game::main_class(&launch).unwrap(), "cpw.mods.modlauncher.Launcher");
+        assert_eq!(
+            tl_game::main_class(&launch).unwrap(),
+            "cpw.mods.modlauncher.Launcher"
+        );
         assert_eq!(tl_game::game_arguments(&launch, &env).unwrap(), game_args);
         let launch_jvm = tl_game::jvm_arguments(&launch, &env).unwrap();
         assert!(launch_jvm.iter().any(|x| x == "-Dparent=present"));
@@ -560,7 +592,8 @@ mod tests {
         assert!(forge_java8_launch_version(&json!({
             "mainClass":"net.minecraft.Main", "javaVersion":{"majorVersion":8},
             "arguments":{"jvm":[]}
-        })).is_err());
+        }))
+        .is_err());
         let mut legacy = merged.clone();
         legacy.as_object_mut().unwrap().remove("javaVersion");
         assert!(tl_game::required_java(&legacy).is_err());
@@ -575,10 +608,8 @@ mod tests {
     fn plan_only_must_never_produce_execution_receipt() {
         use crate::runtime::{ProcessorOutcome, ProcessorRunReport};
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
-        let root = std::env::temp_dir().join(format!(
-            "forge-receipt-plan-only-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("forge-receipt-plan-only-{}", std::process::id()));
         let request = ProcessorRunRequest {
             minecraft_version: "1.16.5".into(),
             java: root.join("java.exe"),
@@ -597,14 +628,21 @@ mod tests {
         };
         let parent = json!({"id":"1.16.5"});
         assert!(verify_forge_runtime_for_pack(
-            &selected("36.2.29"), PROFILE, &derived, &parent, &request, &report,
+            &selected("36.2.29"),
+            PROFILE,
+            &derived,
+            &parent,
+            &request,
+            &report,
             &VerifiedForgeJava {
                 executable: request.java.clone(),
                 sha1: "0".repeat(40),
                 major: 8,
             },
-            &[], &[]
-        ).is_err());
+            &[],
+            &[]
+        )
+        .is_err());
         assert!(!root.exists());
     }
 }
