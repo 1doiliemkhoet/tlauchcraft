@@ -73,9 +73,9 @@ try {
   [IO.File]::WriteAllText($hostPath,($hostBefore|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
   $guest='C:\ForgeAudit'
   $common=@("--username=$GuestUser","--passwordfile=$pw")
-  function VBox([string[]]$args) {
-    & $VBoxManage @args 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { throw $_ } else { Write-Output $_ } }
-    if ($LASTEXITCODE -ne 0) { Fail "VBoxManage guestcontrol command failed: $($args[2]) (exit $LASTEXITCODE)" }
+  function VBox([string[]]$commandArgs) {
+    & $VBoxManage @commandArgs 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { throw $_ } else { Write-Output $_ } }
+    if ($LASTEXITCODE -ne 0) { Fail "VBoxManage guestcontrol command failed: $($commandArgs[2]) (exit $LASTEXITCODE)" }
   }
   VBox (@('guestcontrol',$Vm,'mkdir')+$common+@('--parents',$guest)) | Out-Null
   foreach ($file in @($source,$job,$hostPath)) {
