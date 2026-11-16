@@ -14,6 +14,8 @@ pub mod installer;
 pub mod loader_runtime;
 pub mod maven;
 pub mod runtime;
+#[cfg(windows)]
+mod windows_job;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artifact {
