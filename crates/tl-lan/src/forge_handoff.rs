@@ -1,12 +1,12 @@
 //! Fail-closed LAN pack handoff for Chat 4's *verified and published* instance.
 //! Reads installed bytes; does not install packs or authorize gameplay.
 use crate::{LanError, PackFile, PackFingerprint, Result, Side};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path};
-use serde::{Deserialize, Serialize};
 
 const MAX_FILES: usize = 20_000;
 const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024;
@@ -35,7 +35,9 @@ pub struct InstalledPackReceipt {
 fn sha256_file(path: &Path, expected: &str) -> Result<()> {
     let info = fs::symlink_metadata(path)?;
     if !info.file_type().is_file() || info.len() == 0 || info.len() > MAX_FILE_SIZE {
-        return Err(LanError::InvalidInput("missing or unsafe installed pack file".into()));
+        return Err(LanError::InvalidInput(
+            "missing or unsafe installed pack file".into(),
+        ));
     }
     let mut file = File::open(path)?;
     let mut digest = Sha256::new();
@@ -62,17 +64,27 @@ fn valid_sha256(value: &str) -> bool {
 /// Independently rehash a published instance. A receipt with only a READY flag
 /// cannot satisfy this guard: required files must be present and byte-matched.
 /// This is *not* proof that the modpack boots or that Forge processors executed.
-pub fn fingerprint_installed_pack(root: &Path, receipt: &InstalledPackReceipt) -> Result<PackFingerprint> {
+pub fn fingerprint_installed_pack(
+    root: &Path,
+    receipt: &InstalledPackReceipt,
+) -> Result<PackFingerprint> {
     if !receipt.installed_and_verified || !receipt.loader_execution_verified {
-        return Err(LanError::NotVerified("pack publication or Forge execution is unverified".into()));
+        return Err(LanError::NotVerified(
+            "pack publication or Forge execution is unverified".into(),
+        ));
     }
-    if receipt.run_id.trim().is_empty() || receipt.instance_id.trim().is_empty()
+    if receipt.run_id.trim().is_empty()
+        || receipt.instance_id.trim().is_empty()
         || receipt.minecraft_version != "1.16.5"
-        || receipt.loader_kind != "forge" || receipt.loader_version.trim().is_empty()
+        || receipt.loader_kind != "forge"
+        || receipt.loader_version.trim().is_empty()
         || !valid_sha256(&receipt.archive_sha256)
-        || receipt.files.is_empty() || receipt.files.len() > MAX_FILES
+        || receipt.files.is_empty()
+        || receipt.files.len() > MAX_FILES
     {
-        return Err(LanError::InvalidInput("incomplete Forge 1.16.5 instance receipt".into()));
+        return Err(LanError::InvalidInput(
+            "incomplete Forge 1.16.5 instance receipt".into(),
+        ));
     }
     let base = fs::canonicalize(root)?;
     if !base.is_dir() {
@@ -82,9 +94,13 @@ pub fn fingerprint_installed_pack(root: &Path, receipt: &InstalledPackReceipt) -
     let mut seen = BTreeMap::new();
     for declared in &receipt.files {
         let relative = Path::new(&declared.relative_path);
-        if declared.relative_path.contains('\\') || declared.relative_path.contains(':')
-            || declared.relative_path.contains("//") || declared.relative_path.contains('\0')
-            || relative.components().any(|c| !matches!(c, Component::Normal(_)))
+        if declared.relative_path.contains('\\')
+            || declared.relative_path.contains(':')
+            || declared.relative_path.contains("//")
+            || declared.relative_path.contains('\0')
+            || relative
+                .components()
+                .any(|c| !matches!(c, Component::Normal(_)))
             || !valid_sha256(&declared.sha256)
         {
             return Err(LanError::InvalidInput("unsafe pack receipt file".into()));
@@ -102,14 +118,18 @@ pub fn fingerprint_installed_pack(root: &Path, receipt: &InstalledPackReceipt) -
         let path = base.join(relative);
         let canonical = fs::canonicalize(&path)?;
         if !canonical.starts_with(&base) {
-            return Err(LanError::InvalidInput("installed file escaped instance root".into()));
+            return Err(LanError::InvalidInput(
+                "installed file escaped instance root".into(),
+            ));
         }
         // Reject symlinks/reparse targets; do not trust a malicious substituted file.
         let mut current = base.clone();
         for part in relative.components() {
             current.push(part.as_os_str());
             if fs::symlink_metadata(&current)?.file_type().is_symlink() {
-                return Err(LanError::InvalidInput("symlink in installed mod path".into()));
+                return Err(LanError::InvalidInput(
+                    "symlink in installed mod path".into(),
+                ));
             }
         }
         sha256_file(&canonical, &declared.sha256)?;
@@ -138,7 +158,9 @@ pub fn verify_two_installed_clients(
 ) -> Result<()> {
     if host.run_id != peer.run_id
         || host.instance_id == peer.instance_id
-        || !host.archive_sha256.eq_ignore_ascii_case(&peer.archive_sha256)
+        || !host
+            .archive_sha256
+            .eq_ignore_ascii_case(&peer.archive_sha256)
     {
         return Err(LanError::CompatibilityConflict(vec![
             "LAN peers do not share the same run, distinct instances and pack manifest".into(),
@@ -153,9 +175,12 @@ pub fn verify_two_installed_clients(
 /// Unlike the server/client comparison, client-only gameplay files must match
 /// across both clients. This remains a *preflight*, not a handshake.
 pub fn compare_two_clients(a: &PackFingerprint, b: &PackFingerprint) -> Result<()> {
-    if a.minecraft != "1.16.5" || b.minecraft != "1.16.5"
-        || a.loader_kind != "forge" || b.loader_kind != "forge"
-        || a.loader_version.is_empty() || a.loader_version != b.loader_version
+    if a.minecraft != "1.16.5"
+        || b.minecraft != "1.16.5"
+        || a.loader_kind != "forge"
+        || b.loader_kind != "forge"
+        || a.loader_version.is_empty()
+        || a.loader_version != b.loader_version
     {
         return Err(LanError::CompatibilityConflict(vec![
             "Minecraft/Forge versions do not match exactly".into(),
@@ -164,14 +189,22 @@ pub fn compare_two_clients(a: &PackFingerprint, b: &PackFingerprint) -> Result<(
     fn index(pack: &PackFingerprint) -> Result<BTreeMap<String, (String, Side, bool)>> {
         let mut out = BTreeMap::new();
         if pack.files.is_empty() {
-            return Err(LanError::NotVerified("empty installed pack fingerprint".into()));
+            return Err(LanError::NotVerified(
+                "empty installed pack fingerprint".into(),
+            ));
         }
         for f in &pack.files {
             if !valid_sha256(&f.sha256) {
                 return Err(LanError::InvalidInput("invalid pack file hash".into()));
             }
             let key = f.relative_path.to_ascii_lowercase();
-            if out.insert(key, (f.sha256.to_ascii_lowercase(), f.side.clone(), f.gameplay)).is_some() {
+            if out
+                .insert(
+                    key,
+                    (f.sha256.to_ascii_lowercase(), f.side.clone(), f.gameplay),
+                )
+                .is_some()
+            {
                 return Err(LanError::InvalidInput("duplicate pack file".into()));
             }
         }
