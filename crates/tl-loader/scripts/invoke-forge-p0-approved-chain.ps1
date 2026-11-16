@@ -57,9 +57,9 @@ try {
   $vm=Get-Content -LiteralPath $IsolationEvidenceJson -Raw | ConvertFrom-Json
   $model=(Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Model
   if ($model -notmatch '(?i)VirtualBox|VMware|Virtual Machine|KVM|QEMU' -or
-      $vm.status -ne 'CONTROL_APPROVED_RESTRICTED_WINDOWS_VM_E2E'
-      -or $vm.java_executed -ne $false
-      -or @($vm.checks | Where-Object { $_.state -ne 'PASS' }).Count -ne 0) {
+      $vm.status -ne 'CONTROL_APPROVED_RESTRICTED_WINDOWS_VM_E2E' -or
+      $vm.java_executed -ne $false -or
+      @($vm.checks | Where-Object { $_.state -ne 'PASS' }).Count -ne 0) {
     Stop-Denied 'Only a Control-approved isolated Windows guest may run Forge; host and synthetic boolean permits rejected'
   }
   $report=Get-Content -LiteralPath $PreflightJson -Raw | ConvertFrom-Json
