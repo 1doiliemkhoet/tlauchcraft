@@ -41,6 +41,17 @@ try {
       $hostSource -match [regex]::Escape('@(''guestcontrol'',$Vm,''run'')')) {
     throw 'Guest audit must use detached start and bounded receipt polling, not unsupported stdout waiting'
   }
+  # 2026-11-16 real Windows WER: native guestcontrol start caused a host
+  # powershell.exe AppHangB1. The native start command must be isolated
+  # behind a killable child process with a bounded host-side wait.
+  if ($hostSource -notmatch [regex]::Escape('Start-Process -FilePath $VBoxManage') -or
+      $hostSource -notmatch [regex]::Escape('$startProcess.WaitForExit(35000)') -or
+      $hostSource -notmatch [regex]::Escape('$startProcess.Kill()') -or
+      $hostSource -notmatch [regex]::Escape('VBOX_GUEST_START_TIMEOUT') -or
+      $hostSource -notmatch [regex]::Escape('guest-start-stderr.txt') -or
+      $hostSource -match [regex]::Escape('try { $guestRunOutput=@(VBox $run) }')) {
+    throw 'Guest start lacks local hard timeout or still blocks in native VBoxManage invocation'
+  }
   $capture=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-guest-capture.ps1') -Raw
   if ($capture -notmatch [regex]::Escape('Start-Process -FilePath $powershell') -or
       $capture -notmatch [regex]::Escape('-RedirectStandardError $stderr') -or
