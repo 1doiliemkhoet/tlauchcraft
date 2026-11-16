@@ -39,7 +39,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .ok_or("approved processor request missing")?;
     let receipt = build_forge_playable_handoff(
-        &selection, &profile, &derived, &parent,
+        &selection,
+        &profile,
+        &derived,
+        &parent,
         &ApprovedForgeExecution {
             approved_prepare: &approved,
             request,
