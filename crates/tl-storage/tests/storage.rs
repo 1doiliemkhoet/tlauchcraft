@@ -187,7 +187,7 @@ fn migrated_v1_profiles_and_instances_retain_data() {
             .unwrap()
             .schema_version()
             .unwrap(),
-        2
+        3
     );
 }
 
