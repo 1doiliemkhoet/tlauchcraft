@@ -31,6 +31,10 @@ fn perform() -> Result<(), Box<dyn std::error::Error>> {
             "unresolved": prepare.unresolved,
             "error": prepare.error,
             "processor_plan_count": prepare.request.as_ref().map_or(0, |r| r.processors.len()),
+            // Read-only four-step invocation specification, not an execution permit.
+            // Host paths must be separately re-verified and safely rebound in the VM.
+            "processor_plan": prepare.request.as_ref(),
+            "execution_authorized": false,
             "java_executed": false,
             "instance_ready": false
         },
