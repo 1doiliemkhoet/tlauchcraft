@@ -424,6 +424,43 @@ mod tests {
     }
 
     #[test]
+    fn real_1165_inheritance_exposes_forge_main_class_game_and_jvm_args() {
+        let derived: Value = serde_json::from_str(DERIVED).unwrap();
+        let parent = json!({
+            "id": "1.16.5",
+            "javaVersion": {"majorVersion": 8},
+            "libraries": [{"name": "org.example:parent:1.0"}],
+            "downloads": {"client": {
+                "url": "https://launcher.mojang.com/v1/objects/37fd3c903861eeff3bc24b71eed48f828b5269c8/client.jar",
+                "sha1": "37fd3c903861eeff3bc24b71eed48f828b5269c8",
+                "size": 17547153
+            }},
+            "arguments": {
+                "game": ["--username", "${auth_player_name}"],
+                "jvm": ["-Dparent=present"]
+            }
+        });
+        let merged = merge_forge_1165_version(&parent, &derived, "36.2.29").unwrap();
+        let env = tl_game::Environment {
+            os: "windows".into(),
+            arch: "x86_64".into(),
+            os_version: String::new(),
+            features: std::collections::HashMap::new(),
+        };
+        assert_eq!(tl_game::main_class(&merged).unwrap(), "cpw.mods.modlauncher.Launcher");
+        assert_eq!(tl_game::required_java(&merged).unwrap(), 8);
+        let game_args = tl_game::game_arguments(&merged, &env).unwrap();
+        assert!(game_args.windows(2).any(|v| v == ["--launchTarget", "fmlclient"]));
+        assert!(game_args.windows(2).any(|v| v == ["--fml.forgeVersion", "36.2.29"]));
+        let jvm = tl_game::jvm_arguments(&merged, &env).unwrap();
+        assert!(jvm.iter().any(|x| x == "-Dparent=present"));
+        assert!(jvm.iter().any(|x| x.starts_with("--add-exports=")));
+        assert!(tl_game::libraries(&merged, &env).iter().any(|x| {
+            x["name"] == "net.minecraftforge:forge:1.16.5-36.2.29"
+        }));
+    }
+
+    #[test]
     fn plan_only_must_never_produce_execution_receipt() {
         use crate::runtime::{ProcessorOutcome, ProcessorRunReport};
         let derived: Value = serde_json::from_str(DERIVED).unwrap();
