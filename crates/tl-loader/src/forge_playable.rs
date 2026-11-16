@@ -4,6 +4,7 @@
 //! no game is launched and no Minecraft world/profile is touched here.
 use crate::{
     forge_1165::{forge_1165_client_blueprint, merge_forge_1165_version},
+    forge_graph::{PrepareReport, PrepareState},
     forge_provenance::{audit_official_forge_metadata, ArtifactRequirement, SourceRequirement},
     loader_runtime::{verification_from_execution, RuntimeState},
     runtime::{ProcessorRunReport, ProcessorRunRequest},
@@ -156,6 +157,7 @@ pub fn build_forge_playable_handoff(
     installer_profile: &str,
     derived: &Value,
     mojang_parent: &Value,
+    approved_prepare: &PrepareReport,
     processor_request: &ProcessorRunRequest,
     execution: &ProcessorRunReport,
     maven_roots: &[PathBuf],
@@ -170,6 +172,20 @@ pub fn build_forge_playable_handoff(
         || !processor_request.stage_root.is_absolute()
     {
         return Err(LoaderError::CompatibilityConflict);
+    }
+    // A processor can only execute the *exact* request produced by trusted
+    // ForgeBindings/profile resolution. Checking coordinate order alone would
+    // allow untrusted modified Java args or expected output hashes.
+    if approved_prepare.state != PrepareState::Verified
+        || !approved_prepare.unresolved.is_empty()
+        || approved_prepare.error.is_some()
+        || approved_prepare.request.as_ref().is_none_or(|approved| {
+            serde_json::to_value(approved).ok() != serde_json::to_value(processor_request).ok()
+        })
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "executed request differs from approved official Forge plan".into(),
+        ));
     }
     let checked = verification_from_execution(
         LoaderKind::Forge,
@@ -382,6 +398,7 @@ mod tests {
             PROFILE,
             &derived,
             &serde_json::json!({"id":"1.16.5"}),
+            &PrepareReport { state: PrepareState::Verified, request: Some(request.clone()), unresolved: vec![], error: None },
             &request,
             &report,
             &[]
