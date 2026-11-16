@@ -128,6 +128,27 @@ pub fn fingerprint_installed_pack(root: &Path, receipt: &InstalledPackReceipt) -
     })
 }
 
+/// One shared run must name the same exact source manifest on both machines.
+/// Different instance IDs are expected. No world files or profiles are touched.
+pub fn verify_two_installed_clients(
+    host_root: &Path,
+    host: &InstalledPackReceipt,
+    peer_root: &Path,
+    peer: &InstalledPackReceipt,
+) -> Result<()> {
+    if host.run_id != peer.run_id
+        || host.instance_id == peer.instance_id
+        || !host.archive_sha256.eq_ignore_ascii_case(&peer.archive_sha256)
+    {
+        return Err(LanError::CompatibilityConflict(vec![
+            "LAN peers do not share the same run, distinct instances and pack manifest".into(),
+        ]));
+    }
+    let host_fingerprint = fingerprint_installed_pack(host_root, host)?;
+    let peer_fingerprint = fingerprint_installed_pack(peer_root, peer)?;
+    compare_two_clients(&host_fingerprint, &peer_fingerprint)
+}
+
 /// Two actual client installs should have exact side-aware hashes and paths.
 /// Unlike the server/client comparison, client-only gameplay files must match
 /// across both clients. This remains a *preflight*, not a handshake.
@@ -234,6 +255,22 @@ mod tests {
         assert!(compare_two_clients(&a, &b).is_err());
         a.files.push(a.files[0].clone());
         assert!(compare_two_clients(&a, &a).is_err());
+    }
+    #[test]
+    fn source_manifest_or_instance_mismatch_blocks() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("mods")).unwrap();
+        fs::write(temp.path().join("mods/test.jar"), b"fixture").unwrap();
+        let hash = format!("{:x}", Sha256::digest(b"fixture"));
+        let host = receipt(&hash);
+        let mut peer = receipt(&hash);
+        peer.instance_id = "peer-002".into();
+        assert!(verify_two_installed_clients(temp.path(), &host, temp.path(), &peer).is_ok());
+        peer.archive_sha256 = "b".repeat(64);
+        assert!(verify_two_installed_clients(temp.path(), &host, temp.path(), &peer).is_err());
+        peer.archive_sha256 = host.archive_sha256.clone();
+        peer.instance_id = host.instance_id.clone();
+        assert!(verify_two_installed_clients(temp.path(), &host, temp.path(), &peer).is_err());
     }
     #[test]
     fn unsafe_receipt_path_rejected() {
