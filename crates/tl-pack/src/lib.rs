@@ -2,6 +2,7 @@
 //! This crate does not assert that an imported instance is runnable.
 pub mod artifact_audit;
 pub mod curseforge;
+pub mod fingerprint;
 pub mod install;
 pub mod instance_manifest;
 pub mod modrinth;
