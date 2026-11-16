@@ -15,7 +15,7 @@ use sha2::Sha256;
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 use tl_loader::{
     forge_playable::{
