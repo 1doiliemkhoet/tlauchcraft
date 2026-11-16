@@ -104,17 +104,41 @@ try {
     VBox (@('guestcontrol',$Vm,'stat')+$common+@($guestFile)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
-  # Some Guest Additions builds report "waiting flag not supported" and
-  # suppress stdout/stderr. An in-guest wrapper records the real child outcome,
-  # PowerShell stderr and a separate receipt without relying on stream support.
-  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\invoke-forge-virtualbox-guest-capture.ps1")
+  # Guest Additions 7.2 may not support the stdout/stderr wait flags.
+  # Oracle documents 'start' as returning once the process has started,
+  # independently of stream capture. The guest-side launcher writes an
+  # exclusive receipt after the child preflight exits; never trust 'start'
+  # as the actual verdict.
+  $run=@('guestcontrol',$Vm,'start')+$common+@("--exe=$command",'--timeout=25000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\invoke-forge-virtualbox-guest-capture.ps1")
   $guestError=$null
-  Write-Output 'VBOX_GUEST_RUN: starting no-Java audit with guest-local capture'
   $guestRunOutput=@()
-  try { $guestRunOutput=@(VBox $run) } catch { $guestError=$_.Exception.Message }
+  Write-Output 'VBOX_GUEST_START: starting guest-local no-Java capture'
+  try { $guestRunOutput=@(VBox $run) }
+  catch { $guestError=$_.Exception.Message }
   $guestRunLog=Join-Path $out 'guest-run-output.txt'
   [IO.File]::WriteAllText($guestRunLog,($guestRunOutput -join [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
-  if ($guestError) { Write-Output "VBOX_GUEST_RUN_FAILED: $guestError" }
+  if ($guestError) { Fail "VirtualBox guest process could not be started: $guestError. See $guestRunLog" }
+  $guestReceiptPath=Join-Path $guest 'guest-launch-receipt.json'
+  function GuestFileExists([string]$path) {
+    # Absence is expected while the detached guest child is working.
+    # Never print passwordfile path, user secrets or argument array.
+    $previous=$ErrorActionPreference
+    try {
+      $ErrorActionPreference='Continue'
+      $null=@(& $VBoxManage guestcontrol $Vm stat @common $path 2>&1)
+      return ($LASTEXITCODE -eq 0)
+    } finally { $ErrorActionPreference=$previous }
+  }
+  $receiptPresent=$false
+  foreach($attempt in 1..45) {
+    if (GuestFileExists $guestReceiptPath) { $receiptPresent=$true;break }
+    Start-Sleep -Milliseconds 1000
+  }
+  if (-not $receiptPresent) {
+    # Do not authorize processors on ambiguous/no-result guest state.
+    # The process list is diagnostic only, not proof of completion.
+    Write-Output 'VBOX_GUEST_RECEIPT_NOT_FOUND: guest start returned but receipt absent'
+  }
   # Recheck isolation even when guest script failed or produced no JSON.
   $after=HostSnapshot
   [IO.File]::WriteAllText((Join-Path $out 'host-after.json'),($after|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
@@ -126,9 +150,10 @@ try {
     VBox (@('guestcontrol',$Vm,'copyfrom')+$common+@('--verbose','--no-replace',("--target-directory=$hostPathNew"),$guestPath)) | Out-Null
     if (-not [IO.File]::Exists($hostPathNew)) { Fail "Copyfrom did not create: $hostBasename" }
   }
+  if (-not $receiptPresent) { Fail "Guest launch receipt not created within bounded polling window. See $guestRunLog; VM preflight NOT_VERIFIED" }
   try { Copy-GuestAuditFile 'guest-launch-receipt.json' 'guest-launch-receipt.json' }
   catch {
-    Fail "Guest launcher did not produce a retrievable receipt: $($_.Exception.Message); run error: $guestError; run log: $guestRunLog"
+    Fail "Guest launch receipt exists but retrieval failed: $($_.Exception.Message); start output: $guestRunLog"
   }
   $receipt=Get-Content -LiteralPath (Join-Path $out 'guest-launch-receipt.json') -Raw | ConvertFrom-Json
   if ($receipt.schema -ne 'tl-forge-vbox-guest-launch/v1') { Fail 'Unexpected guest launcher receipt schema' }
