@@ -79,7 +79,7 @@ try {
   }
   VBox (@('guestcontrol',$Vm,'mkdir')+$common+@('--parents',$guest)) | Out-Null
   foreach ($file in @($source,$job,$hostPath)) {
-    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--no-replace',$file,$guest+'\')) | Out-Null
+    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--no-replace',("--target-directory=$guest"),$file)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
   $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
