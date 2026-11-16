@@ -36,7 +36,7 @@ pub struct InstalledForgeLibrary {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VerifiedOverride {
     pub relative_path: String,
     pub sha256: String,
@@ -58,6 +58,7 @@ pub struct ForgeInstallRecord {
     pub installed_mods: Vec<VerifiedModReceipt>,
     pub installed_libraries: Vec<InstalledForgeLibrary>,
     pub verified_overrides: Vec<VerifiedOverride>,
+    pub native_dlls: Vec<VerifiedOverride>,
     pub minecraft_verified_files: usize,
 }
 
@@ -173,6 +174,40 @@ fn verify_natives(root: &Path, relative: &str) -> Result<(), String> {
         return Err("verified Windows native DLLs missing".into());
     }
     Ok(())
+}
+
+/// Snapshot every extracted native DLL digest for later Play-time validation.
+fn collect_verified_natives(root: &Path) -> Result<Vec<VerifiedOverride>, String> {
+    let dir = root.join("natives");
+    reject_symlinks(&dir)?;
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|_| "native DLL directory missing")? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !entry.file_type().map_err(|e| e.to_string())?.is_file()
+            || !name.to_ascii_lowercase().ends_with(".dll")
+            || crate::safe_path(&name).is_err()
+        {
+            return Err("unexpected native DLL directory entry".into());
+        }
+        let (bytes, _, sha256) = file_hashes(&entry.path())?;
+        if bytes == 0 {
+            return Err("empty native DLL".into());
+        }
+        files.push(VerifiedOverride {
+            relative_path: format!("natives/{name}"),
+            sha256,
+            bytes,
+        });
+    }
+    if files.is_empty() {
+        return Err("native DLL inventory empty".into());
+    }
+    files.sort_by(|a, b| a.relative_path.to_ascii_lowercase().cmp(&b.relative_path.to_ascii_lowercase()));
+    if files.windows(2).any(|w| w[0].relative_path.eq_ignore_ascii_case(&w[1].relative_path)) {
+        return Err("native DLL filename collision".into());
+    }
+    Ok(files)
 }
 
 /// Recheck overrides against the original ZIP bytes, not a JSON/boolean
@@ -354,6 +389,7 @@ pub fn publish_forge_from_execution(
     }
     let overrides = verify_original_overrides(stage, source_archive, pack)?;
     verify_natives(stage, "natives")?;
+    let native_dlls = collect_verified_natives(stage)?;
     let version = runtime.java8_launch_version;
     if version["id"] != runtime.derived_version_id
         || version["mainClass"] != "cpw.mods.modlauncher.Launcher"
@@ -376,6 +412,7 @@ pub fn publish_forge_from_execution(
         installed_mods: mods.verified,
         installed_libraries: libraries,
         verified_overrides: overrides,
+        native_dlls,
         minecraft_verified_files: checked,
     };
     let bytes = serde_json::to_vec_pretty(&record).map_err(|e| e.to_string())?;
@@ -463,6 +500,9 @@ pub fn reverify_published_forge(root: &Path) -> Result<ForgeInstallRecord, Strin
         )?;
     }
     verify_natives(root, &record.natives_relative_path)?;
+    if record.native_dlls != collect_verified_natives(root)? {
+        return Err("extracted native DLL bytes or inventory changed".into());
+    }
     let count = tl_game::vanilla_evidence::validate_install_files(&record.version, root)
         .map_err(|e| e.to_string())?;
     if count != record.minecraft_verified_files {
