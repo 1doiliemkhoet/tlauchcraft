@@ -2,7 +2,7 @@
 //! All claims are based on official provider IDs, upstream SHA-1 and actual
 //! disk bytes. This is NOT a Forge execution or Minecraft READY receipt.
 use crate::{
-    curseforge::{CurseForgeResolveReport, FileAvailability},
+    curseforge::CurseForgeResolveReport,
     PackMetadata, PackSource,
 };
 use serde::{Deserialize, Serialize};
@@ -241,7 +241,7 @@ pub fn audit_curseforge_staging(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{curseforge::CurseForgeFile, Loader, PlannedFile};
+    use crate::{curseforge::{CurseForgeFile, FileAvailability}, Loader, PlannedFile};
     fn fixture(bytes: &[u8]) -> (PackMetadata, CurseForgeResolveReport) {
         let file = PlannedFile {
             path: "mods/official.jar".into(),
