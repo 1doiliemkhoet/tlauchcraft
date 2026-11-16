@@ -242,6 +242,10 @@ pub fn validate_forge_pack_selection(
 /// Maven inputs are sourced from the importer; installer-generated outputs must
 /// be independently supplied and remain inside a fresh isolated stage or pinned
 /// installer extraction root. This function does not create any runtime files.
+// Each argument is a separately verified, security-sensitive source. Keeping
+// the nine explicit inputs prevents a single untrusted JSON bundle from being
+// misrepresented as a trusted execution permit. This function never runs Java.
+#[allow(clippy::too_many_arguments)]
 pub fn verify_forge_runtime_for_pack(
     selected: &PackForgeSelection,
     profile_json: &str,
