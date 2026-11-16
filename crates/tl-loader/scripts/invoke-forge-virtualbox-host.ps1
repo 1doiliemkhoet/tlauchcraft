@@ -71,7 +71,7 @@ try {
   [void][IO.Directory]::CreateDirectory($out)
   $hostPath=Join-Path $out 'host-before.json'
   [IO.File]::WriteAllText($hostPath,($hostBefore|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
-  $guest='C:\ForgeAudit'
+  $guest='C:\ForgeAudit\run-'+[guid]::NewGuid().ToString('N')
   $common=@("--username=$GuestUser","--passwordfile=$pw")
   function VBox([string[]]$commandArgs) {
     & $VBoxManage @commandArgs 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { throw $_ } else { Write-Output $_ } }
@@ -82,7 +82,7 @@ try {
     VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--no-replace',$file,$guest+'\')) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
-  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-JobSource',"$guest\ForgeJobProcess.cs")
+  $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
   # Failed preflight must remain a failure even if JSON can be retrieved.
   $guestError=$null
   try { VBox $run | Out-Null } catch { $guestError=$_.Exception.Message }
