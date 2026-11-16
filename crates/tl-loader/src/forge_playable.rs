@@ -179,6 +179,7 @@ fn check_artifact(path: &Path, digest: &str, length: u64) -> Result<(), LoaderEr
 fn safe_maven_path(relative: &str) -> Result<PathBuf, LoaderError> {
     let p = Path::new(relative);
     if relative.is_empty()
+        || relative.contains('\\')
         || p.is_absolute()
         || p.components().any(|c| !matches!(c, Component::Normal(_)))
     {
@@ -239,6 +240,20 @@ pub fn build_forge_playable_handoff(
     {
         return Err(LoaderError::InvalidMetadata(
             "executed request differs from approved official Forge plan".into(),
+        ));
+    }
+    let unsafe_part = |path: &Path| {
+        path.ancestors().any(|part| {
+            part.is_symlink()
+                || part.file_name().and_then(|x| x.to_str()).is_some_and(|name| {
+                    ["saves", "worlds", "instances", "profiles", ".minecraft"]
+                        .iter().any(|denied| name.eq_ignore_ascii_case(denied))
+                })
+        })
+    };
+    if unsafe_part(&processor_request.stage_root) {
+        return Err(LoaderError::InvalidMetadata(
+            "Forge execution stage must never be under existing Minecraft data".into(),
         ));
     }
     let checked = verification_from_execution(
