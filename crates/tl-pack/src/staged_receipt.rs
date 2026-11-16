@@ -59,8 +59,10 @@ fn verify_file(root: &Path, filename: &str, sha1: &str, size: u64) -> Result<Str
     if !crate::curseforge::safe_mod_file_name(filename) {
         return Err("unsafe official mod filename".into());
     }
-    if size == 0 || size > MAX_MOD_BYTES
-        || sha1.len() != 40 || !sha1.bytes().all(|c| c.is_ascii_hexdigit())
+    if size == 0
+        || size > MAX_MOD_BYTES
+        || sha1.len() != 40
+        || !sha1.bytes().all(|c| c.is_ascii_hexdigit())
     {
         return Err("official SHA-1 or size unavailable".into());
     }
@@ -76,10 +78,18 @@ fn verify_file(root: &Path, filename: &str, sha1: &str, size: u64) -> Result<Str
     let mut total = 0u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        let n = input.read(&mut buffer).map_err(|_| "staged mod read failed")?;
-        if n == 0 { break; }
-        total = total.checked_add(n as u64).ok_or("staged mod size overflow")?;
-        if total > size { return Err("staged mod grew during verification".into()); }
+        let n = input
+            .read(&mut buffer)
+            .map_err(|_| "staged mod read failed")?;
+        if n == 0 {
+            break;
+        }
+        total = total
+            .checked_add(n as u64)
+            .ok_or("staged mod size overflow")?;
+        if total > size {
+            return Err("staged mod grew during verification".into());
+        }
         sha1_state.update(&buffer[..n]);
         sha256_state.update(&buffer[..n]);
     }
@@ -101,9 +111,15 @@ pub fn audit_curseforge_staging(
         || manifest.loader.kind != "forge"
         || manifest.loader.version.as_deref().is_none_or(str::is_empty)
         || manifest.archive_sha256.len() != 64
-        || !manifest.archive_sha256.bytes().all(|c| c.is_ascii_hexdigit())
+        || !manifest
+            .archive_sha256
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit())
         || !stage.is_absolute()
-        || !stage.file_name().and_then(|v| v.to_str()).is_some_and(|s| s.ends_with(".staging"))
+        || !stage
+            .file_name()
+            .and_then(|v| v.to_str())
+            .is_some_and(|s| s.ends_with(".staging"))
     {
         return Err("verified CurseForge manifest and private stage required".into());
     }
@@ -141,18 +157,29 @@ pub fn audit_curseforge_staging(
         let identity = format!("{}:{}", entry.project_id, entry.file_id);
         let Some(name) = entry.file_name.as_deref() else {
             let reason = format!("{identity}: official filename unavailable");
-            if entry.required { report.blocked_required.push(reason); }
-            else { report.blocked_optional.push(reason); }
+            if entry.required {
+                report.blocked_required.push(reason);
+            } else {
+                report.blocked_optional.push(reason);
+            }
             continue;
         };
         if !planned_names.insert(name.to_ascii_lowercase()) {
-            report.failures.push(format!("{identity}: duplicate Windows target filename"));
+            report
+                .failures
+                .push(format!("{identity}: duplicate Windows target filename"));
             continue;
         }
         let (Some(sha1), Some(size)) = (entry.sha1.as_deref(), entry.expected_size) else {
-            let reason = format!("{identity}: missing authoritative SHA-1/size; {}", entry.reason);
-            if entry.required { report.blocked_required.push(reason); }
-            else { report.blocked_optional.push(reason); }
+            let reason = format!(
+                "{identity}: missing authoritative SHA-1/size; {}",
+                entry.reason
+            );
+            if entry.required {
+                report.blocked_required.push(reason);
+            } else {
+                report.blocked_optional.push(reason);
+            }
             continue;
         };
         match verify_file(stage, name, sha1, size) {
@@ -170,8 +197,11 @@ pub fn audit_curseforge_staging(
             Err(error) => {
                 let reason = format!("{identity}: {error}; provider={:?}", entry.availability);
                 if error == "file missing from private staging" {
-                    if entry.required { report.blocked_required.push(reason); }
-                    else { report.blocked_optional.push(reason); }
+                    if entry.required {
+                        report.blocked_required.push(reason);
+                    } else {
+                        report.blocked_optional.push(reason);
+                    }
                 } else {
                     report.failures.push(reason);
                 }
@@ -183,8 +213,11 @@ pub fn audit_curseforge_staging(
             "dependency project {} required by {}/{}: {}",
             dep.project_id, dep.parent_project_id, dep.parent_file_id, dep.reason
         );
-        if dep.required { report.blocked_required.push(reason); }
-        else { report.blocked_optional.push(reason); }
+        if dep.required {
+            report.blocked_required.push(reason);
+        } else {
+            report.blocked_optional.push(reason);
+        }
     }
     let mods_dir = stage.join("mods");
     if fs::symlink_metadata(&mods_dir).is_ok_and(|m| m.file_type().is_dir()) {
@@ -193,7 +226,9 @@ pub fn audit_curseforge_staging(
             let entry = entry.map_err(|_| "cannot inspect staged mod entry")?;
             let filename = entry.file_name().to_string_lossy().to_ascii_lowercase();
             if !planned_names.contains(&filename) {
-                report.failures.push(format!("unknown or partial staged mod: {filename}"));
+                report
+                    .failures
+                    .push(format!("unknown or partial staged mod: {filename}"));
             }
         }
     }
@@ -209,29 +244,48 @@ mod tests {
     use crate::{curseforge::CurseForgeFile, Loader, PlannedFile};
     fn fixture(bytes: &[u8]) -> (PackMetadata, CurseForgeResolveReport) {
         let file = PlannedFile {
-            path: "mods/official.jar".into(), provider: "curseforge".into(),
-            project_id: Some(100), file_id: Some(200), urls: Vec::new(),
-            sha1: None, sha512: None, required: true, side: "both".into(),
+            path: "mods/official.jar".into(),
+            provider: "curseforge".into(),
+            project_id: Some(100),
+            file_id: Some(200),
+            urls: Vec::new(),
+            sha1: None,
+            sha512: None,
+            required: true,
+            side: "both".into(),
         };
         let pack = PackMetadata {
-            name: "Independent forge pack".into(), source: PackSource::CurseforgeZip,
+            name: "Independent forge pack".into(),
+            source: PackSource::CurseforgeZip,
             game_version: "1.16.5".into(),
-            loader: Loader { kind: "forge".into(), version: Some("36.2.29".into()) },
-            archive_sha256: "a".repeat(64), archive_entries: 2,
-            uncompressed_bytes: 500, files: vec![file], overrides: Vec::new(),
+            loader: Loader {
+                kind: "forge".into(),
+                version: Some("36.2.29".into()),
+            },
+            archive_sha256: "a".repeat(64),
+            archive_entries: 2,
+            uncompressed_bytes: 500,
+            files: vec![file],
+            overrides: Vec::new(),
             warnings: Vec::new(),
         };
         let resolved = CurseForgeResolveReport {
             files: vec![CurseForgeFile {
-                project_id: 100, file_id: 200, required: true,
-                file_name: Some("official.jar".into()), download_url: None,
+                project_id: 100,
+                file_id: 200,
+                required: true,
+                file_name: Some("official.jar".into()),
+                download_url: None,
                 sha1: Some(format!("{:x}", Sha1::digest(bytes))),
                 expected_size: Some(bytes.len() as u64),
                 availability: FileAvailability::NeedsManualDownload,
-                reason: "manual import required".into(), dependencies: Vec::new(),
+                reason: "manual import required".into(),
+                dependencies: Vec::new(),
             }],
-            resolved_count: 0, needs_action_count: 1,
-            dependency_actions: Vec::new(), ready: false,
+            resolved_count: 0,
+            needs_action_count: 1,
+            dependency_actions: Vec::new(),
+            ready: false,
         };
         (pack, resolved)
     }
@@ -254,7 +308,11 @@ mod tests {
         let stage = root.path().canonicalize().unwrap().join("fixture.staging");
         fs::create_dir_all(stage.join("mods")).unwrap();
         let (pack, api) = fixture(b"trusted bytes");
-        assert!(!audit_curseforge_staging(&stage, &pack, &api).unwrap().complete_mod_inventory);
+        assert!(
+            !audit_curseforge_staging(&stage, &pack, &api)
+                .unwrap()
+                .complete_mod_inventory
+        );
         fs::write(stage.join("mods/official.jar"), b"modified bytes").unwrap();
         let r = audit_curseforge_staging(&stage, &pack, &api).unwrap();
         assert!(!r.complete_mod_inventory);
