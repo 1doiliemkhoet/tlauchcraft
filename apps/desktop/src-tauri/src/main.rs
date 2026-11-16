@@ -184,6 +184,51 @@ async fn pack_stage_curseforge(
     worker.map_err(|_| "pack staging task failed".to_string())?
 }
 
+/// Verify and import a user-selected restricted mod into an existing private
+/// staging operation. Official API provenance is fetched again in the backend;
+/// UI-supplied hashes/file metadata are NEVER trusted.
+#[tauri::command]
+async fn pack_import_restricted(
+    archive_path: String,
+    operation_id: String,
+    project_id: u64,
+    file_id: u64,
+    local_path: String,
+) -> Result<tl_pack::install::InstalledMod, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if operation_id.len() < 8 || operation_id.len() > 64
+            || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err("invalid staging operation ID".into());
+        }
+        let archive = Path::new(&archive_path);
+        if !archive.is_absolute() || !archive.is_file() {
+            return Err("source pack ZIP must be an existing absolute file".into());
+        }
+        let manifest = inspect_archive(archive).map_err(|e| e.to_string())?;
+        if !manifest.files.iter().any(|f| {
+            f.project_id == Some(project_id) && f.file_id == Some(file_id)
+        }) {
+            return Err("restricted mod does not belong to original pack manifest".into());
+        }
+        let key = configured_api_key().map_err(|e| e.to_string())?;
+        let plan = resolve_curseforge_files(&manifest, &OfficialApiClient, &key)
+            .map_err(|e| e.to_string())?;
+        let approved = plan.files.iter().find(|f| f.project_id == project_id && f.file_id == file_id)
+            .ok_or("official API did not confirm this project/file pair")?;
+        if approved.availability == tl_pack::curseforge::FileAvailability::Available {
+            return Err("file is available through approved CDN; manual import not necessary".into());
+        }
+        let root = isolated_data_dir(
+            &default_data_dir().map_err(|e| e.to_string())?.join("instances"),
+        ).map_err(|e| e.to_string())?;
+        let stage = root.join(format!("{operation_id}.staging"));
+        tl_pack::manual_import::import_restricted_mod(
+            Path::new(&local_path), &stage, approved, &AtomicBool::new(false),
+        )
+    }).await.map_err(|_| "restricted import worker failed".to_string())?
+}
+
 /// Cancel a running staging transfer without deleting unrelated user data.
 #[tauri::command]
 fn pack_cancel(operation_id: String) -> Result<(), String> {
@@ -205,6 +250,7 @@ fn main() {
             pack_inspect,
             pack_resolve,
             pack_stage_curseforge,
+            pack_import_restricted,
             pack_cancel,
             java_settings_get,
             java_settings_save,
