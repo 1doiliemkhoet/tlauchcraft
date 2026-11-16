@@ -447,6 +447,117 @@ pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String
     Ok(())
 }
 
+/// Commit one NEW Forge instance after an opaque Control-approved processor
+/// execution. This is deliberately an internal native handoff, NOT a Tauri
+/// command accepting frontend JSON/report flags. The external isolated runner
+/// is not yet wired on Windows, so there is no public way to forge READY.
+///
+/// A durable SQLite VERIFYING intent precedes atomic create-new publication.
+/// If interrupted after rename, reconciliation can finish READY only after
+/// rehashing all published artifacts and matching the persisted selection.
+#[allow(dead_code)] // called by the future Control-approved isolated runner
+pub(crate) fn finalize_approved_forge_instance(
+    display_name:String,
+    profile_id:Uuid,
+    source_archive:&Path,
+    pack_stage:&Path,
+    resolved:&tl_pack::curseforge::CurseForgeResolveReport,
+    approved:tl_pack::forge_publish::ApprovedForgePublishInputs<'_>,
+    cancelled:&AtomicBool,
+)->Result<GameInstance,String>{
+    let metadata=tl_pack::inspect_archive(source_archive).map_err(|e|e.to_string())?;
+    if metadata.loader.kind!="forge" || metadata.loader.version.is_none(){
+        return Err("Forge publication requires the original selected pack manifest".into())
+    }
+    if cancelled.load(Ordering::Relaxed){
+        return Err("Forge publication cancelled before staging".into())
+    }
+    if db()?.get_profile(profile_id).map_err(|e|e.to_string())?.is_none(){
+        return Err("Persisted offline profile missing".into())
+    }
+    let forge_version=metadata.loader.version.clone().ok_or("Missing Forge version")?;
+    if metadata.game_version!=approved.selection.minecraft_version
+        || forge_version!=approved.selection.forge_version
+        || metadata.archive_sha256!=approved.selection.pack_archive_sha256{
+        return Err("Original modpack and approved Forge execution differ".into())
+    }
+    let base=default_data_dir().map_err(|e|e.to_string())?;
+    let cache=base.join("cache").join("mojang");
+    // From a protected, approved execution receipt: stage Mojang/Forge
+    // library bytes under the existing pack stage, with no redownload on
+    // valid shared cache. Publication rechecks everything independently.
+    tl_pack::forge_publish::assemble_from_approved_execution(
+        pack_stage,&cache,&approved,cancelled
+    )?;
+    if cancelled.load(Ordering::Relaxed){
+        return Err("Forge publication cancelled; private stage preserved".into())
+    }
+    let mut instance=GameInstance::new(
+        display_name,metadata.game_version.clone(),
+        LoaderSpec{kind:LoaderKind::Forge,version:Some(forge_version)},profile_id
+    ).map_err(|e|e.to_string())?;
+    instance.state=InstanceState::Verifying;
+    let target=root(&instance)?;
+    if pack_stage.parent()!=target.parent(){
+        return Err("private stage and new instance must be siblings".into())
+    }
+    // Durable planned instance exists before any atomic directory move.
+    // Never mutate an existing UUID's files, profile, or save directory.
+    let mut store=db()?;
+    store.create_instance(&instance).map_err(|e|e.to_string())?;
+    let _written=tl_pack::forge_publish::publish_forge_from_execution(
+        pack_stage,&target,source_archive,&metadata,resolved,approved
+    )?;
+    if cancelled.load(Ordering::Relaxed){
+        return Err("cancelled after atomic publication; VERIFYING intent retained".into())
+    }
+    let record=tl_pack::forge_publish::reverify_published_forge(&target)?;
+    if record.minecraft_version!=instance.minecraft_version
+        || instance.loader.version.as_deref()!=Some(record.forge_version.as_str())
+        || !valid_installed_version(&instance,&record.version){
+        return Err("post-publish Forge record does not match SQLite intent".into())
+    }
+    let mut versioned=store.get_instance_versioned(instance.id).map_err(|e|e.to_string())?
+        .ok_or("published Forge instance disappeared from SQLite")?;
+    if versioned.value.state!=InstanceState::Verifying{
+        return Err("Forge publish state changed concurrently".into())
+    }
+    versioned.value.state=InstanceState::Ready;
+    store.update_instance_if_revision(&versioned.value,versioned.revision)
+        .map_err(|e|format!("Forge READY CAS failed; recover on next list: {e}"))?;
+    instance.state=InstanceState::Ready;
+    Ok(instance)
+}
+
+/// Reconciles only a previously persisted VERIFYING Forge intent with an
+/// existing final directory and a fully rehashed install marker. No pending
+/// record is promoted merely because a stage, frontend flag or JSON exists.
+pub(crate) fn reconcile_published_forge(instance:&GameInstance)->Result<bool,String>{
+    if instance.loader.kind!=LoaderKind::Forge || instance.state!=InstanceState::Verifying{
+        return Ok(false)
+    }
+    let target=root(instance)?;
+    if !target.is_dir(){
+        return Ok(false)
+    }
+    let verified=tl_pack::forge_publish::reverify_published_forge(&target)?;
+    if verified.minecraft_version!=instance.minecraft_version
+        || instance.loader.version.as_deref()!=Some(verified.forge_version.as_str())
+        || !valid_installed_version(instance,&verified.version){
+        return Err("incomplete or incompatible Forge commit intent".into())
+    }
+    let mut store=db()?;
+    let mut existing=store.get_instance_versioned(instance.id).map_err(|e|e.to_string())?
+        .ok_or("Forge intent no longer present")?;
+    if existing.value.state!=InstanceState::Verifying {
+        return Ok(false)
+    }
+    existing.value.state=InstanceState::Ready;
+    store.update_instance_if_revision(&existing.value,existing.revision)
+        .map_err(|e|format!("Forge crash recovery CAS conflict: {e}"))?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
