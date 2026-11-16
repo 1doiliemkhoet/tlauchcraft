@@ -51,9 +51,30 @@ fn profile_create(username: String) -> Result<OfflineProfile, String> {
     Ok(profile)
 }
 
+/// Reconcile only crash-interrupted native Forge publish intents, never
+/// trust an arbitrary frontend READY flag or a private staging directory.
 #[tauri::command]
-fn instance_list() -> Result<Vec<GameInstance>, String> {
-    open_store().and_then(|store| store.list_instances()).map_err(|e| e.to_string())
+async fn instance_list() -> Result<Vec<GameInstance>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let instances=open_store().and_then(|store|store.list_instances())
+            .map_err(|e|e.to_string())?;
+        let mut recovered=false;
+        for item in &instances {
+            if item.loader.kind==tl_core::LoaderKind::Forge
+                && item.state==tl_core::InstanceState::Verifying{
+                match game_ops::reconcile_published_forge(item){
+                    Ok(true)=>recovered=true,
+                    Ok(false)=>{},
+                    Err(err)=>eprintln!("[forge-recovery] instance={} blocked: {}",item.id,err),
+                }
+            }
+        }
+        if recovered {
+            open_store().and_then(|store|store.list_instances()).map_err(|e|e.to_string())
+        } else {
+            Ok(instances)
+        }
+    }).await.map_err(|e|format!("instance listing worker failed: {e}"))?
 }
 
 /// Inspection is read-only; never extracts, installs, or launches modpack payloads.
