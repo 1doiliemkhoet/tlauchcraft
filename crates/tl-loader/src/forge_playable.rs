@@ -189,6 +189,15 @@ fn safe_maven_path(relative: &str) -> Result<PathBuf, LoaderError> {
     Ok(p.to_owned())
 }
 
+/// The report must describe the same immutable processor request emitted by the
+/// verified official Forge prepare graph. Keeping them grouped prevents callers
+/// from accidentally verifying a different plan than the one they approved.
+pub struct ApprovedForgeExecution<'a> {
+    pub approved_prepare: &'a PrepareReport,
+    pub request: &'a ProcessorRunRequest,
+    pub report: &'a ProcessorRunReport,
+}
+
 /// Converts a *real* completed processor job into a Chat4 install receipt.
 /// Rejects preflight-only verdicts, fabricated execution counts, wrong modpack
 /// Forge version, any corrupted canonical Maven library, URL-less Forge JAR
@@ -199,11 +208,14 @@ pub fn build_forge_playable_handoff(
     installer_profile: &str,
     derived: &Value,
     mojang_parent: &Value,
-    approved_prepare: &PrepareReport,
-    processor_request: &ProcessorRunRequest,
-    execution: &ProcessorRunReport,
+    execution_evidence: &ApprovedForgeExecution<'_>,
     maven_roots: &[PathBuf],
 ) -> Result<ForgePlayableHandoff, LoaderError> {
+    let ApprovedForgeExecution {
+        approved_prepare,
+        request: processor_request,
+        report: execution,
+    } = *execution_evidence;
     let expected_id = selected.version_id()?;
     let blueprint =
         forge_1165_client_blueprint(installer_profile, derived, &selected.forge_version)?;
