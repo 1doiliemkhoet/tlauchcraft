@@ -74,12 +74,26 @@ try {
   $guest='C:\ForgeAudit\run-'+[guid]::NewGuid().ToString('N')
   $common=@("--username=$GuestUser","--passwordfile=$pw")
   function VBox([string[]]$commandArgs) {
-    & $VBoxManage @commandArgs 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { throw $_ } else { Write-Output $_ } }
-    if ($LASTEXITCODE -ne 0) { Fail "VBoxManage guestcontrol command failed: $($commandArgs[2]) (exit $LASTEXITCODE)" }
+    # Capture VBoxManage stdout AND stderr without PowerShell 5.1 prematurely
+    # converting native stderr to a terminating ErrorRecord. Never print
+    # commandArgs: those include the restricted temporary passwordfile path.
+    $operation=[string]$commandArgs[2]
+    $previous=$ErrorActionPreference
+    try {
+      $ErrorActionPreference='Continue'
+      $output=@(& $VBoxManage @commandArgs 2>&1 | ForEach-Object { [string]$_ })
+      $code=$LASTEXITCODE
+    } finally { $ErrorActionPreference=$previous }
+    if ($code -ne 0) { Fail "GuestControl $operation failed (exit $code): $($output -join ' | ')" }
+    $output | ForEach-Object { Write-Output $_ }
   }
   VBox (@('guestcontrol',$Vm,'mkdir')+$common+@('--parents',$guest)) | Out-Null
+  # A successful mkdir command is not proof that guest file permissions work.
+  VBox (@('guestcontrol',$Vm,'stat')+$common+@($guest)) | Out-Null
   foreach ($file in @($source,$job,$hostPath)) {
-    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--no-replace',("--target-directory=$guest"),$file)) | Out-Null
+    if (-not [IO.File]::Exists($file)) { Fail "Host input absent: $([IO.Path]::GetFileName($file))" }
+    Write-Output "VBOX_COPY_TO: $([IO.Path]::GetFileName($file))"
+    VBox (@('guestcontrol',$Vm,'copyto')+$common+@('--verbose','--no-replace',("--target-directory=$guest"),$file)) | Out-Null
   }
   $command='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
   $run=@('guestcontrol',$Vm,'run')+$common+@("--exe=$command",'--wait-stdout','--wait-stderr','--timeout=120000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\test-forge-virtualbox-guest.ps1",'-HostAttestation',"$guest\host-before.json",'-EvidencePath',"$guest\virtualbox-preflight.json",'-StageParent',$guest,'-JobSource',"$guest\ForgeJobProcess.cs")
