@@ -87,7 +87,10 @@ pub fn preflight_running_clients(
     if host.profile.id == peer.profile.id
         || host.instance.id == peer.instance.id
         || host.launch_process.pid == peer.launch_process.pid
-        || host.profile.username.eq_ignore_ascii_case(&peer.profile.username)
+        || host
+            .profile
+            .username
+            .eq_ignore_ascii_case(&peer.profile.username)
         || host_uuid == peer_uuid
     {
         return Err(LanError::CompatibilityConflict(vec![
@@ -120,7 +123,9 @@ pub fn preflight_running_clients(
 pub fn observed_open_to_lan_port(log: &Path) -> Result<u16> {
     let metadata = fs::symlink_metadata(log)?;
     if !metadata.file_type().is_file() || metadata.len() > 8 * 1024 * 1024 {
-        return Err(LanError::NotVerified("invalid or oversized Minecraft log".into()));
+        return Err(LanError::NotVerified(
+            "invalid or oversized Minecraft log".into(),
+        ));
     }
     let log_data = fs::read_to_string(log)?;
     let mut last_port = None;
@@ -140,9 +145,9 @@ pub fn observed_open_to_lan_port(log: &Path) -> Result<u16> {
             }
         }
     }
-    last_port.ok_or_else(|| LanError::NotVerified(
-        "no confirmed Minecraft Open-to-LAN port in host log".into(),
-    ))
+    last_port.ok_or_else(|| {
+        LanError::NotVerified("no confirmed Minecraft Open-to-LAN port in host log".into())
+    })
 }
 
 /// Use the port shown by Minecraft's Open-to-LAN menu if a log line is not
@@ -166,39 +171,55 @@ pub fn direct_connect_from_observed_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::forge_handoff::VerifiedPackFile;
     use sha2::{Digest, Sha256};
     use std::path::PathBuf;
     use tl_core::{LoaderKind, LoaderSpec};
-    use crate::forge_handoff::VerifiedPackFile;
 
     fn receipt(id: String, hash: String) -> InstalledPackReceipt {
         InstalledPackReceipt {
-            run_id: "single-run".into(), instance_id: id,
-            archive_sha256: "a".repeat(64), minecraft_version: "1.16.5".into(),
-            loader_kind: "forge".into(), loader_version: "36.2.29".into(),
-            installed_and_verified: true, loader_execution_verified: true,
+            run_id: "single-run".into(),
+            instance_id: id,
+            archive_sha256: "a".repeat(64),
+            minecraft_version: "1.16.5".into(),
+            loader_kind: "forge".into(),
+            loader_version: "36.2.29".into(),
+            installed_and_verified: true,
+            loader_execution_verified: true,
             files: vec![VerifiedPackFile {
-                relative_path: "mods/verified.jar".into(), sha256: hash,
-                side: "both".into(), gameplay: true,
+                relative_path: "mods/verified.jar".into(),
+                sha256: hash,
+                side: "both".into(),
+                gameplay: true,
             }],
         }
     }
     fn launch_fixture() -> (OfflineProfile, GameInstance, LaunchRequest, LaunchProcess) {
         let profile = OfflineProfile::new("PlayerA").unwrap();
         let mut instance = GameInstance::new(
-            "Modded", "1.16.5",
-            LoaderSpec { kind: LoaderKind::Forge, version: Some("36.2.29".into()) },
+            "Modded",
+            "1.16.5",
+            LoaderSpec {
+                kind: LoaderKind::Forge,
+                version: Some("36.2.29".into()),
+            },
             profile.id,
-        ).unwrap();
+        )
+        .unwrap();
         instance.state = InstanceState::Ready;
         let request = LaunchRequest {
-            instance_id: instance.id, profile_id: profile.id,
-            java_path: None, min_ram_mb: None, max_ram_mb: None, extra_jvm_args: None,
+            instance_id: instance.id,
+            profile_id: profile.id,
+            java_path: None,
+            min_ram_mb: None,
+            max_ram_mb: None,
+            extra_jvm_args: None,
         };
         let process = serde_json::from_value(serde_json::json!({
             "pid": 12345, "started_at": "2026-11-16T02:00:00Z",
             "log_path": "logs/latest.log", "termination_state": "running"
-        })).unwrap();
+        }))
+        .unwrap();
         (profile, instance, request, process)
     }
     #[test]
@@ -208,8 +229,12 @@ mod tests {
         let receipt = receipt(instance.id.to_string(), "a".repeat(64));
         request.profile_id = OfflineProfile::new("Another").unwrap().id;
         let client = RunningClient {
-            profile: &profile, instance: &instance, launch_request: &request,
-            launch_process: &process, installed_root: root.path(), receipt: &receipt,
+            profile: &profile,
+            instance: &instance,
+            launch_request: &request,
+            launch_process: &process,
+            installed_root: root.path(),
+            receipt: &receipt,
         };
         assert!(check_client(&client).is_err());
     }
@@ -220,15 +245,23 @@ mod tests {
         let receipt = receipt(instance.id.to_string(), "a".repeat(64));
         instance.state = InstanceState::NeedsAction;
         let c = RunningClient {
-            profile: &profile, instance: &instance, launch_request: &request,
-            launch_process: &process, installed_root: root.path(), receipt: &receipt,
+            profile: &profile,
+            instance: &instance,
+            launch_request: &request,
+            launch_process: &process,
+            installed_root: root.path(),
+            receipt: &receipt,
         };
         assert!(check_client(&c).is_err());
         instance.state = InstanceState::Ready;
         process.termination_state = TerminationState::Exited;
         let c = RunningClient {
-            profile: &profile, instance: &instance, launch_request: &request,
-            launch_process: &process, installed_root: root.path(), receipt: &receipt,
+            profile: &profile,
+            instance: &instance,
+            launch_request: &request,
+            launch_process: &process,
+            installed_root: root.path(),
+            receipt: &receipt,
         };
         assert!(check_client(&c).is_err());
     }
@@ -244,26 +277,43 @@ mod tests {
         let (a_profile, a_instance, a_request, a_process) = launch_fixture();
         let b_profile = OfflineProfile::new("PlayerB").unwrap();
         let mut b_instance = GameInstance::new(
-            "Peer", "1.16.5",
-            LoaderSpec { kind: LoaderKind::Forge, version: Some("36.2.29".into()) },
+            "Peer",
+            "1.16.5",
+            LoaderSpec {
+                kind: LoaderKind::Forge,
+                version: Some("36.2.29".into()),
+            },
             b_profile.id,
-        ).unwrap();
+        )
+        .unwrap();
         b_instance.state = InstanceState::Ready;
         let b_request = LaunchRequest {
-            instance_id: b_instance.id, profile_id: b_profile.id,
-            java_path: None, min_ram_mb: None, max_ram_mb: None, extra_jvm_args: None,
+            instance_id: b_instance.id,
+            profile_id: b_profile.id,
+            java_path: None,
+            min_ram_mb: None,
+            max_ram_mb: None,
+            extra_jvm_args: None,
         };
         let mut b_process = a_process.clone();
         b_process.pid = 12346;
         let a_receipt = receipt(a_instance.id.to_string(), hash.clone());
         let b_receipt = receipt(b_instance.id.to_string(), hash);
         let a = RunningClient {
-            profile: &a_profile, instance: &a_instance, launch_request: &a_request,
-            launch_process: &a_process, installed_root: &a_root, receipt: &a_receipt,
+            profile: &a_profile,
+            instance: &a_instance,
+            launch_request: &a_request,
+            launch_process: &a_process,
+            installed_root: &a_root,
+            receipt: &a_receipt,
         };
         let b = RunningClient {
-            profile: &b_profile, instance: &b_instance, launch_request: &b_request,
-            launch_process: &b_process, installed_root: &b_root, receipt: &b_receipt,
+            profile: &b_profile,
+            instance: &b_instance,
+            launch_request: &b_request,
+            launch_process: &b_process,
+            installed_root: &b_root,
+            receipt: &b_receipt,
         };
         let report = preflight_running_clients(&a, &b).unwrap();
         assert_ne!(report.host_offline_uuid, report.peer_offline_uuid);
@@ -277,7 +327,11 @@ mod tests {
         let log: PathBuf = dir.path().join("latest.log");
         fs::write(&log, b"Listening on port 25565\n").unwrap();
         assert!(observed_open_to_lan_port(&log).is_err());
-        fs::write(&log, b"[Server thread/INFO]: Local game hosted on port 51234\n").unwrap();
+        fs::write(
+            &log,
+            b"[Server thread/INFO]: Local game hosted on port 51234\n",
+        )
+        .unwrap();
         assert_eq!(observed_open_to_lan_port(&log).unwrap(), 51234);
         assert!(direct_connect_from_observed_log(Ipv4Addr::new(8, 8, 8, 8), &log).is_err());
         assert_eq!(
