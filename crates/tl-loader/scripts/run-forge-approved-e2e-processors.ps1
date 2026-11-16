@@ -18,7 +18,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 function Deny([string]$message) { throw "FORGE_APPROVED_PROCESSOR_DENIED: $message" }
+function Assert-NoReparse([string]$path) {
+ $cursor=[IO.Path]::GetFullPath($path)
+ while (-not [string]::IsNullOrWhiteSpace($cursor)) {
+   if (([IO.File]::Exists($cursor) -or [IO.Directory]::Exists($cursor)) -and
+       ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+     Deny "Symlink/reparse point forbidden: $cursor"
+   }
+   $parent=[IO.Path]::GetDirectoryName($cursor)
+   if ($parent -eq $cursor) { break }
+   $cursor=$parent
+ }
+}
 function Sha1([string]$path) {
+ Assert-NoReparse $path
  if (-not [IO.File]::Exists($path)) { Deny "File missing: $path" }
  (Get-FileHash -LiteralPath $path -Algorithm SHA1).Hash.ToLowerInvariant()
 }
@@ -52,7 +65,8 @@ $completed=0
 $stage=$null
 $failure=$null
 try {
- if (Test-Path -LiteralPath $NewExecutionReport) { Deny 'Execution report must be new, no overwrites' }
+ $reportFile=Restricted $NewExecutionReport
+ if (Test-Path -LiteralPath $reportFile) { Deny 'Execution report must be new, no overwrites' }
  $preflight=Get-Content -LiteralPath $PreflightJson -Raw | ConvertFrom-Json
  if ($preflight.import.processor_input_readiness -ne 'ProcessorInputsVerified' -or
      $preflight.import.state -ne 'Verified' -or
@@ -104,7 +118,7 @@ try {
      if ($a.source -notmatch '^https://(maven\.minecraftforge\.net|repo\.maven\.apache\.org/maven2|libraries\.minecraft\.net)/') { Deny "Untrusted processor Maven origin: $($a.coordinate)" }
    }
    foreach($arg in @($p.arguments)) {
-     if ([string]::IsNullOrEmpty($arg) -or $arg -match '[{}[\]]') { Deny "Unexpanded processor argument at step $i" }
+     if ([string]::IsNullOrEmpty($arg) -or $arg -match '[{}\[\]]') { Deny "Unexpanded processor argument at step $i" }
    }
    foreach($o in @($p.outputs)) { [void](StageChild $stage ([string]$o.relative_path)) }
    foreach($o in @($p.intermediate_outputs)) { [void](StageChild $stage ([string]$o)) }
@@ -162,7 +176,10 @@ $body=[ordered]@{
  intermediate_evidence=@($intermediates)
  error=$failure
 }
-if (Test-Path -LiteralPath $NewExecutionReport) { Deny 'Execution report already exists' }
-[IO.File]::WriteAllText(([IO.Path]::GetFullPath($NewExecutionReport)),($body|ConvertTo-Json -Depth 12),(New-Object Text.UTF8Encoding($false)))
+$finalReport=Restricted $NewExecutionReport
+if (Test-Path -LiteralPath $finalReport) { Deny 'Execution report already exists' }
+$parent=[IO.Path]::GetDirectoryName($finalReport)
+if (-not [IO.Directory]::Exists($parent)) { Deny 'Execution report parent directory must already exist' }
+[IO.File]::WriteAllText($finalReport,($body|ConvertTo-Json -Depth 12),(New-Object Text.UTF8Encoding($false)))
 $body|ConvertTo-Json -Depth 12
 if ($body.outcome -ne 'Verified') { exit 2 }
