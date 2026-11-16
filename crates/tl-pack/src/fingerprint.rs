@@ -62,7 +62,7 @@ pub fn fingerprint_staged_pack(
     }
     let audit = audit_staged_artifacts(staging, inventory);
     if !audit.complete
-        || audit.blocked.len() != 0
+        || !audit.blocked.is_empty()
         || audit.required_verified + audit.optional_verified != inventory.len()
     {
         return Err("all installed mods must be independently verified".into());
