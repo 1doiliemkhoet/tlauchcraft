@@ -280,6 +280,7 @@ pub fn build_forge_playable_handoff(
         .iter()
         .zip(blueprint.steps.iter())
     {
+        crate::runtime::validate_processor(step)?;
         if step.executable.coordinate != canonical.jar
             || step
                 .classpath
@@ -315,6 +316,7 @@ pub fn build_forge_playable_handoff(
             if prior.sha1 != entry.sha1
                 || prior.size_bytes != entry.size_bytes
                 || prior.relative_path != entry.relative_path
+                || prior.source != entry.source
             {
                 return Err(LoaderError::InvalidMetadata(
                     "conflicting official Forge Maven artifacts".into(),
