@@ -3,6 +3,7 @@
 pub mod artifact_audit;
 pub mod curseforge;
 pub mod fingerprint;
+pub mod forge_publish;
 pub mod install;
 pub mod instance_manifest;
 pub mod manual_import;
