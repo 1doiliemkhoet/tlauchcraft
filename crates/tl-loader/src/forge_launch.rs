@@ -58,8 +58,16 @@ pub fn java8_compatible_forge_version(
     Ok(version)
 }
 
-fn canonical_path(root: &Path, coordinate: &str) -> Result<PathBuf, LoaderError> {
-    let path = crate::maven::artifact_path(coordinate)?;
+fn canonical_path(root: &Path, relative: &str) -> Result<PathBuf, LoaderError> {
+    let path = Path::new(relative);
+    if relative.is_empty()
+        || path.is_absolute()
+        || path.components().any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "unsafe official Maven classpath relative path".into(),
+        ));
+    }
     Ok(root.join("libraries").join(path))
 }
 
@@ -96,7 +104,7 @@ pub fn build_verified_forge_launch(
                 "duplicate verified Forge runtime coordinate".into(),
             ));
         }
-        let target = canonical_path(&paths.root, &entry.coordinate)?;
+        let target = canonical_path(&paths.root, &entry.relative_path)?;
         verify_installed_file(&target, entry)?;
     }
     if receipt.generated_artifacts.len() != 2 || receipt.official_libraries.is_empty() {
