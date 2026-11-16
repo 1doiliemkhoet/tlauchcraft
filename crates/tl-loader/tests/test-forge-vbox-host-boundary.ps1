@@ -20,15 +20,27 @@ try {
   if ($hostSource -match [regex]::Escape('("--target-directory=$guest"),$file')) {
     throw 'copyto must never use an already-existing guest directory as the file destination'
   }
-  # The guest report must be verified in guest before host copyfrom, and
-  # copyfrom must target a NEW complete local filename (not an existing dir).
-  if ($hostSource -notmatch [regex]::Escape('VBox (@(''guestcontrol'',$Vm,''stat'')+$common+@($guestEvidencePath))') -or
-      $hostSource -notmatch [regex]::Escape('("--target-directory=$guestReport"),$guestEvidencePath') -or
-      $hostSource -notmatch [regex]::Escape('$($_.Exception.Message); run error: $guestError')) {
-    throw 'Guest result stat, copyfrom target-file semantics or diagnostic chaining missing'
+  # Real VirtualBox 7.2 Guest Additions may suppress the PowerShell stderr
+  # stream while returning VBoxManage exit 0. The in-guest capture wrapper
+  # must return a separate child receipt + captured stdout/stderr.
+  if ($hostSource -notmatch [regex]::Escape("foreach ($file in @($source,$launcher,$job,$hostPath))") -or
+      $hostSource -notmatch [regex]::Escape('guest-launch-receipt.json') -or
+      $hostSource -notmatch [regex]::Escape('guest-preflight-stderr.txt') -or
+      $hostSource -notmatch [regex]::Escape('guest-preflight-stdout.txt') -or
+      $hostSource -notmatch [regex]::Escape('GUEST_CHILD_PREFLIGHT_COMPLETED') -or
+      $hostSource -notmatch [regex]::Escape('("--target-directory=$hostPathNew"),$guestPath') -or
+      $hostSource -notmatch [regex]::Escape('VBox (@(''guestcontrol'',$Vm,''stat'')+$common+@($guestPath))')) {
+    throw 'Guest capture receipt, diagnostic files, strict verdict or full-file copyfrom missing'
   }
-  if ($hostSource -match [regex]::Escape('"$guest\\virtualbox-preflight.json",$guestReport')) {
-    throw 'Legacy positional copyfrom masked guest report transport errors'
+  $capture=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-guest-capture.ps1') -Raw
+  if ($capture -notmatch [regex]::Escape('Start-Process -FilePath $powershell') -or
+      $capture -notmatch [regex]::Escape('-RedirectStandardError $stderr') -or
+      $capture -notmatch [regex]::Escape('-RedirectStandardOutput $stdout') -or
+      $capture -notmatch [regex]::Escape("schema='tl-forge-vbox-guest-launch/v1'") -or
+      $capture -notmatch [regex]::Escape('child_exit_code=$childExit') -or
+      $capture -notmatch [regex]::Escape('evidence_exists=[IO.File]::Exists($guestEvidence)') -or
+      $capture -notmatch [regex]::Escape('instance_ready=$false')) {
+    throw 'Guest wrapper must capture child evidence and deny false PASS'
   }
   $denied=$false
   try { & $script -Vm 'win10' -GuestUser 'vboxuser' -VBoxManage $mock -OutputDirectory (Join-Path $dir 'never-created') | Out-Null }
@@ -41,7 +53,7 @@ try {
   try { & $script -Vm 'AI-SOC-LAB' -GuestUser 'vboxuser' -VBoxManage $mock | Out-Null }
   catch { $denied=$_.Exception.Message -match 'Only the Control-reviewed win10 VM' }
   if (-not $denied) { throw 'Unapproved VM name not rejected' }
-  foreach ($name in @('test-forge-virtualbox-guest.ps1','invoke-forge-virtualbox-host.ps1','invoke-forge-virtualbox-approved-processors.ps1')) {
+  foreach ($name in @('test-forge-virtualbox-guest.ps1','invoke-forge-virtualbox-guest-capture.ps1','invoke-forge-virtualbox-host.ps1','invoke-forge-virtualbox-approved-processors.ps1')) {
     $file=Join-Path $PSScriptRoot "../scripts/$name"
     $tokens=$null; $errors=$null
     [void][System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors)
