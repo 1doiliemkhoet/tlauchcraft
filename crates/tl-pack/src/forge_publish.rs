@@ -17,6 +17,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::Path,
+    sync::atomic::AtomicBool,
 };
 use tl_loader::{
     forge_playable::{
@@ -240,6 +241,33 @@ fn verify_original_overrides(
         });
     }
     Ok(verified)
+}
+
+/// Assemble the official Minecraft files and Forge libraries into the same
+/// private modpack stage, reusing a separately verified Mojang cache.
+/// An approved in-process runner must have produced the opaque proof first.
+/// This never executes third-party Forge processors or grants READY.
+pub fn assemble_from_approved_execution(
+    stage: &Path,
+    mojang_cache: &Path,
+    evidence: &ApprovedForgePublishInputs<'_>,
+    cancel: &AtomicBool,
+) -> Result<crate::forge_stage::ForgeStageAssembly, String> {
+    let runtime = verify_forge_runtime_for_pack(
+        evidence.selection,
+        evidence.profile_json,
+        evidence.derived,
+        evidence.mojang_parent,
+        evidence.processor_execution.request(),
+        evidence.processor_execution.report(),
+        evidence.java,
+        evidence.maven,
+        evidence.installer_or_generated,
+    )
+    .map_err(|e| format!("approved Forge execution unavailable: {e}"))?;
+    crate::forge_stage::assemble_forge_stage(
+        stage, mojang_cache, evidence.mojang_parent, &runtime, cancel,
+    )
 }
 
 /// This method does NOT execute a third-party Forge processor. Callers must
