@@ -20,6 +20,16 @@ $journal=New-Object System.Collections.ArrayList
 function Stop-Denied([string]$why) { throw "FORGE_P0_EXECUTION_DENIED: $why" }
 function File-Sha1([string]$path) {
   if (-not [IO.File]::Exists($path)) { Stop-Denied "Missing approved artifact: $path" }
+  $cursor=[IO.Path]::GetFullPath($path)
+  while (-not [string]::IsNullOrWhiteSpace($cursor)) {
+    if (([IO.File]::Exists($cursor) -or [IO.Directory]::Exists($cursor)) -and
+        ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      Stop-Denied "Symlink/reparse point in approved artifact: $cursor"
+    }
+    $parent=[IO.Path]::GetDirectoryName($cursor)
+    if ($parent -eq $cursor) { break }
+    $cursor=$parent
+  }
   (Get-FileHash -LiteralPath $path -Algorithm SHA1).Hash.ToLowerInvariant()
 }
 function Check-GuestPath([string]$path,[string]$label) {
@@ -106,7 +116,27 @@ try {
   }
   $route=@(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop)
   if ($route.Count -ne 0 -or @(Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }).Count -ne 0) { Stop-Denied 'VM networking was re-enabled after preflight' }
+  # Validate/create only official declared output directories inside the fresh stage.
+  # Forge tools do not necessarily create parent directories themselves.
+  foreach($step in @($plan.processors)) {
+    foreach($relative in @($step.outputs | ForEach-Object { [string]$_.relative_path }) + @($step.intermediate_outputs | ForEach-Object { [string]$_ })) {
+      if ([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or
+          $relative.Contains(':') -or $relative -match '(^|[\\/])\.\.?([\\/]|$)') {
+        Stop-Denied "Unsafe staged Forge output path: $relative"
+      }
+      $target=[IO.Path]::GetFullPath((Join-Path $stage $relative))
+      if (-not $target.StartsWith($stage.TrimEnd([char[]]@('\','/'))+'\',[StringComparison]::OrdinalIgnoreCase)) {
+        Stop-Denied 'Forge output escaped the approved private stage'
+      }
+    }
+  }
   [void][IO.Directory]::CreateDirectory($stage)
+  foreach($step in @($plan.processors)) {
+    foreach($relative in @($step.outputs | ForEach-Object { [string]$_.relative_path }) + @($step.intermediate_outputs | ForEach-Object { [string]$_ })) {
+      $target=[IO.Path]::GetFullPath((Join-Path $stage $relative))
+      [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+    }
+  }
   $who=[Security.Principal.WindowsIdentity]::GetCurrent().User
   $acl=New-Object Security.AccessControl.DirectorySecurity
   $acl.SetAccessRuleProtection($true,$false)
