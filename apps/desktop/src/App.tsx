@@ -176,7 +176,7 @@ export default function App() {
       }).catch(e => setError(backendError(e)));
     }
   }, [events, caps, refresh]);
-  const instanceIds = useMemo(() => instances.filter(i=>i.loader.kind==='vanilla').map(i=>i.id).join('|'), [instances]);
+  const instanceIds = useMemo(() => instances.filter(i=>i.loader.kind==='vanilla'||(i.loader.kind==='forge'&&i.state==='ready')).map(i=>i.id).join('|'), [instances]);
   useEffect(() => {
     if (!caps.features.game || !instanceIds) return;
     let active = true;
@@ -264,8 +264,8 @@ export default function App() {
         </>}
         {page === 'profiles' && <div className="panel"><h3>Offline identities</h3><p className="muted">A persistent UUID is provided by the core, not derived from the editable nickname.</p><div className="form-row"><input aria-label="Minecraft username" placeholder="Minecraft username" maxLength={16} value={username} onChange={e => setUsername(e.target.value)}/><button className="primary" disabled={!caps.features.profiles || !/^[A-Za-z0-9_]{3,16}$/.test(username) || busy} onClick={() => void run('Create profile', async () => { await operations.createProfile(caps, username); setUsername(''); await refresh(caps); })}>Create profile</button></div>{profiles.map(p => <div className="item" key={p.id}><Users size={18}/><strong>{p.username}</strong><span className="mono">{p.id}</span></div>)}{!profiles.length && <Empty title="No local profiles loaded" description="Create one when the profile service is connected."/>}{!caps.features.profiles && <Unavailable feature="profiles"/>}</div>}
         {page === 'instances' && <div className="panel">
-          <h3>Vanilla instances</h3>
-          <p className="muted">Only official Vanilla versions are supported here. Forge and modpack install remain disabled pending Chat 4 backend.</p>
+          <h3>Vanilla and verified Forge instances</h3>
+          <p className="muted">Vanilla creation and installation remain separate. Published Forge instances become playable only after backend receipt and file verification.</p>
           <div className="form-row">
             <input aria-label="Instance name" value={newInstanceName} onChange={e => setNewInstanceName(e.target.value)} placeholder="Instance name"/>
             <input aria-label="Minecraft release version" value={newVersion} onChange={e => setNewVersion(e.target.value)} placeholder="Minecraft release"/>
@@ -284,7 +284,7 @@ export default function App() {
             <span className="chip">{i.state}</span>
             {gameStatusById[i.id]?.process_state === 'running' && <span>PID {gameStatusById[i.id]?.pid}</span>}
             {i.loader.kind === 'vanilla' && <>
-              <button disabled={!caps.features.game || busy || !['empty','failed','cancelled','needs_action'].includes(i.state)} onClick={() => void run('Install Vanilla', async () => {
+              <button disabled={!caps.features.game || busy || i.loader.kind !== 'vanilla' || !['empty','failed','cancelled','needs_action'].includes(i.state)} onClick={() => void run('Install Vanilla', async () => {
                 await operations.installVanilla(caps, i.id);
                 log('Install command queued for ' + i.display_name + '; awaiting backend downloading/verifying/ready or failed.');
                 await refresh(caps);
