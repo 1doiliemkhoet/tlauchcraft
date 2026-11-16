@@ -18,6 +18,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const MAX_JSON_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -415,7 +418,8 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
             .open(&list)?;
         serde_json::to_writer(manifest, archives)?;
         fs::create_dir(destination)?;
-        let result = Command::new("powershell.exe")
+        let mut command = Command::new("powershell.exe");
+        command
             .arg("-NoProfile")
             .arg("-NonInteractive")
             .arg("-ExecutionPolicy")
@@ -425,8 +429,12 @@ pub fn extract_natives(archives: &[PathBuf], destination: &Path) -> Result<(), G
             .arg("-Destination")
             .arg(destination)
             .arg("-ArchiveListPath")
-            .arg(&list)
-            .output()?;
+            .arg(&list);
+        // Native extraction runs from the GUI, never expose an extra console window.
+        // Keep stdio capture and the hardened ZIP extractor exactly as before.
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        let result = command.output()?;
         if !result.status.success() {
             let error = String::from_utf8_lossy(&result.stderr);
             return Err(GameError::InvalidInput(format!(

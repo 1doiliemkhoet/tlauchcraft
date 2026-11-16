@@ -72,7 +72,12 @@ jobs:
         if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
-      - name: Tauri cargo check (Windows MSVC, locked)
+      - name: Tauri Rust compile and tests (locked, Windows MSVC)
         if: steps.scope.outputs.desktop_source == 'true'
+        shell: pwsh
         working-directory: apps/desktop/src-tauri
-        run: cargo +stable check --locked
+        run: |
+          cargo +stable check --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable test --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
