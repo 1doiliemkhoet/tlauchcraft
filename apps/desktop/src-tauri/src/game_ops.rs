@@ -251,7 +251,17 @@ pub fn game_status(state:State<'_,Arc<GameState>>,instance_id:String)->Result<Ga
     let uuid=id(&instance_id)?;
     let mut i=find_instance(uuid)?;
     let installing=state.installs.lock().map_err(|_|"Install lock poisoned")?.contains_key(&uuid);
-    if !installing && matches!(&i.state,InstanceState::Planned|InstanceState::Downloading|InstanceState::Verifying) {
+    // Forge crash recovery is distinct from Vanilla's interrupted install worker:
+    // never downgrade an atomic-published VERIFYING intent before rehashing.
+    if !installing && i.loader.kind==LoaderKind::Forge && i.state==InstanceState::Verifying {
+        match reconcile_published_forge(&i) {
+            Ok(true)=>{clear_error(uuid);i=find_instance(uuid)?;},
+            Ok(false)=>{},
+            Err(err)=>save_error(uuid,&format!("Forge publish recovery blocked: {err}"))
+        }
+    }
+    if !installing && matches!(&i.state,InstanceState::Planned|InstanceState::Downloading|InstanceState::Verifying)
+        && !(i.loader.kind==LoaderKind::Forge && i.state==InstanceState::Verifying) {
         let reason="Install worker was interrupted by a launcher restart; retry install to resume verification";
         save_error(uuid,reason);
         update_state(uuid,InstanceState::Failed)?;
