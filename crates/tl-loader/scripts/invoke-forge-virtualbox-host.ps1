@@ -110,14 +110,37 @@ try {
   # exclusive receipt after the child preflight exits; never trust 'start'
   # as the actual verdict.
   $run=@('guestcontrol',$Vm,'start')+$common+@("--exe=$command",'--timeout=25000','--','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$guest\invoke-forge-virtualbox-guest-capture.ps1")
-  $guestError=$null
-  $guestRunOutput=@()
-  Write-Output 'VBOX_GUEST_START: starting guest-local no-Java capture'
-  try { $guestRunOutput=@(VBox $run) }
-  catch { $guestError=$_.Exception.Message }
+  # Host Windows Error Reporting recorded powershell.exe AppHangB1 around
+  # guestcontrol start. Do not call this native command synchronously again.
+  # This child-only watchdog protects the host without touching the VM settings.
   $guestRunLog=Join-Path $out 'guest-run-output.txt'
-  [IO.File]::WriteAllText($guestRunLog,($guestRunOutput -join [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
-  if ($guestError) { Fail "VirtualBox guest process could not be started: $guestError. See $guestRunLog" }
+  $guestRunErr=Join-Path $out 'guest-start-stderr.txt'
+  $guestError=$null
+  Write-Output 'VBOX_GUEST_START: starting guest-local no-Java capture (bounded)'
+  $startArgs=($run | ForEach-Object {
+    # Quote each argument when needed; never print credentials or arg list.
+    $item=[string]$_
+    if ($item -match '[\s"]') { '"' + $item.Replace('"','\"') + '"' } else { $item }
+  }) -join ' '
+  $startProcess=$null
+  try {
+    $startProcess=Start-Process -FilePath $VBoxManage -ArgumentList $startArgs -RedirectStandardOutput $guestRunLog -RedirectStandardError $guestRunErr -WindowStyle Hidden -PassThru -ErrorAction Stop
+    if (-not $startProcess.WaitForExit(35000)) {
+      try { $startProcess.Kill() } catch {}
+      [void]$startProcess.WaitForExit(5000)
+      Fail 'VBOX_GUEST_START_TIMEOUT: VBoxManage exceeded 35 seconds; guest status UNKNOWN; no Forge execution authorized'
+    }
+    if ($startProcess.ExitCode -ne 0) {
+      $detail=''
+      if ([IO.File]::Exists($guestRunErr)) {
+        $detail=(Get-Content -LiteralPath $guestRunErr -Tail 15 -ErrorAction SilentlyContinue) -join ' | '
+      }
+      Fail "VBOX_GUEST_START_FAILED: VBoxManage exit $($startProcess.ExitCode); stderr: $detail"
+    }
+    Write-Output 'VBOX_GUEST_START_RETURNED: VBoxManage exit 0; waiting for guest receipt'
+  } finally {
+    if ($null -ne $startProcess) { $startProcess.Dispose() }
+  }
   $guestReceiptPath=Join-Path $guest 'guest-launch-receipt.json'
   function GuestFileExists([string]$path) {
     # Absence is expected while the detached guest child is working.
