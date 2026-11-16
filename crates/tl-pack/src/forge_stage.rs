@@ -4,7 +4,7 @@
 use sha1::{Digest, Sha1};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
