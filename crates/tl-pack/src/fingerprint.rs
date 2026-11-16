@@ -47,15 +47,22 @@ pub fn fingerprint_staged_pack(
             return Err("duplicate path or required flag mismatch".into());
         }
         if file.sha1.as_ref().is_some_and(|value| {
-            artifact.upstream_sha1.as_ref().is_none_or(|actual| !value.eq_ignore_ascii_case(actual))
+            artifact
+                .upstream_sha1
+                .as_ref()
+                .is_none_or(|actual| !value.eq_ignore_ascii_case(actual))
         }) || file.sha512.as_ref().is_some_and(|value| {
-            artifact.upstream_sha512.as_ref().is_none_or(|actual| !value.eq_ignore_ascii_case(actual))
+            artifact
+                .upstream_sha512
+                .as_ref()
+                .is_none_or(|actual| !value.eq_ignore_ascii_case(actual))
         }) {
             return Err("trusted upstream digest differs from plan".into());
         }
     }
     let audit = audit_staged_artifacts(staging, inventory);
-    if !audit.complete || audit.blocked.len() != 0
+    if !audit.complete
+        || audit.blocked.len() != 0
         || audit.required_verified + audit.optional_verified != inventory.len()
     {
         return Err("all installed mods must be independently verified".into());
@@ -120,9 +127,14 @@ mod tests {
             loader: LoaderKind::Forge,
             loader_version: "36.2.29".into(),
             files: vec![NormalizedFile {
-                target: "mods/a.jar".into(), provider: ProviderKind::CurseForge,
-                required: true, project_id: Some(100), file_id: Some(200),
-                sha1: Some(sha1.clone()), sha512: None, download_urls: vec![],
+                target: "mods/a.jar".into(),
+                provider: ProviderKind::CurseForge,
+                required: true,
+                project_id: Some(100),
+                file_id: Some(200),
+                sha1: Some(sha1.clone()),
+                sha512: None,
+                download_urls: vec![],
             }],
             support: InstallSupport::StageOnly,
             reasons: vec![],
@@ -132,7 +144,8 @@ mod tests {
             required: true,
             bytes: 14,
             sha256: format!("{:x}", Sha256::digest(b"verified bytes")),
-            upstream_sha1: Some(sha1), upstream_sha512: None,
+            upstream_sha1: Some(sha1),
+            upstream_sha512: None,
         }];
         (tmp, pack, installed)
     }

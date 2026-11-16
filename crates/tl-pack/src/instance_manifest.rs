@@ -74,13 +74,21 @@ pub fn persist_staged_manifest(
         if !observed.insert(key.clone()) {
             return Err("duplicate expected artifact path".into());
         }
-        let file = planned.get(&key).ok_or("unexpected staged artifact identity")?;
+        let file = planned
+            .get(&key)
+            .ok_or("unexpected staged artifact identity")?;
         if file.required != artifact.required
             || file.sha1.as_ref().is_some_and(|h| {
-                artifact.upstream_sha1.as_ref().is_none_or(|v| !v.eq_ignore_ascii_case(h))
+                artifact
+                    .upstream_sha1
+                    .as_ref()
+                    .is_none_or(|v| !v.eq_ignore_ascii_case(h))
             })
             || file.sha512.as_ref().is_some_and(|h| {
-                artifact.upstream_sha512.as_ref().is_none_or(|v| !v.eq_ignore_ascii_case(h))
+                artifact
+                    .upstream_sha512
+                    .as_ref()
+                    .is_none_or(|v| !v.eq_ignore_ascii_case(h))
             })
         {
             return Err("staged artifact does not match normalized plan".into());
