@@ -23,7 +23,7 @@ try {
   # Real VirtualBox 7.2 Guest Additions may suppress the PowerShell stderr
   # stream while returning VBoxManage exit 0. The in-guest capture wrapper
   # must return a separate child receipt + captured stdout/stderr.
-  if ($hostSource -notmatch [regex]::Escape("foreach ($file in @($source,$launcher,$job,$hostPath))") -or
+  if ($hostSource -notmatch [regex]::Escape('foreach ($file in @($source,$launcher,$job,$hostPath))') -or
       $hostSource -notmatch [regex]::Escape('guest-launch-receipt.json') -or
       $hostSource -notmatch [regex]::Escape('guest-preflight-stderr.txt') -or
       $hostSource -notmatch [regex]::Escape('guest-preflight-stdout.txt') -or
