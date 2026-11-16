@@ -26,6 +26,9 @@ jobs:
         run: |
           cargo metadata --locked --format-version 1 --no-deps | Out-Null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Forge approved processor and embedded runtime negative regression (no Java)
+        shell: pwsh
+        run: ./crates/tl-loader/tests/test-forge-p0-runner.ps1
       - name: Rustfmt
         run: cargo fmt --all -- --check
       - name: Clippy all targets
