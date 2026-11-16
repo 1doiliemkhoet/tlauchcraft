@@ -3,8 +3,6 @@ name: P0 Final Forge Publish + Desktop Play Windows
 on:
   push:
     branches: [feat/p0-final-playable-bridge]
-  pull_request:
-    branches: [integration/p0-playable-single-run]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +10,7 @@ permissions:
 
 concurrency:
   group: p0-final-bridge-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   rust:
