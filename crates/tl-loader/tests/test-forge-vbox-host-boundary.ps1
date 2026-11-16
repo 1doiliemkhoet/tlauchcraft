@@ -58,6 +58,14 @@ try {
       $hostSource -match [regex]::Escape('try { $guestRunOutput=@(VBox $run) }')) {
     throw 'Guest start process handle, native exit-code capture, hard timeout or async output missing'
   }
+  # The GuestControl receipt stat polling must also be bounded: real
+  # host WER AppHangB1 may be triggered by a blocking native guestcontrol.
+  if ($hostSource -notmatch [regex]::Escape('$probe.WaitForExit(5000)') -or
+      $hostSource -notmatch [regex]::Escape('VBOX_GUEST_STAT_TIMEOUT') -or
+      $hostSource -notmatch [regex]::Escape('return ($probe.ExitCode -eq 0)') -or
+      $hostSource -match [regex]::Escape('$null=@(& $VBoxManage guestcontrol $Vm stat')) {
+    throw 'Guest receipt polling must use killable stat probes, not synchronous native VBoxManage calls'
+  }
   # Real process/redirect/exit-code smoke: this never accesses the VM/Java.
   $probe=New-Object System.Diagnostics.Process
   $probeInfo=New-Object System.Diagnostics.ProcessStartInfo
