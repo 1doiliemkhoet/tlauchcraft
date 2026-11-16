@@ -32,6 +32,15 @@ try {
       $hostSource -notmatch [regex]::Escape('VBox (@(''guestcontrol'',$Vm,''stat'')+$common+@($guestPath))')) {
     throw 'Guest capture receipt, diagnostic files, strict verdict or full-file copyfrom missing'
   }
+  # No dependency on Guest Additions stdout/stderr wait flags: launch must
+  # return independently and poll only for the child-produced receipt.
+  if ($hostSource -notmatch [regex]::Escape('@(''guestcontrol'',$Vm,''start'')') -or
+      $hostSource -notmatch [regex]::Escape('GuestFileExists $guestReceiptPath') -or
+      $hostSource -notmatch [regex]::Escape('VBOX_GUEST_RECEIPT_NOT_FOUND') -or
+      $hostSource -notmatch [regex]::Escape('if (-not $receiptPresent) { Fail') -or
+      $hostSource -match [regex]::Escape('@(''guestcontrol'',$Vm,''run'')')) {
+    throw 'Guest audit must use detached start and bounded receipt polling, not unsupported stdout waiting'
+  }
   $capture=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../scripts/invoke-forge-virtualbox-guest-capture.ps1') -Raw
   if ($capture -notmatch [regex]::Escape('Start-Process -FilePath $powershell') -or
       $capture -notmatch [regex]::Escape('-RedirectStandardError $stderr') -or
