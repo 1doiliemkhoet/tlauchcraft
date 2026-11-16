@@ -145,6 +145,15 @@ pub fn observed_open_to_lan_port(log: &Path) -> Result<u16> {
     ))
 }
 
+/// Use the port shown by Minecraft's Open-to-LAN menu if a log line is not
+/// available. The operator must independently confirm it belongs to this run.
+pub fn direct_connect_from_displayed_port(
+    host_private_ip: Ipv4Addr,
+    displayed_port: u16,
+) -> Result<String> {
+    direct_connect_address(host_private_ip, displayed_port)
+}
+
 /// Build a Direct Connect destination only for an operator-approved private IP.
 /// No socket is opened and no Windows Firewall/router configuration is touched.
 pub fn direct_connect_from_observed_log(
@@ -233,12 +242,18 @@ mod tests {
         }
         let hash = format!("{:x}", Sha256::digest(b"fixture"));
         let (a_profile, a_instance, a_request, a_process) = launch_fixture();
-        let (mut b_profile, mut b_instance, mut b_request, mut b_process) = launch_fixture();
-        b_profile = OfflineProfile::new("PlayerB").unwrap();
-        b_instance.profile_id = b_profile.id;
-        b_instance.id = tl_core::OfflineProfile::new("Temp").unwrap().id;
-        b_request.profile_id = b_profile.id;
-        b_request.instance_id = b_instance.id;
+        let b_profile = OfflineProfile::new("PlayerB").unwrap();
+        let mut b_instance = GameInstance::new(
+            "Peer", "1.16.5",
+            LoaderSpec { kind: LoaderKind::Forge, version: Some("36.2.29".into()) },
+            b_profile.id,
+        ).unwrap();
+        b_instance.state = InstanceState::Ready;
+        let b_request = LaunchRequest {
+            instance_id: b_instance.id, profile_id: b_profile.id,
+            java_path: None, min_ram_mb: None, max_ram_mb: None, extra_jvm_args: None,
+        };
+        let mut b_process = a_process.clone();
         b_process.pid = 12346;
         let a_receipt = receipt(a_instance.id.to_string(), hash.clone());
         let b_receipt = receipt(b_instance.id.to_string(), hash);
@@ -267,6 +282,10 @@ mod tests {
         assert!(direct_connect_from_observed_log(Ipv4Addr::new(8, 8, 8, 8), &log).is_err());
         assert_eq!(
             direct_connect_from_observed_log(Ipv4Addr::new(192, 168, 1, 10), &log).unwrap(),
+            "192.168.1.10:51234",
+        );
+        assert_eq!(
+            direct_connect_from_displayed_port(Ipv4Addr::new(192, 168, 1, 10), 51234).unwrap(),
             "192.168.1.10:51234",
         );
     }
