@@ -8,7 +8,8 @@ $root=Join-Path ([IO.Path]::GetTempPath()) ('tl03-p0-negative-'+[guid]::NewGuid(
 try {
  $scripts=@(
   'run-forge-approved-e2e-processors.ps1',
-  'stage-forge-installer-artifacts.ps1'
+  'stage-forge-installer-artifacts.ps1',
+  'resolve-forge-generated-libraries.ps1'
  )
  foreach($name in $scripts) {
    $path=Join-Path $PSScriptRoot "../scripts/$name"
