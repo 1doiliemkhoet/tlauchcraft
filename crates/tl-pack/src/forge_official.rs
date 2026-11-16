@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -251,6 +251,7 @@ fn installer_json(installer: &Path, name: &str) -> Result<String, String> {
 /// Download/reuse immutable Mojang/Forge caches; execute the exact four verified
 /// processors under a native Windows Job Object; retain an opaque Rust proof.
 /// All user-visible READY state is left to the independent publisher.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_official_windows_1165(
     archive_sha256: &str,
     selected_minecraft: &str,
