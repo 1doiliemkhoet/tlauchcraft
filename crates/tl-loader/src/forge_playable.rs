@@ -27,6 +27,36 @@ pub struct PackForgeSelection {
     pub pack_archive_sha256: String,
 }
 
+impl PackForgeSelection {
+    /// Exact field names match Chat 4's NormalizedPack serialization.
+    /// This avoids a circular tl-loader -> tl-pack dependency.
+    pub fn from_normalized_pack_json(pack: &Value) -> Result<Self, LoaderError> {
+        if pack["loader"] != "forge" {
+            return Err(LoaderError::CompatibilityConflict);
+        }
+        let read = |key: &str| -> Result<String, LoaderError> {
+            pack[key]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| LoaderError::InvalidMetadata(format!(
+                    "normalized Forge pack missing {key}"
+                )))
+        };
+        let selection = Self {
+            minecraft_version: read("minecraft_version")?,
+            forge_version: read("loader_version")?,
+            pack_archive_sha256: read("archive_sha256")?,
+        };
+        crate::validate_component(&selection.minecraft_version)?;
+        crate::validate_component(&selection.forge_version)?;
+        if !valid_sha256(&selection.pack_archive_sha256) {
+            return Err(LoaderError::InvalidInput);
+        }
+        Ok(selection)
+    }
+}
+
 /// Java 8 executable identity reverified from bytes before a Chat 4 handoff.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifiedForgeJava {
@@ -319,6 +349,29 @@ mod tests {
         bad.pack_archive_sha256 = "x".repeat(64);
         assert!(validate_forge_pack_selection(&bad, PROFILE, &derived).is_err());
     }
+    #[test]
+    fn chat4_normalized_manifest_drives_exact_version_not_fixture_default() {
+        let pack = json!({
+            "loader": "forge",
+            "minecraft_version": "1.16.5",
+            "loader_version": "36.2.34",
+            "archive_sha256": "a".repeat(64)
+        });
+        let selection = PackForgeSelection::from_normalized_pack_json(&pack).unwrap();
+        assert_eq!(selection.forge_version, "36.2.34");
+        let derived: Value = serde_json::from_str(DERIVED).unwrap();
+        assert!(matches!(
+            validate_forge_pack_selection(&selection, PROFILE, &derived),
+            Err(LoaderError::CompatibilityConflict)
+        ));
+        let mut invalid = pack.clone();
+        invalid["loader"] = json!("fabric");
+        assert!(PackForgeSelection::from_normalized_pack_json(&invalid).is_err());
+        invalid["loader"] = json!("forge");
+        invalid["archive_sha256"] = json!("invalid");
+        assert!(PackForgeSelection::from_normalized_pack_json(&invalid).is_err());
+    }
+
     #[test]
     fn plan_only_must_never_produce_execution_receipt() {
         use crate::runtime::{ProcessorOutcome, ProcessorRunReport};
