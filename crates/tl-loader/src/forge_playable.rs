@@ -112,11 +112,23 @@ pub struct ForgeRuntimeReceipt {
 /// remain unchanged. This does not launch a JVM or modify a player instance.
 pub fn forge_java8_launch_version(merged: &Value) -> Result<Value, LoaderError> {
     if merged["mainClass"] != "cpw.mods.modlauncher.Launcher"
-        || merged["javaVersion"]["majorVersion"] != 8
+        || merged["inheritsFrom"] != "1.16.5"
+        || merged["id"]
+            .as_str()
+            .is_none_or(|id| !id.starts_with("1.16.5-forge-"))
+        || merged["javaVersion"]["majorVersion"]
+            .as_u64()
+            .is_some_and(|major| major != 8)
     {
         return Err(LoaderError::CompatibilityConflict);
     }
     let mut launch = merged.clone();
+    // Mojang's old 1.16.5 metadata can omit javaVersion entirely.
+    // This is a scoped Forge 1.16.5 Java 8 mapping, NOT an arbitrary default.
+    launch["javaVersion"] = serde_json::json!({
+        "component": "jre-legacy",
+        "majorVersion": 8
+    });
     let entries = launch["arguments"]["jvm"]
         .as_array_mut()
         .ok_or_else(|| LoaderError::InvalidMetadata("inherited JVM arguments missing".into()))?;
@@ -541,6 +553,11 @@ mod tests {
             "mainClass":"net.minecraft.Main", "javaVersion":{"majorVersion":8},
             "arguments":{"jvm":[]}
         })).is_err());
+        let mut legacy = merged.clone();
+        legacy.as_object_mut().unwrap().remove("javaVersion");
+        assert!(tl_game::required_java(&legacy).is_err());
+        let mapped = forge_java8_launch_version(&legacy).unwrap();
+        assert_eq!(tl_game::required_java(&mapped).unwrap(), 8);
     }
 
     #[test]
