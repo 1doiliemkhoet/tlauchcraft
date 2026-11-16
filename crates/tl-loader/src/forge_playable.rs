@@ -27,7 +27,7 @@ pub struct PackForgeSelection {
     pub pack_archive_sha256: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ForgeLibraryOrigin {
     /// Remote-sourceable library with canonical URL + official digest.
     OfficialMaven,
