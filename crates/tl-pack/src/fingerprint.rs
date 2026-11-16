@@ -77,9 +77,11 @@ pub fn fingerprint_staged_pack(
     hash.update((loader.len() as u64).to_be_bytes());
     hash.update(loader.as_bytes());
     hash.update((sorted.len() as u64).to_be_bytes());
+    let verified_files = sorted.len();
     for file in sorted {
         let path = file.relative_path.to_ascii_lowercase();
-        for part in [&path, &file.sha256.to_ascii_lowercase()] {
+        let checksum = file.sha256.to_ascii_lowercase();
+        for part in [&path, &checksum] {
             hash.update((part.len() as u64).to_be_bytes());
             hash.update(part.as_bytes());
         }
@@ -92,7 +94,7 @@ pub fn fingerprint_staged_pack(
         minecraft_version: pack.minecraft_version.clone(),
         loader_kind: loader,
         loader_version: pack.loader_version.clone(),
-        verified_files: sorted.len(),
+        verified_files,
         ready: false,
     })
 }
