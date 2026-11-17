@@ -434,6 +434,139 @@ async fn pack_install_official_forge(
     outcome.map_err(|e| format!("Forge installer worker panicked or was interrupted: {e}"))?
 }
 
+
+/// Import ALREADY installed CurseForge profile (no API, no CDN requests).
+/// Reconciles original ZIP manifest project/file IDs with minecraftinstance.json;
+/// copies only matching local JARs/ZIP overrides into a new private stage.
+/// Local JAR hashes are observed only, NOT upstream provider attestations.
+/// The source CurseForge profile, including saves, is never changed.
+#[tauri::command]
+async fn pack_import_installed_curseforge(
+    app: AppHandle,
+    archive_path: String,
+    installed_profile_path: String,
+    operation_id: String,
+    profile_id: String,
+    java_path: String,
+    host_execution_consent: bool,
+) -> Result<GameInstance, String> {
+    if !host_execution_consent {
+        return Err("Explicit opt-in required to execute official Forge Java on Windows".into());
+    }
+    if operation_id.len() < 8 || operation_id.len() > 64
+        || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+    {
+        return Err("Invalid local-import operation ID".into());
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut jobs = pack_jobs().lock().map_err(|_| "pack registry unavailable")?;
+        if jobs.contains_key(&operation_id) {
+            return Err("Local import operation is already active".into());
+        }
+        jobs.insert(operation_id.clone(), cancel.clone());
+    }
+    let id = operation_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<GameInstance, String> {
+        #[cfg(not(windows))]
+        {
+            let _ = (app, archive_path, installed_profile_path, profile_id, java_path, cancel);
+            Err("Local Forge profile installer currently supports Windows only".into())
+        }
+        #[cfg(windows)]
+        {
+            let archive = Path::new(&archive_path);
+            let profile = Path::new(&installed_profile_path);
+            let java = Path::new(&java_path);
+            if !archive.is_absolute() || !archive.is_file()
+                || !profile.is_absolute() || !profile.is_dir()
+                || !java.is_absolute() || !java.is_file()
+                || !java.extension().and_then(|x| x.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+            {
+                return Err("ZIP, installed CurseForge profile folder, and Java .exe must exist as absolute paths".into());
+            }
+            let offline_profile = uuid::Uuid::parse_str(&profile_id)
+                .map_err(|_| "Invalid offline profile UUID")?;
+            let metadata = inspect_archive(archive).map_err(|e| e.to_string())?;
+            if metadata.source != tl_pack::PackSource::CurseforgeZip
+                || metadata.loader.kind != "forge"
+            {
+                return Err("Import requires a CurseForge ZIP with Forge loader metadata".into());
+            }
+            let forge_version = metadata.loader.version.as_deref()
+                .ok_or("Original manifest lacks Forge version")?;
+            if metadata.game_version != "1.16.5" || forge_version != "36.2.29" {
+                return Err(format!(
+                    "Installed mod import supports this manifest, but official Forge processor execution for {} / {} has not been audited yet",
+                    metadata.game_version, forge_version
+                ));
+            }
+            let mut probe = std::process::Command::new(java);
+            probe.arg("-version");
+            use std::os::windows::process::CommandExt;
+            probe.creation_flags(0x0800_0000);
+            let output = probe.output().map_err(|e| format!("Java probe failed: {e}"))?;
+            if !output.status.success() {
+                return Err("Selected Java executable failed -version".into());
+            }
+            let version_text = format!("{}{}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            );
+            if tl_game::parse_java_major(&version_text).map_err(|e| e.to_string())? != 8 {
+                return Err("Minecraft 1.16.5 Forge adapter requires Java 8".into());
+            }
+            let base = default_data_dir().map_err(|e| e.to_string())?;
+            let instance_root = isolated_data_dir(&base.join("instances"))
+                .map_err(|e| e.to_string())?;
+            let stage = instance_root.join(format!("{id}.staging"));
+            emit_pack_progress(&app, &id, "VERIFYING", "local_import.manifest_ids", None);
+            let mods = tl_pack::installed_import::stage_installed_curseforge(
+                archive, profile, &stage, &cancel,
+            )?;
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Cancelled before executing official Forge".into());
+            }
+            emit_pack_progress(&app, &id, "VERIFYING", "local_import.copied_mods_hashed", None);
+            // Only the official Forge bootstrap downloads its canonical Mojang
+            // and Maven inputs; NO CurseForge API or mod CDN request occurs.
+            let approved = tl_pack::forge_official::prepare_official_windows_1165(
+                &metadata.archive_sha256,
+                &metadata.game_version,
+                forge_version,
+                &id,
+                &base,
+                java,
+                host_execution_consent,
+                &cancel,
+            )?;
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Cancelled before Forge publication".into());
+            }
+            emit_pack_progress(&app, &id, "VERIFYING", "local_import.publishing_verified_forge", None);
+            let installed = game_ops::finalize_approved_forge_local_instance(
+                metadata.name.clone(), offline_profile, archive, &stage, &mods,
+                approved.approved(), &cancel,
+            )?;
+            // After publishing, persist the Java 8 binary for the Play button.
+            let settings = java_settings::read(&installed.id.to_string())?;
+            java_settings::save(
+                &installed.id.to_string(), settings.xms_mb,
+                settings.xmx_mb, java_path, settings.revision,
+            ).map_err(|e| format!(
+                "Local profile published; configure Java 8 in Settings before Play: {e}"
+            ))?;
+            emit_pack_progress(&app, &id, "INSTALLED", "local_import.ready_local_hashes_only", None);
+            Ok(installed)
+        }
+    }).await;
+    if let Ok(mut jobs) = pack_jobs().lock() {
+        jobs.remove(&operation_id);
+    }
+    result.map_err(|e| format!("Local CurseForge import task failed: {e}"))?
+}
+
 /// Cancel a running staging transfer without deleting unrelated user data.
 #[tauri::command]
 fn pack_cancel(operation_id: String) -> Result<(), String> {
@@ -459,6 +592,7 @@ fn main() {
             pack_import_restricted,
             pack_staged_receipt,
             pack_install_official_forge,
+            pack_import_installed_curseforge,
             pack_cancel,
             java_settings_get,
             java_settings_save,

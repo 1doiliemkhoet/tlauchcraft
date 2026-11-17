@@ -36,6 +36,24 @@ describe('CurseForge API key preflight', () => {
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
 });
+describe('installed CurseForge profile import', () => {
+  it('calls native no-API import with source folder and explicit consent', async () => {
+    mockedInvoke.mockResolvedValue({id: 'new-forge-instance', state: 'ready'});
+    await operations.importInstalledCurseForge(
+      withFeature('pack_inspection'), 'C:/Rustic.zip',
+      'C:/curseforge/minecraft/Instances/Rustic Waters II',
+      'local-run-12345', 'offline-profile-id', 'C:/Java8/bin/javaw.exe', true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_curseforge', {
+      archivePath: 'C:/Rustic.zip',
+      installedProfilePath: 'C:/curseforge/minecraft/Instances/Rustic Waters II',
+      operationId: 'local-run-12345',
+      profileId: 'offline-profile-id',
+      javaPath: 'C:/Java8/bin/javaw.exe',
+      hostExecutionConsent: true
+    });
+  });
+});
 describe('typed backend transport', () => {
   it('rejects disabled operations without invoking Rust', async () => {
     expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);
