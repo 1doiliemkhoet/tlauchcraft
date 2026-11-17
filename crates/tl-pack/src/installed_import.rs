@@ -835,7 +835,17 @@ mod tests {
         fs::write(root.join("minecraftinstance.json"), r#"{"name":"Rustic Waters II","gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":123,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}},{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"example.jar"}}]}"#).unwrap();
         let archive = temp.path().join("private-source.zip");
         let cancel = AtomicBool::new(false);
-        let planned = snapshot_installed_folder(&root, &archive, &cancel).unwrap();
+        let mut progress = Vec::new();
+        let planned = snapshot_installed_folder_with_progress(
+            &root, &archive, &cancel,
+            |stage, completed, total| progress.push((stage.to_owned(), completed, total)),
+        ).unwrap();
+        assert!(progress.iter().any(|(stage, completed, total)|
+            stage == "local_import.hashing_mods" && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)|
+            stage == "local_import.scanning_assets" && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)|
+            stage == "local_import.copying_assets" && completed == total));
         assert_eq!(planned.game_version, "1.16.5");
         assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
         assert_eq!(planned.files.len(), 1);
