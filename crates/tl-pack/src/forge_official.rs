@@ -533,7 +533,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let java = temp.path().join("java.exe");
         fs::write(&java, b"fixture").unwrap();
-        assert_eq!(resolve_selected_java(&java).unwrap(), fs::canonicalize(&java).unwrap());
+        assert_eq!(
+            resolve_selected_java(&java).unwrap(),
+            fs::canonicalize(&java).unwrap()
+        );
     }
 
     #[cfg(windows)]
@@ -549,7 +552,10 @@ mod tests {
             return;
         }
         assert!(no_symlink(&alias).is_err());
-        assert_eq!(resolve_selected_java(&alias).unwrap(), fs::canonicalize(&real).unwrap());
+        assert_eq!(
+            resolve_selected_java(&alias).unwrap(),
+            fs::canonicalize(&real).unwrap()
+        );
         let safe_cache = temp.path().join("private");
         fs::create_dir(&safe_cache).unwrap();
         let linked_cache = temp.path().join("redirected-cache");
