@@ -57,10 +57,18 @@ pub struct ForgeInstallRecord {
     pub version: Value,
     pub natives_relative_path: String,
     pub installed_mods: Vec<VerifiedModReceipt>,
+    /// Source of the mod inventory. Local imports have *observed-only* SHA-1,
+    /// not authenticated upstream digests. The SQLite receipt anchor protects it.
+    #[serde(default = "default_mod_provenance")]
+    pub mod_provenance: String,
     pub installed_libraries: Vec<InstalledForgeLibrary>,
     pub verified_overrides: Vec<VerifiedOverride>,
     pub native_dlls: Vec<VerifiedOverride>,
     pub minecraft_verified_files: usize,
+}
+
+fn default_mod_provenance() -> String {
+    "curseforge-api-sha1/v1".into()
 }
 
 pub struct ApprovedForgePublishInputs<'a> {
@@ -317,15 +325,66 @@ pub fn assemble_from_approved_execution(
     )
 }
 
-/// This method does NOT execute a third-party Forge processor. Callers must
-/// separately obtain Control's approval and isolated execution evidence.
-/// Only real verified processor outputs and complete disk bytes can mint permit.
+/// Publication paths distinguish source-verified API JARs from locally copied
+/// CurseForge JARs. Local SHA values are not upstream authentication.
+enum ModEvidence<'a> {
+    Provider(&'a CurseForgeResolveReport),
+    Local(&'a [VerifiedModReceipt]),
+}
+
+/// Original API source-verified publication contract, preserved unchanged.
 pub fn publish_forge_from_execution(
     stage: &Path,
     destination: &Path,
     source_archive: &Path,
     pack: &PackMetadata,
     resolved: &CurseForgeResolveReport,
+    evidence: ApprovedForgePublishInputs<'_>,
+    anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<ForgeInstallRecord, String> {
+    publish_with_mod_evidence(
+        stage,
+        destination,
+        source_archive,
+        pack,
+        ModEvidence::Provider(resolved),
+        evidence,
+        anchor_verified_receipt,
+    )
+}
+
+/// Import from a locally installed CurseForge profile; no API key is required.
+/// The Rust importer issues a local digest snapshot, NOT provider-verified SHA1.
+/// Final publication still requires actual approved Forge execution and rehashes
+/// every mod, native, library, override and official Mojang artifact.
+pub fn publish_forge_from_local_execution(
+    stage: &Path,
+    destination: &Path,
+    source_archive: &Path,
+    pack: &PackMetadata,
+    local_mods: &[VerifiedModReceipt],
+    evidence: ApprovedForgePublishInputs<'_>,
+    anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<ForgeInstallRecord, String> {
+    publish_with_mod_evidence(
+        stage,
+        destination,
+        source_archive,
+        pack,
+        ModEvidence::Local(local_mods),
+        evidence,
+        anchor_verified_receipt,
+    )
+}
+
+/// This does NOT execute a third-party processor. Only sealed in-process runner
+/// evidence and fully rehashed staged bytes can mint a new publish permit.
+fn publish_with_mod_evidence(
+    stage: &Path,
+    destination: &Path,
+    source_archive: &Path,
+    pack: &PackMetadata,
+    mod_evidence: ModEvidence<'_>,
     evidence: ApprovedForgePublishInputs<'_>,
     anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<ForgeInstallRecord, String> {
@@ -349,14 +408,61 @@ pub fn publish_forge_from_execution(
         return Err("Forge runtime version differs from original modpack".into());
     }
     verify_tree_symlinks(stage)?;
-    let mods = audit_curseforge_staging(stage, pack, resolved)?;
-    if !mods.complete_mod_inventory
-        || !mods.blocked_optional.is_empty()
-        || !mods.failures.is_empty()
-        || mods.verified.len() != pack.files.len()
-    {
-        return Err("required/optional mod inventory is incomplete or unverified".into());
-    }
+    let (installed_mods, mod_provenance) = match mod_evidence {
+        ModEvidence::Provider(resolved) => {
+            let mods = audit_curseforge_staging(stage, pack, resolved)?;
+            if !mods.complete_mod_inventory
+                || !mods.blocked_optional.is_empty()
+                || !mods.failures.is_empty()
+                || mods.verified.len() != pack.files.len()
+            {
+                return Err("required/optional provider mod inventory incomplete".into());
+            }
+            (mods.verified, "curseforge-api-sha1/v1".to_owned())
+        }
+        ModEvidence::Local(local_mods) => {
+            if local_mods.len() != pack.files.len() || local_mods.is_empty() {
+                return Err("local installed profile does not match ZIP manifest count".into());
+            }
+            verify_exact_mod_inventory(stage, local_mods)?;
+            let mut ids = std::collections::HashSet::new();
+            for verified in local_mods {
+                if !ids.insert((verified.project_id, verified.file_id))
+                    || verified.bytes == 0
+                    || verified.upstream_sha1.len() != 40
+                    || !verified
+                        .upstream_sha1
+                        .bytes()
+                        .all(|v| v.is_ascii_hexdigit())
+                    || verified.observed_sha256.len() != 64
+                    || !verified
+                        .observed_sha256
+                        .bytes()
+                        .all(|v| v.is_ascii_hexdigit())
+                    || !pack.files.iter().any(|declared| {
+                        declared.project_id == Some(verified.project_id)
+                            && declared.file_id == Some(verified.file_id)
+                            && declared.required == verified.required
+                    })
+                {
+                    return Err("local inventory identity, count or hash invalid".into());
+                }
+                // Hashes were taken from locally installed JARs, not from the
+                // provider. Rehash them AGAIN before minting the SQLite anchor.
+                check_file(
+                    stage,
+                    &verified.relative_path,
+                    verified.bytes,
+                    Some(&verified.upstream_sha1),
+                    Some(&verified.observed_sha256),
+                )?;
+            }
+            (
+                local_mods.to_vec(),
+                "local-installed-curseforge/v1".to_owned(),
+            )
+        }
+    };
     let runtime = verify_forge_runtime_for_pack(
         evidence.selection,
         evidence.profile_json,
@@ -423,7 +529,8 @@ pub fn publish_forge_from_execution(
         archive_sha256: pack.archive_sha256.clone(),
         version,
         natives_relative_path: "natives".into(),
-        installed_mods: mods.verified,
+        installed_mods,
+        mod_provenance,
         installed_libraries: libraries,
         verified_overrides: overrides,
         native_dlls,
@@ -566,6 +673,10 @@ pub fn reverify_published_forge(
     verify_receipt_anchor(&bytes, trusted_sha256)?;
     let record: ForgeInstallRecord = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     if record.schema != "tl-forge-published/v1"
+        || !matches!(
+            record.mod_provenance.as_str(),
+            "curseforge-api-sha1/v1" | "local-installed-curseforge/v1"
+        )
         || record.minecraft_version.is_empty()
         || record.forge_version.is_empty()
         || !(8..=25).contains(&record.required_java_major)

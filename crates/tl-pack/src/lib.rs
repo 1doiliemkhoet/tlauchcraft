@@ -8,6 +8,7 @@ pub mod forge_official;
 pub mod forge_publish;
 pub mod forge_stage;
 pub mod install;
+pub mod installed_import;
 pub mod instance_manifest;
 pub mod manual_import;
 pub mod modrinth;

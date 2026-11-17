@@ -4,6 +4,21 @@ import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
 import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
+
+const PACK_PROGRESS_LABELS: Record<string, string> = {
+  'pack.api_resolve': 'Đang lấy metadata từ CurseForge API',
+  'pack.staging': 'Đang tải và xác minh các file mod',
+  'pack.awaiting_verified_forge': 'Đã xong bước staging; cần kiểm tra kết quả trước khi cài Forge',
+  'pack.rehash_official_mods': 'Đang kiểm tra lại SHA-1 từng mod',
+  'forge.pinned_mojang_maven': 'Đang tải và kiểm tra Minecraft, Forge và thư viện chính thức',
+  'forge.processor_output_verified': 'Đã xác minh processor; đang publish instance',
+  'forge.ready_after_independent_audit': 'Instance đã được xác minh và publish',
+  'local_import.manifest_ids': 'Đang đối chiếu CurseForge ZIP với metadata profile đã cài',
+  'local_import.copied_mods_hashed': 'Đã chép và hash từng mod JAR; đang chuẩn bị Forge chính thức',
+  'local_import.publishing_verified_forge': 'Đang ghép Minecraft, Forge và modpack vào instance riêng',
+  'local_import.ready_local_hashes_only': 'Đã publish bản local, chưa kiểm chứng game chạy thật',
+};
+
 type Page = 'home' | 'profiles' | 'instances' | 'modpacks' | 'skins' | 'lan' | 'downloads' | 'settings' | 'logs';
 const navigation = [
   { id: 'home', label: 'Overview', icon: LayoutDashboard },
@@ -39,9 +54,12 @@ export default function App() {
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
   const [forgeHostConsent, setForgeHostConsent] = useState(false);
+  const [installedCurseForgeFolder, setInstalledCurseForgeFolder] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [activeTask, setActiveTask] = useState<string | null>(null);
+  const [curseForgeKeyConfigured, setCurseForgeKeyConfigured] = useState<boolean | null>(null);
   const [playReady, setPlayReady] = useState<LaunchPreflight | null>(null);
   const [playReadinessError, setPlayReadinessError] = useState<string | null>(null);
   const [newInstanceName, setNewInstanceName] = useState('Vanilla');
@@ -52,10 +70,11 @@ export default function App() {
   const statusSignatures = useRef<Record<string,string>>({});
   const log = useCallback((line: string) => setLogs(old => [`${new Date().toLocaleTimeString()} · ${line}`, ...old].slice(0, 250)), []);
   const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
-    setBusy(true); setError(undefined);
+    setBusy(true); setActiveTask(label); setError(undefined);
+    log(`${label}: started`);
     try { await fn(); log(`${label}: backend responded; verify status below (not a completed install)`); }
     catch (e) { const message = backendError(e); setError(message); log(`${label} failed: ${message}`); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setActiveTask(null); }
   }, [log]);
   const refresh = useCallback(async (c: Capabilities) => {
     const tasks = [
@@ -97,6 +116,20 @@ export default function App() {
     void initialise();
     return () => { active = false; unsubscribe?.(); };
   }, [refresh, log]);
+  useEffect(() => {
+    if (page !== 'modpacks' || !caps.features.pack_inspection) return;
+    let alive = true;
+    setCurseForgeKeyConfigured(null);
+    void operations.curseForgeKeyConfigured(caps)
+      .then(found => { if (alive) setCurseForgeKeyConfigured(found); })
+      .catch(e => {
+        if (alive) {
+          setCurseForgeKeyConfigured(null);
+          log('CurseForge API key preflight failed: ' + backendError(e));
+        }
+      });
+    return () => { alive = false; };
+  }, [page, caps, log]);
   const importFile = async (path?: string) => {
     if (!caps.features.pack_inspection) { setError('Archive inspector unavailable.'); return; }
     let input = path;
@@ -111,10 +144,11 @@ export default function App() {
     setPackOperationId(null);
     setPackManualImports([]);
     setForgeHostConsent(false);
+    setInstalledCurseForgeFolder(null);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
   };
   const resolvePackFiles = () => {
-    if (!packArchivePath || packPreview?.source !== 'curseforge_zip') return;
+    if (!packArchivePath || packPreview?.source !== 'curseforge_zip' || curseForgeKeyConfigured !== true) return;
     void run('Resolve authorized CurseForge files', async () => {
       const plan = await operations.resolveCurseForge(caps, packArchivePath);
       setPackResolution(plan);
@@ -122,7 +156,7 @@ export default function App() {
     });
   };
   const stagePackFiles = () => {
-    if (!packArchivePath || packPreview?.source !== 'curseforge_zip') return;
+    if (!packArchivePath || packPreview?.source !== 'curseforge_zip' || curseForgeKeyConfigured !== true) return;
     const operationId = `pack-${crypto.randomUUID()}`;
     setPackOperationId(operationId);
     setPackStaging(null);
@@ -156,6 +190,22 @@ export default function App() {
         log(`SHA-1 matched official CurseForge file ${projectId}/${fileId}; staged only, not READY.`);
       });
     })().catch(e => setError(backendError(e)));
+  };
+  const importInstalledCurseForge = () => {
+    if (!packArchivePath || !installedCurseForgeFolder || !selectedProfile ||
+        !forgeJavaPath || !forgeHostConsent) return;
+    const operationId = `local-${crypto.randomUUID()}`;
+    setPackOperationId(operationId);
+    void run('Import installed CurseForge profile', async () => {
+      const instance = await operations.importInstalledCurseForge(
+        caps, packArchivePath, installedCurseForgeFolder, operationId,
+        selectedProfile, forgeJavaPath, forgeHostConsent
+      );
+      log(`Local CurseForge profile imported as ${instance.id}. Local JAR digests are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
+      await refresh(caps);
+      setSelectedInstance(instance.id);
+      setPage('instances');
+    });
   };
   const installVerifiedForge = () => {
     if (!packArchivePath || !packOperationId || !forgeJavaPath || !selectedProfile ||
@@ -257,6 +307,7 @@ export default function App() {
     }));
   }, [log]);
   const visibleEvents = downloadEventsForView(events, showAllEvents);
+  const latestPackEvent = packOperationId ? events.find(event => event.operation_id === packOperationId) : undefined;
   const current = navigation.find(n => n.id === page)!;
   const selected = instances.find(i => i.id === selectedInstance);
   return <div className="shell" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => {
@@ -273,6 +324,14 @@ export default function App() {
       <header className="topbar"><div className="breadcrumb">Launcher <span>/</span> {current.label}</div><div className="top-actions"><span className="chip"><Monitor size={13}/> Windows Desktop</span><span className="chip subtle">LOCAL PROFILE ONLY</span></div></header>
       <div className="content">
         <div className="heading"><div><div className="eyebrow">TLAUCHCRAFT CONTROL CENTER</div><h1>{current.label}</h1><p>{page === 'home' ? 'Your Minecraft worlds, modpacks and LAN sessions in one place.' : 'Status and actions are backed by the real Rust facade when available.'}</p></div><span className="version-tag">PREVIEW · NOT E2E VERIFIED</span></div>
+        {activeTask && <div className="activity-banner" role="status" aria-live="polite">
+          <div className="activity-head"><Activity size={18}/><strong>Đang chạy: {activeTask}</strong></div>
+          {page === 'modpacks' && latestPackEvent
+            && <div>{PACK_PROGRESS_LABELS[latestPackEvent.message_key] ?? `Backend: ${latestPackEvent.phase} · ${latestPackEvent.message_key}`}</div>}
+          <progress aria-label="Đang xử lý, chưa có tổng dung lượng để tính phần trăm"/>
+          <small>Đang chờ backend hoàn tất. Thanh tiến trình không hiển thị % giả khi chưa có số byte xác minh.</small>
+          {page === 'modpacks' && packOperationId && <button type="button" onClick={() => void operations.cancelPackStage(caps, packOperationId).catch(e => setError(backendError(e)))}>Yêu cầu hủy tác vụ modpack</button>}
+        </div>}
         {error && <div role="alert" className="error"><XCircle size={18}/><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError(undefined)}>×</button></div>}
         {page === 'home' && <>
           <div className="hero"><div className="hero-text"><div className="eyebrow">YOUR NEXT ADVENTURE</div><h2>Make room for<br/><em>better adventures.</em></h2><p>Build an isolated modded instance, choose an offline profile and launch only when the core is ready.</p><button className="primary" disabled={!caps.features.game || busy || !canPlayInstance(selected, selectedProfile, playReady, gameStatusById[selectedInstance])} onClick={() => void run('Launch', () => operations.launch(caps, { instance_id: selectedInstance, profile_id: selectedProfile }))}><Play size={16} fill="currentColor"/> Launch Minecraft</button></div><div className="hero-art"><div className="sun"/><div className="mountain m1"/><div className="mountain m2"/><div className="mountain m3"/><div className="grid-art"/></div></div>
@@ -336,10 +395,46 @@ export default function App() {
         </div>}
         {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
           <h3>CurseForge — verified file staging</h3>
+          <div className="panel">
+            <h3>Import Installed Modpack — không cần CurseForge API key</h3>
+            <p className="muted">Mở CurseForge App → Minecraft → My Modpacks → Rustic Waters II → dấu ba chấm → Open Folder. Chọn đúng thư mục profile có mods/ và minecraftinstance.json. TLaunchCraft chỉ sao chép các JAR khớp manifest ZIP, không sửa source hay world saves.</p>
+            <p className="muted">Giới hạn: để publish Forge ngay, bản kiểm thử đầu tiên hỗ trợ Minecraft 1.16.5 / Forge 36.2.29. Các mod được SHA-1/SHA-256 tại máy, không phải xác thực bởi CurseForge API.</p>
+            <div className="form-row">
+              <button disabled={busy} onClick={() => void (async () => {
+                const path = await open({ directory: true, multiple: false });
+                if (typeof path === 'string') setInstalledCurseForgeFolder(path);
+              })().catch(e => setError(backendError(e)))}>Choose installed CurseForge profile folder</button>
+              {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
+            </div>
+            <div className="form-row">
+              <select aria-label="Offline profile for imported pack" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}>
+                <option value="">Choose offline player</option>
+                {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
+              </select>
+              <button disabled={busy} onClick={() => void (async () => {
+                const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
+                if (typeof path === 'string') setForgeJavaPath(path);
+              })().catch(e => setError(backendError(e)))}>Select Java 8 executable</button>
+              {forgeJavaPath && <span className="mono">{forgeJavaPath}</span>}
+            </div>
+            <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
+              I approve loading locally installed mods and running official Forge Java on this Windows account. Local hashes do not certify upstream safety; Windows Job Object is not a file/network sandbox.
+            </label>
+            <div className="form-row">
+              <button className="primary" disabled={busy || !installedCurseForgeFolder || !forgeJavaPath ||
+                !selectedProfile || !forgeHostConsent || packPreview.game_version !== '1.16.5' ||
+                packPreview.loader.version !== '36.2.29'
+              } onClick={importInstalledCurseForge}>Import locally installed modpack → Forge → Play</button>
+            </div>
+          </div>
+
+          {curseForgeKeyConfigured === false && <Notice><strong>Chưa cấu hình CurseForge API key.</strong> Không có tác vụ tải mod nào được bắt đầu. Thiết lập biến môi trường <code>CURSEFORGE_API_KEY</code>, thoát hoàn toàn launcher và mở lại rồi mới Resolve/Download.</Notice>}
+          {curseForgeKeyConfigured === null && <p className="muted" role="status">Đang kiểm tra cấu hình CurseForge API key...</p>}
+          {curseForgeKeyConfigured === true && <p className="muted">Đã tìm thấy CurseForge API key trong môi trường backend (chưa kiểm tra quyền truy cập API).</p>}
           <Notice>Staging is not an installed game. Only the explicitly approved, release-pinned Forge adapter can run Java and publish a hash-verified instance. Minecraft gameplay remains NOT_VERIFIED until tested.</Notice>
           <div className="form-row">
-            <button disabled={busy} onClick={resolvePackFiles}>Resolve official dependencies</button>
-            <button className="primary" disabled={busy} onClick={stagePackFiles}>Download / Verify to private staging</button>
+            <button disabled={busy || curseForgeKeyConfigured !== true} onClick={resolvePackFiles}>Resolve official dependencies</button>
+            <button className="primary" disabled={busy || curseForgeKeyConfigured !== true} onClick={stagePackFiles}>Download / Verify to private staging</button>
             <button disabled={!packOperationId || !busy} onClick={() => void operations.cancelPackStage(caps, packOperationId!).catch(e => setError(backendError(e)))}>Cancel staging</button>
           </div>
           {packResolution && <div className="item"><strong>Official API plan</strong><span>{packResolution.resolved_count} downloadable · {packResolution.needs_action_count} need action</span></div>}

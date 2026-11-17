@@ -81,9 +81,12 @@ export const operations = {
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
+  curseForgeKeyConfigured: (c: Capabilities) => call<boolean>(c, 'pack_inspection', 'pack_api_key_configured'),
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
   stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
   stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
+  importInstalledCurseForge: (c: Capabilities, archivePath: string, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_curseforge', { archivePath, installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent }),
   installOfficialForge: (c: Capabilities, archivePath: string, operationId: string, displayName: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
     call<GameInstance>(c, 'pack_inspection', 'pack_install_official_forge', { archivePath, operationId, displayName, profileId, javaPath, hostExecutionConsent }),
   importRestrictedPackMod: (c: Capabilities, archivePath: string, operationId: string, projectId: number, fileId: number, localPath: string) => call<InstalledPackMod>(c, 'pack_inspection', 'pack_import_restricted', { archivePath, operationId, projectId, fileId, localPath }),
