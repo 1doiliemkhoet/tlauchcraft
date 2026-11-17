@@ -1,0 +1,57 @@
+name: Inspect verified Forge installer metadata
+on:
+  pull_request:
+    branches: [integration/p0-playable-single-run]
+    paths:
+      - '.github/workflows/forge-metadata-audit.yml'
+      - 'crates/tl-pack/src/forge_official.rs'
+      - 'crates/tl-loader/tests/fixtures/forge_36229_official_*.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned official Forge installer and compare both metadata documents
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, hashlib, io, json, pathlib, urllib.request, zipfile
+          url = "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar"
+          with urllib.request.urlopen(url, timeout=90) as response:
+              installer = response.read()
+          digest = hashlib.sha1(installer).hexdigest()
+          print("OFFICIAL_SHA1", digest)
+          assert digest == "7d247279cf06eed6ffcf609f36d11e34c70350f3", "untrusted installer checksum"
+          with zipfile.ZipFile(io.BytesIO(installer)) as jar:
+              official = {name: json.loads(jar.read(name)) for name in ("install_profile.json", "version.json")}
+          fixtures = {
+              "install_profile.json": json.loads(pathlib.Path("crates/tl-loader/tests/fixtures/forge_36229_official_profile.json").read_text()),
+              "version.json": json.loads(pathlib.Path("crates/tl-loader/tests/fixtures/forge_36229_official_version.json").read_text()),
+          }
+          def diff(a, b, path, results):
+              if type(a) != type(b):
+                  results.append((path, "TYPE", type(a).__name__, type(b).__name__))
+              elif isinstance(a, dict):
+                  for k in sorted(set(a) | set(b)):
+                      if k not in a or k not in b:
+                          results.append((f"{path}.{k}", "MISSING", k in a, k in b))
+                      else:
+                          diff(a[k], b[k], f"{path}.{k}", results)
+              elif isinstance(a, list):
+                  if len(a) != len(b): results.append((path, "LENGTH", len(a), len(b)))
+                  for i, (v, w) in enumerate(zip(a, b)): diff(v, w, f"{path}[{i}]", results)
+              elif a != b: results.append((path, "VALUE", str(a)[:180], str(b)[:180]))
+          for name, data in official.items():
+              changes=[]
+              diff(data, fixtures[name], name, changes)
+              print("COMPARE", name, "official_keys", list(data), "pinned_keys", list(fixtures[name]), "mismatches", len(changes))
+              for row in changes[:50]: print("DIFFERENCE", json.dumps(row, ensure_ascii=False))
+              encoded = base64.b64encode(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).decode()
+              print("ORIGINAL_METADATA_B64_START", name)
+              for i in range(0, len(encoded), 1024): print("ORIGINAL_B64", name, i, encoded[i:i+1024])
+              print("ORIGINAL_METADATA_B64_END", name)
+          PY
