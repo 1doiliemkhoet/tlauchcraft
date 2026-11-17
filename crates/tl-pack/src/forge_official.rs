@@ -529,6 +529,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pinned_verified_release_metadata_is_complete() {
+        let profile: Value = serde_json::from_str(include_str!(
+            "../../tl-loader/tests/fixtures/forge_36229_official_profile.json"
+        ))
+        .unwrap();
+        let derived: Value = serde_json::from_str(include_str!(
+            "../../tl-loader/tests/fixtures/forge_36229_official_version.json"
+        ))
+        .unwrap();
+        for key in ["_comment_", "icon", "logo", "mirrorList", "welcome"] {
+            assert!(profile.get(key).is_some(), "missing official profile field {key}");
+        }
+        for key in ["_comment_", "logging", "releaseTime", "time", "type"] {
+            assert!(derived.get(key).is_some(), "missing official version field {key}");
+        }
+    }
+
+    #[test]
     fn direct_java_executable_remains_usable() {
         let temp = tempfile::tempdir().unwrap();
         let java = temp.path().join("java.exe");
