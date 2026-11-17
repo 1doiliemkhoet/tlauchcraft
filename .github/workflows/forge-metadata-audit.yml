@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import base64, hashlib, io, json, pathlib, urllib.request, zipfile
+          import hashlib, io, json, pathlib, urllib.request, zipfile
           base = "net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar"
           sources = [
               "https://maven.minecraftforge.net/" + base,
@@ -69,9 +69,7 @@ jobs:
               changes=[]
               diff(data, fixtures[name], name, changes)
               print("COMPARE", name, "official_keys", list(data), "pinned_keys", list(fixtures[name]), "mismatches", len(changes))
-              for row in changes[:50]: print("DIFFERENCE", json.dumps(row, ensure_ascii=False))
-              encoded = base64.b64encode(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).decode()
-              print("ORIGINAL_METADATA_B64_START", name)
-              for i in range(0, len(encoded), 1024): print("ORIGINAL_B64", name, i, encoded[i:i+1024])
-              print("ORIGINAL_METADATA_B64_END", name)
+              for row in changes[:20]: print("DIFFERENCE", json.dumps(row, ensure_ascii=False))
+              assert not changes, f"Downloaded SHA1-verified Forge {name} does not match complete committed fixture"
+              print("PINNED_METADATA_VERIFIED", name)
           PY
