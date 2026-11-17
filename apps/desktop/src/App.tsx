@@ -53,6 +53,7 @@ export default function App() {
   const [packOperationId, setPackOperationId] = useState<string | null>(null);
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
+  const [java8Search, setJava8Search] = useState<'idle' | 'searching' | 'found' | 'missing' | 'error'>('idle');
   const [forgeHostConsent, setForgeHostConsent] = useState(false);
   const [installedCurseForgeFolder, setInstalledCurseForgeFolder] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -130,6 +131,45 @@ export default function App() {
       });
     return () => { alive = false; };
   }, [page, caps, log]);
+  useEffect(() => {
+    if (page !== 'modpacks' || !caps.features.settings || forgeJavaPath) return;
+    let alive = true;
+    setJava8Search('searching');
+    void operations.detectJava8(caps)
+      .then(found => {
+        if (!alive) return;
+        if (found?.major === 8 && found.path) {
+          setForgeJavaPath(previous => previous ?? found.path);
+          setJava8Search('found');
+          log('Java 8 auto-detected: ' + found.path + ' (' + found.source + ')');
+        } else {
+          setJava8Search('missing');
+        }
+      })
+      .catch(e => {
+        if (alive) {
+          setJava8Search('error');
+          log('Java 8 discovery failed: ' + backendError(e));
+        }
+      });
+    return () => { alive = false; };
+  }, [page, caps, forgeJavaPath, log]);
+  const rescanJava8 = () => {
+    setJava8Search('searching');
+    void operations.detectJava8(caps)
+      .then(found => {
+        if (found?.major === 8 && found.path) {
+          setForgeJavaPath(found.path);
+          setJava8Search('found');
+        } else {
+          setJava8Search('missing');
+        }
+      })
+      .catch(e => {
+        setJava8Search('error');
+        setError('Java 8 discovery: ' + backendError(e));
+      });
+  };
   const importFile = async (path?: string) => {
     if (!caps.features.pack_inspection) { setError('Archive inspector unavailable.'); return; }
     let input = path;
@@ -411,11 +451,19 @@ export default function App() {
                 <option value="">Choose offline player</option>
                 {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
               </select>
+              <button disabled={busy || java8Search === 'searching'} onClick={rescanJava8}>
+                {java8Search === 'searching' ? 'Đang tìm Java 8...' : 'Tự tìm Java 8'}
+              </button>
               <button disabled={busy} onClick={() => void (async () => {
                 const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
-                if (typeof path === 'string') setForgeJavaPath(path);
-              })().catch(e => setError(backendError(e)))}>Select Java 8 executable</button>
-              {forgeJavaPath && <span className="mono">{forgeJavaPath}</span>}
+                if (typeof path === 'string') {
+                  setForgeJavaPath(path);
+                  setJava8Search('found');
+                }
+              })().catch(e => setError(backendError(e)))}>Chọn Java thủ công</button>
+              {forgeJavaPath && <span className="mono" role="status">Java đã chọn: {forgeJavaPath}</span>}
+              {!forgeJavaPath && java8Search === 'missing' && <span role="status">Không tìm thấy Java 8. Cài Java 8 hoặc chọn thủ công.</span>}
+              {!forgeJavaPath && java8Search === 'error' && <span role="status">Không thể quét Java. Có thể chọn file java.exe thủ công.</span>}
             </div>
             <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
               I approve loading locally installed mods and running official Forge Java on this Windows account. Local hashes do not certify upstream safety; Windows Job Object is not a file/network sandbox.

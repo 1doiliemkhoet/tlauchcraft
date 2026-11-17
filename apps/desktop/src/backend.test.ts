@@ -54,6 +54,23 @@ describe('installed CurseForge profile import', () => {
     });
   });
 });
+describe('Windows Java 8 runtime discovery transport', () => {
+  it('asks backend for a verified local Java 8 runtime, never a guessed path', async () => {
+    const found = {path: 'C:/Program Files/Java/jre1.8.0_441/bin/java.exe', major: 8, source: 'Installed Java'};
+    mockedInvoke.mockResolvedValue(found);
+    await expect(operations.detectJava8(withFeature('settings'))).resolves.toEqual(found);
+    expect(mockedInvoke).toHaveBeenCalledWith('java_detect_8', undefined);
+  });
+  it('returns null if no Java 8 was detected', async () => {
+    mockedInvoke.mockResolvedValue(null);
+    await expect(operations.detectJava8(withFeature('settings'))).resolves.toBeNull();
+  });
+  it('does not probe Java from an unavailable backend', async () => {
+    await expect(operations.detectJava8(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
+
 describe('typed backend transport', () => {
   it('rejects disabled operations without invoking Rust', async () => {
     expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);

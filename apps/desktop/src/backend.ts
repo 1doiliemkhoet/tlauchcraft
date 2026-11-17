@@ -12,6 +12,7 @@ export type ProgressEvent = { contract_version: number; operation_id: string; in
 export type LaunchRequest = { instance_id: string; profile_id: string; java_path?: string | null; min_ram_mb?: number | null; max_ram_mb?: number | null; extra_jvm_args?: string[] | null };
 export type LaunchProcess = { pid: number; started_at: string; log_path: string; stderr_path: string; latest_log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
 export type JavaSettings = { instance_id: string; xms_mb: number; xmx_mb: number; java_path: string; revision: number };
+export type DetectedJava8 = { path: string; major: number; source: string };
 export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: number };
 export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
@@ -78,6 +79,7 @@ export const operations = {
     instanceId: value.instance_id, xmsMb: value.xms_mb, xmxMb: value.xmx_mb, javaPath: value.java_path, expectedRevision: value.revision
   }),
   javaMemoryInfo: (c: Capabilities) => call<MemoryInfo>(c, 'settings', 'java_memory_info'),
+  detectJava8: (c: Capabilities) => call<DetectedJava8 | null>(c, 'settings', 'java_detect_8'),
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),

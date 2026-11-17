@@ -99,6 +99,15 @@ async fn java_settings_save(instance_id:String,xms_mb:u32,xmx_mb:u32,java_path:S
 async fn java_memory_info() -> Result<java_settings::MemoryInfo,String>{
     tauri::async_runtime::spawn_blocking(java_settings::system_memory).await.map_err(|e|e.to_string())?
 }
+/// Discover a real Java 8 on Windows, with a bounded -version subprocess
+/// probe off the UI thread. No download, filesystem mutation, or silent install.
+#[tauri::command]
+async fn java_detect_8() -> Result<Option<java_settings::JavaDetection>, String> {
+    tauri::async_runtime::spawn_blocking(java_settings::detect_java8)
+        .await
+        .map_err(|e| format!("Java discovery worker failed: {e}"))?
+}
+
 /// Reports only key presence to the UI. Never returns the value, does not
 /// validate permissions, and never logs or persists the credential.
 #[tauri::command]
@@ -597,6 +606,7 @@ fn main() {
             java_settings_get,
             java_settings_save,
             java_memory_info,
+            java_detect_8,
             game_ops::instance_create_vanilla,
             game_ops::game_install,
             game_ops::game_preflight,
