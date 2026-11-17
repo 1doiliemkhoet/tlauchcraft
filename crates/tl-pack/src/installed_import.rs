@@ -63,10 +63,7 @@ fn no_symlink_ancestors(path: &Path) -> Result<(), String> {
 
 type MatchedMod = (u64, u64, bool, String);
 
-fn checked_names(
-    local: &LocalProfile,
-    manifest: &PackMetadata,
-) -> Result<Vec<MatchedMod>, String> {
+fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<MatchedMod>, String> {
     if manifest.source != PackSource::CurseforgeZip
         || manifest.loader.kind != "forge"
         || manifest.loader.version.as_deref().is_none_or(str::is_empty)
