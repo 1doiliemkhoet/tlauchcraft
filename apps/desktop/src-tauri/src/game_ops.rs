@@ -483,13 +483,44 @@ pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String
 /// A durable SQLite VERIFYING intent precedes atomic create-new publication.
 /// If interrupted after rename, reconciliation can finish READY only after
 /// rehashing all published artifacts and matching the persisted selection.
-#[allow(dead_code)] // called by the future Control-approved isolated runner
+enum ForgeModEvidence<'a> {
+    Provider(&'a tl_pack::curseforge::CurseForgeResolveReport),
+    Local(&'a [tl_pack::staged_receipt::VerifiedModReceipt]),
+}
 pub(crate) fn finalize_approved_forge_instance(
     display_name:String,
     profile_id:Uuid,
     source_archive:&Path,
     pack_stage:&Path,
     resolved:&tl_pack::curseforge::CurseForgeResolveReport,
+    approved:tl_pack::forge_publish::ApprovedForgePublishInputs<'_>,
+    cancelled:&AtomicBool,
+)->Result<GameInstance,String>{
+    finalize_forge_with_mod_evidence(
+        display_name, profile_id, source_archive, pack_stage,
+        ForgeModEvidence::Provider(resolved), approved, cancelled
+    )
+}
+pub(crate) fn finalize_approved_forge_local_instance(
+    display_name:String,
+    profile_id:Uuid,
+    source_archive:&Path,
+    pack_stage:&Path,
+    local_mods:&[tl_pack::staged_receipt::VerifiedModReceipt],
+    approved:tl_pack::forge_publish::ApprovedForgePublishInputs<'_>,
+    cancelled:&AtomicBool,
+)->Result<GameInstance,String>{
+    finalize_forge_with_mod_evidence(
+        display_name, profile_id, source_archive, pack_stage,
+        ForgeModEvidence::Local(local_mods), approved, cancelled
+    )
+}
+fn finalize_forge_with_mod_evidence(
+    display_name:String,
+    profile_id:Uuid,
+    source_archive:&Path,
+    pack_stage:&Path,
+    mods:ForgeModEvidence<'_>,
     approved:tl_pack::forge_publish::ApprovedForgePublishInputs<'_>,
     cancelled:&AtomicBool,
 )->Result<GameInstance,String>{
@@ -533,11 +564,20 @@ pub(crate) fn finalize_approved_forge_instance(
     // Never mutate an existing UUID's files, profile, or save directory.
     let mut store=db()?;
     store.create_instance(&instance).map_err(|e|e.to_string())?;
-    let _written=tl_pack::forge_publish::publish_forge_from_execution(
-        pack_stage,&target,source_archive,&metadata,resolved,approved,
-        |sha256| store.insert_forge_receipt_anchor(instance.id,sha256)
-            .map_err(|e|format!("Cannot persist trusted Forge receipt anchor: {e}"))
-    )?;
+    let _written=match mods {
+        ForgeModEvidence::Provider(resolved) =>
+            tl_pack::forge_publish::publish_forge_from_execution(
+                pack_stage,&target,source_archive,&metadata,resolved,approved,
+                |sha256| store.insert_forge_receipt_anchor(instance.id,sha256)
+                    .map_err(|e|format!("Cannot persist trusted Forge receipt anchor: {e}"))
+            ),
+        ForgeModEvidence::Local(local_mods) =>
+            tl_pack::forge_publish::publish_forge_from_local_execution(
+                pack_stage,&target,source_archive,&metadata,local_mods,approved,
+                |sha256| store.insert_forge_receipt_anchor(instance.id,sha256)
+                    .map_err(|e|format!("Cannot persist trusted local Forge receipt anchor: {e}"))
+            ),
+    }?;
     if cancelled.load(Ordering::Relaxed){
         return Err("cancelled after atomic publication; VERIFYING intent retained".into())
     }
