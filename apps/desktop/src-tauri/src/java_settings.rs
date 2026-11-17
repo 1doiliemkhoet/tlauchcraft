@@ -173,6 +173,187 @@ fn persist_settings(db:&mut Connection,id:&str,xms:u32,xmx:u32,java_path:&str,ex
     Ok(new_revision)
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+pub struct JavaDetection {
+    pub path: String,
+    pub major: u32,
+    pub source: String,
+}
+
+/// Discover local Java 8 installations without a CurseForge key, network
+/// request, PowerShell, or installer execution. Only verified -version output
+/// (and not a directory name) determines compatibility.
+#[cfg(windows)]
+pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+    use std::{
+        collections::HashSet,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+
+    fn add_candidate(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        path: PathBuf,
+        source: &str,
+    ) {
+        if found.len() >= 160 || !path.is_absolute() || !path.is_file() {
+            return;
+        }
+        let key = path.to_string_lossy().to_ascii_lowercase();
+        if seen.insert(key) {
+            found.push((path, source.to_owned()));
+        }
+    }
+
+    fn add_home(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        home: &Path,
+        source: &str,
+    ) {
+        add_candidate(found, seen, home.join("bin").join("java.exe"), source);
+        add_candidate(found, seen, home.join("jre").join("bin").join("java.exe"), source);
+        add_candidate(found, seen, home.join("java.exe"), source);
+    }
+
+    fn scan_vendor(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        dir: &Path,
+        label: &str,
+        levels: u32,
+    ) {
+        if found.len() >= 160 || levels == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return; };
+        for item in entries.take(64).flatten() {
+            if found.len() >= 160 { break; }
+            if !item.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
+            let child = item.path();
+            add_home(found, seen, &child, label);
+            if levels > 1 { scan_vendor(found, seen, &child, label, levels - 1); }
+        }
+    }
+
+    fn read_version(path: &Path) -> Option<u32> {
+        use std::os::windows::process::CommandExt;
+        let mut child = Command::new(path)
+            .arg("-version")
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+        let begin = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    let output = child.wait_with_output().ok()?;
+                    if !output.status.success() { return None; }
+                    let lines = format!(
+                        "{}{}", String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    );
+                    return tl_game::parse_java_major(&lines).ok();
+                }
+                Ok(None) if begin.elapsed() < Duration::from_millis(1500) => {
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+    }
+
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    for key in ["JAVA_HOME", "JRE_HOME", "JDK_HOME"] {
+        if let Some(home) = std::env::var_os(key) {
+            add_home(&mut candidates, &mut seen, &PathBuf::from(home), key);
+        }
+    }
+    if let Some(value) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&value).take(100) {
+            add_candidate(&mut candidates, &mut seen, dir.join("java.exe"), "PATH");
+        }
+    }
+    for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(dir) = std::env::var_os(key) {
+            let base = PathBuf::from(dir);
+            for vendor in [
+                "Java", "Eclipse Adoptium", "Adoptium", "Microsoft",
+                "Amazon Corretto", "Zulu", "BellSoft", "Liberica", "OpenJDK",
+                "Semeru", "IBM",
+            ] {
+                scan_vendor(
+                    &mut candidates, &mut seen, &base.join(vendor),
+                    "Installed Java", 2,
+                );
+            }
+        }
+    }
+    if let Some(dir) = std::env::var_os("LOCALAPPDATA") {
+        let base = PathBuf::from(dir).join("Programs");
+        for vendor in ["Java", "Eclipse Adoptium", "Adoptium", "Microsoft", "Zulu"] {
+            scan_vendor(&mut candidates, &mut seen, &base.join(vendor), "User Java", 2);
+        }
+    }
+    // CurseForge App may manage a separate Minecraft installation and legacy JRE.
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let runtime = PathBuf::from(home).join("curseforge").join("minecraft")
+            .join("Install").join("runtime");
+        for family in ["jre-legacy", "java-runtime-alpha"] {
+            for arch in ["windows-x64", "windows-x86"] {
+                add_home(
+                    &mut candidates, &mut seen,
+                    &runtime.join(family).join(arch).join(family),
+                    "CurseForge-managed Minecraft runtime",
+                );
+            }
+        }
+    }
+    // Official Minecraft Launcher jre-legacy (Java 8) runtime layout.
+    if let Some(dir) = std::env::var_os("APPDATA") {
+        let runtime = PathBuf::from(dir).join(".minecraft").join("runtime");
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta"] {
+            for arch in ["windows-x64", "windows-x86"] {
+                add_home(
+                    &mut candidates, &mut seen,
+                    &runtime.join(family).join(arch).join(family),
+                    "Minecraft Launcher runtime",
+                );
+            }
+        }
+    }
+    // Probing an arbitrary Java executable means starting a local process.
+    // Only discover from the user's system environment or standard runtime
+    // folders; never search inside or execute JARs from an imported modpack.
+    let deadline = Instant::now() + Duration::from_secs(14);
+    for (path, source) in candidates {
+        if Instant::now() >= deadline { break; }
+        if read_version(&path) == Some(8) {
+            return Ok(Some(JavaDetection {
+                path: path.to_string_lossy().into_owned(),
+                major: 8,
+                source,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(not(windows))]
+pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+    Ok(None)
+}
+
 pub fn java_executable(s:&JavaSettings)->PathBuf{
     if s.java_path.is_empty(){PathBuf::from("java.exe")}else{PathBuf::from(&s.java_path)}
 }
