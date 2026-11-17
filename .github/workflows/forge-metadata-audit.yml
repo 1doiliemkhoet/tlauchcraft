@@ -20,12 +20,32 @@ jobs:
         run: |
           python - <<'PY'
           import base64, hashlib, io, json, pathlib, urllib.request, zipfile
-          url = "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar"
-          with urllib.request.urlopen(url, timeout=90) as response:
-              installer = response.read()
-          digest = hashlib.sha1(installer).hexdigest()
-          print("OFFICIAL_SHA1", digest)
-          assert digest == "7d247279cf06eed6ffcf609f36d11e34c70350f3", "untrusted installer checksum"
+          base = "net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar"
+          sources = [
+              "https://maven.minecraftforge.net/" + base,
+              "https://files.minecraftforge.net/maven/" + base,
+              "https://mirror.sjtu.edu.cn/bmclapi/" + base,
+              "https://mirror.lzu.edu.cn/bmclapi/" + base,
+              "https://mirrors.nju.edu.cn/bmclapi/releases/" + base,
+              "https://bmclapi2.bangbang93.com/maven/" + base,
+          ]
+          expected = "7d247279cf06eed6ffcf609f36d11e34c70350f3"
+          installer = None
+          for source in sources:
+              try:
+                  request = urllib.request.Request(source, headers={"User-Agent":"Mozilla/5.0 ForgeVerification/1.0"})
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      data = response.read(18 * 1024 * 1024)
+                  sha = hashlib.sha1(data).hexdigest()
+                  print("CANDIDATE", source, "BYTES", len(data), "SHA1", sha)
+                  if sha == expected:
+                      installer = data
+                      break
+                  print("INVALID_MIRROR_CHECKSUM - rejecting")
+              except Exception as error:
+                  print("MIRROR_UNAVAILABLE", source, type(error).__name__, str(error)[:160])
+          assert installer is not None, "No verified SHA1-matching Forge installer could be retrieved"
+          print("OFFICIAL_SHA1", expected)
           with zipfile.ZipFile(io.BytesIO(installer)) as jar:
               official = {name: json.loads(jar.read(name)) for name in ("install_profile.json", "version.json")}
           fixtures = {
