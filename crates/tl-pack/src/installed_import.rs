@@ -55,7 +55,10 @@ fn no_symlink_ancestors(path: &Path) -> Result<(), String> {
     }
     for ancestor in path.ancestors() {
         if fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err("Installed profile/staging path contains a symlink".into());
+            return Err(format!(
+                "Unsafe link/reparse point inside imported profile or private staging at: {}",
+                ancestor.display()
+            ));
         }
     }
     Ok(())
@@ -240,7 +243,17 @@ pub fn stage_installed_curseforge(
     staging: &Path,
     cancelled: &AtomicBool,
 ) -> Result<Vec<VerifiedModReceipt>, String> {
-    let (pack, names) = selection(archive, installed_profile, staging)?;
+    // CurseForge's profile folder may itself be reached through a legitimate
+    // Windows directory junction (for example, relocated Instances storage).
+    // Canonicalize only the two EXISTING read-only source roots once. All
+    // nested metadata/JAR paths and the NEW writable stage still undergo
+    // fail-closed link checks. Never canonicalize an inner mod file to bypass
+    // a symlink pointing outside the profile.
+    let archive = fs::canonicalize(archive)
+        .map_err(|e| format!("Could not resolve original CurseForge ZIP: {e}"))?;
+    let installed_profile = fs::canonicalize(installed_profile)
+        .map_err(|e| format!("Could not resolve installed CurseForge profile folder: {e}"))?;
+    let (pack, names) = selection(&archive, &installed_profile, staging)?;
     if cancelled.load(Ordering::SeqCst) {
         return Err("Local import cancelled".into());
     }
@@ -270,7 +283,7 @@ pub fn stage_installed_curseforge(
     }
     let parent = staging.parent().ok_or("invalid stage parent")?;
     no_symlink_ancestors(parent)?;
-    crate::stage_overrides(archive, &pack, staging).map_err(|e| e.to_string())?;
+    crate::stage_overrides(&archive, &pack, staging).map_err(|e| e.to_string())?;
     let target_mods = staging.join("mods");
     if fs::symlink_metadata(&target_mods).is_ok() {
         no_symlink_ancestors(&target_mods)?;
@@ -355,6 +368,55 @@ mod tests {
         assert!(checked_names(&wrong, &pack()).is_err());
         let extra: LocalProfile = serde_json::from_str(r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileName":"example.jar"}},{"addonID":77,"installedFile":{"id":88,"fileName":"extra.jar"}}]}"#).unwrap();
         assert!(checked_names(&extra, &pack()).is_err());
+    }
+    #[test]
+    fn existing_roots_resolve_to_real_absolute_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("installed");
+        fs::create_dir(&real).unwrap();
+        let canonical = fs::canonicalize(&real).unwrap();
+        assert!(canonical.is_absolute());
+        assert!(canonical.is_dir());
+        // The normalized source is safe to check; writable stage remains
+        // separate and cannot redirect outside the private instance root.
+        no_symlink_ancestors(&canonical).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installed_profile_windows_directory_link_resolves_to_real_folder() {
+        use std::os::windows::fs::symlink_dir;
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real-installed");
+        fs::create_dir(&real).unwrap();
+        let linked = temp.path().join("selected-instances-link");
+        if symlink_dir(&real, &linked).is_err() {
+            // A Windows runner without Developer Mode/SeCreateSymbolicLinkPrivilege
+            // cannot create this fixture; importer still relies on canonicalize.
+            return;
+        }
+        assert!(no_symlink_ancestors(&linked).is_err());
+        let resolved = fs::canonicalize(&linked).unwrap();
+        assert_eq!(resolved, fs::canonicalize(&real).unwrap());
+        no_symlink_ancestors(&resolved).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn linked_mod_file_under_real_profile_still_blocked() {
+        use std::os::windows::fs::symlink_file;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("profile");
+        fs::create_dir(&root).unwrap();
+        let external = temp.path().join("other.jar");
+        fs::write(&external, b"not-a-jar").unwrap();
+        let mod_file = root.join("bad.jar");
+        if symlink_file(&external, &mod_file).is_err() {
+            return;
+        }
+        // Legitimate linked profile folder is allowed, but a linked
+        // individual JAR is never trusted as part of the selected profile.
+        assert!(observed_hashes(&mod_file).is_err());
     }
     #[test]
     fn unsafe_filename_refused() {
