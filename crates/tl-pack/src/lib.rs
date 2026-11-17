@@ -5,6 +5,7 @@ pub mod curseforge;
 pub mod fingerprint;
 #[cfg(windows)]
 pub mod forge_official;
+pub mod installed_import;
 pub mod forge_publish;
 pub mod forge_stage;
 pub mod install;
