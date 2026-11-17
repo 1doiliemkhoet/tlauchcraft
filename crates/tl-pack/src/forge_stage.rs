@@ -103,6 +103,45 @@ fn copy_verified(
     verify_bytes(&target, sha1, bytes)
 }
 
+/// Resolve SHA-1-verified native archives AFTER they have been copied from the
+/// shared Mojang cache into this private instance's libraries/. The Windows
+/// extractor deliberately refuses to read archives outside that instance root.
+fn staged_native_archives(
+    cached_archives: &[PathBuf],
+    mojang_cache: &Path,
+    stage: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    if cached_archives.is_empty() {
+        return Err("no verified Windows native archives in Mojang cache".into());
+    }
+    let mut paths = Vec::with_capacity(cached_archives.len());
+    for cached in cached_archives {
+        let relative = cached
+            .strip_prefix(mojang_cache)
+            .map_err(|_| "native archive escaped official Mojang cache")?;
+        let portable = relative
+            .to_str()
+            .ok_or("native cache path contains invalid Unicode")?
+            .replace('\\', "/");
+        let safe = crate::safe_path(&portable).map_err(|e| e.to_string())?;
+        if !safe.starts_with("libraries")
+            || safe.extension().and_then(|ext| ext.to_str()) != Some("jar")
+        {
+            return Err("native archive is not a JAR under launcher libraries".into());
+        }
+        let staged = stage.join(safe);
+        safe_ancestors(&staged)?;
+        if !staged.is_file() {
+            return Err(format!(
+                "verified native archive not copied into private stage: {}",
+                staged.display()
+            ));
+        }
+        paths.push(staged);
+    }
+    Ok(paths)
+}
+
 /// Fetches only official Mojang files (or reuses their SHA-1-verified cache).
 /// The Forge receipt is read-only staging input, NOT an issuer of a publish
 /// permit. Later publication independently revalidates a sealed execution
@@ -213,7 +252,11 @@ pub fn assemble_forge_stage(
     if natives.exists() {
         return Err("native extraction destination occupied".into());
     }
-    extract_natives(&cached.native_archives, &natives)
+    // The source cache is a different root: passing those cache paths to the
+    // extractor causes its hardening check (stage/libraries) to reject them.
+    // The verified native JARs were copied above, so pass the stage-owned JARs.
+    let staged_archives = staged_native_archives(&cached.native_archives, mojang_cache, stage)?;
+    extract_natives(&staged_archives, &natives)
         .map_err(|e| format!("Windows natives extraction failed: {e}"))?;
     Ok(ForgeStageAssembly {
         minecraft_files: installed,
@@ -226,6 +269,65 @@ pub fn assemble_forge_stage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_archives_use_private_stage_libraries_not_shared_mojang_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("mojang-cache");
+        let stage = temp.path().join("local-123.staging");
+        let relative = Path::new("libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar");
+        let original = cache.join(relative);
+        let copied = stage.join(relative);
+        fs::create_dir_all(original.parent().unwrap()).unwrap();
+        fs::create_dir_all(copied.parent().unwrap()).unwrap();
+        fs::write(&original, b"verified-placeholder").unwrap();
+        fs::write(&copied, b"verified-placeholder").unwrap();
+        let staged = staged_native_archives(&[original.clone()], &cache, &stage).unwrap();
+        assert_eq!(staged, vec![copied.clone()]);
+        assert!(!staged[0].starts_with(&cache));
+        assert!(staged[0].starts_with(stage.join("libraries")));
+
+        assert!(
+            staged_native_archives(&[original], &cache, &temp.path().join("missing.staging"))
+                .is_err()
+        );
+        assert!(
+            staged_native_archives(&[temp.path().join("outside.jar")], &cache, &stage).is_err()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn forge_stage_native_archives_extract_with_powershell_51() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("mojang-cache");
+        let stage = temp.path().join("local-123.staging");
+        let relative = Path::new("libraries/org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar");
+        let original = cache.join(relative);
+        let copied = stage.join(relative);
+        fs::create_dir_all(original.parent().unwrap()).unwrap();
+        fs::create_dir_all(copied.parent().unwrap()).unwrap();
+        let mut archive = zip::ZipWriter::new(fs::File::create(&copied).unwrap());
+        archive
+            .start_file(
+                "org/lwjgl/native-test.dll",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        archive.write_all(b"safe-native-dll").unwrap();
+        archive.finish().unwrap();
+        fs::copy(&copied, &original).unwrap();
+
+        let staged = staged_native_archives(&[original], &cache, &stage).unwrap();
+        let output = stage.join("natives");
+        extract_natives(&staged, &output).unwrap();
+        assert_eq!(
+            fs::read(output.join("native-test.dll")).unwrap(),
+            b"safe-native-dll"
+        );
+    }
+
     #[test]
     fn official_copy_requires_digest_and_preserves_existing_bytes() {
         let tmp = tempfile::tempdir().unwrap();
