@@ -1,6 +1,10 @@
 name: P0 Final Forge Publish + Desktop Play Windows
 
 on:
+  # The bridge branch is pushed only for explicit Windows acceptance builds.
+  # Preserve its automatic installer trigger; routine PR validation stays separate.
+  push:
+    branches: [feat/p0-final-playable-bridge]
   pull_request:
     branches: [integration/p0-playable-single-run]
     paths:
