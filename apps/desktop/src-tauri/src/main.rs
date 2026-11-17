@@ -154,7 +154,7 @@ fn emit_pack_progress(app: &AppHandle, id: &str, phase: &str, message: &str, per
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_default();
-    let _ = app.emit("download.progress", PackProgress {
+    let _ = app.emit("download-progress", PackProgress {
         contract_version: CONTRACT_VERSION,
         operation_id: id.to_owned(),
         instance_id: None,
