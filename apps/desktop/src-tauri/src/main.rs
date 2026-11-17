@@ -150,6 +150,17 @@ struct PackProgress {
 }
 
 fn emit_pack_progress(app: &AppHandle, id: &str, phase: &str, message: &str, percent: Option<f32>) {
+    emit_pack_progress_with_details(app, id, phase, message, percent, BTreeMap::new());
+}
+
+fn emit_pack_progress_with_details(
+    app: &AppHandle,
+    id: &str,
+    phase: &str,
+    message: &str,
+    percent: Option<f32>,
+    details: BTreeMap<String, String>,
+) {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
@@ -161,7 +172,7 @@ fn emit_pack_progress(app: &AppHandle, id: &str, phase: &str, message: &str, per
         timestamp,
         phase: phase.to_owned(),
         message_key: message.to_owned(),
-        details: BTreeMap::new(),
+        details,
         percent,
     });
 }
@@ -620,9 +631,19 @@ async fn pack_import_installed_folder(
     let installed_root = path.to_path_buf();
     let snapshot_target = snapshot.clone();
     let token = cancel.clone();
+    let progress_app = app.clone();
+    let progress_id = operation_id.clone();
     let built = tauri::async_runtime::spawn_blocking(move || {
-        tl_pack::installed_import::snapshot_installed_folder(
-            &installed_root, &snapshot_target, &token
+        tl_pack::installed_import::snapshot_installed_folder_with_progress(
+            &installed_root, &snapshot_target, &token,
+            |stage, completed, total| {
+                let mut details = BTreeMap::new();
+                details.insert("completed_files".into(), completed.to_string());
+                details.insert("total_files".into(), total.to_string());
+                emit_pack_progress_with_details(
+                    &progress_app, &progress_id, "VERIFYING", stage, None, details,
+                );
+            },
         )
     }).await.map_err(|e| format!("Installed folder scan worker failed: {e}"));
     if let Ok(mut jobs) = pack_jobs().lock() {
