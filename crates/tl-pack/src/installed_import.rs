@@ -33,6 +33,11 @@ struct LocalAddon {
 #[serde(rename_all = "camelCase")]
 struct LocalInstalledFile {
     id: u64,
+    // CurseForge's minecraftinstance.json stores the *actual on-disk* JAR
+    // name inside installedFile.fileNameOnDisk. fileName is not guaranteed
+    // to be present and must only be a compatibility fallback.
+    #[serde(default, alias = "FileNameOnDisk")]
+    file_name_on_disk: Option<String>,
     #[serde(default)]
     file_name: Option<String>,
 }
@@ -84,25 +89,41 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
         }
     }
     let mut map = BTreeMap::new();
-    for addon in &local.installed_addons {
+    for (index, addon) in local.installed_addons.iter().enumerate() {
+        let id = addon.addon_id;
+        if id == 0 {
+            return Err(format!(
+                "CurseForge installedAddons[{index}] has an invalid project ID (0)"
+            ));
+        }
         let installed = addon
             .installed_file
             .as_ref()
-            .ok_or("CurseForge local metadata lacks installedFile; cannot match manifest IDs")?;
-        let name = addon
+            .ok_or_else(|| format!("CurseForge addon {id} has no installedFile metadata"))?;
+        if installed.id == 0 {
+            return Err(format!("CurseForge addon {id} has an invalid file ID (0)"));
+        }
+        let name = installed
             .file_name_on_disk
             .as_deref()
-            .or(installed.file_name.as_deref())
-            .ok_or("CurseForge local metadata lacks an installed mod filename")?;
-        if addon.addon_id == 0
-            || installed.id == 0
-            || !safe_mod_file_name(name)
-            || map
-                .insert(addon.addon_id, (installed.id, name.to_owned()))
-                .is_some()
-        {
-            return Err("Malformed/duplicated CurseForge profile mod metadata".into());
+            .filter(|name| !name.is_empty())
+            .or(addon.file_name_on_disk.as_deref().filter(|name| !name.is_empty()))
+            .or(installed.file_name.as_deref().filter(|name| !name.is_empty()))
+            .ok_or_else(|| {
+                format!("CurseForge addon {id} has no filename in installedFile.fileNameOnDisk, addon.fileNameOnDisk, or installedFile.fileName")
+            })?;
+        if !safe_mod_file_name(name) {
+            return Err(format!(
+                "CurseForge addon {id} file {name:?} is not a safe JAR filename"
+            ));
         }
+        if let Some((previous_file_id, previous_name)) = map.get(&id) {
+            return Err(format!(
+                "CurseForge installedAddons contains duplicate project ID {id}: file {previous_file_id} ({previous_name}) and file {} ({name})",
+                installed.id
+            ));
+        }
+        map.insert(id, (installed.id, name.to_owned()));
     }
     let mut names = HashSet::new();
     let mut matched = Vec::new();
@@ -369,6 +390,63 @@ mod tests {
         let extra: LocalProfile = serde_json::from_str(r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileName":"example.jar"}},{"addonID":77,"installedFile":{"id":88,"fileName":"extra.jar"}}]}"#).unwrap();
         assert!(checked_names(&extra, &pack()).is_err());
     }
+    #[test]
+    fn curseforge_installed_file_name_on_disk_is_preferred() {
+        // Real CurseForge metadata uses installedFile.fileNameOnDisk.
+        // A display/remote fileName may be absent or different.
+        let data: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"actually-installed.jar","fileName":"remote-original.jar"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            checked_names(&data, &pack()).unwrap()[0].3,
+            "actually-installed.jar"
+        );
+    }
+
+    #[test]
+    fn outer_disk_filename_and_legacy_filename_remain_compatible() {
+        let outer: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"fileNameOnDisk":"outer.jar","installedFile":{"id":34}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(checked_names(&outer, &pack()).unwrap()[0].3, "outer.jar");
+        let legacy: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileName":"fallback.jar"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            checked_names(&legacy, &pack()).unwrap()[0].3,
+            "fallback.jar"
+        );
+    }
+
+    #[test]
+    fn duplicate_project_or_unsafe_disk_name_remain_blocked_and_diagnostic() {
+        let duplicate: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"a.jar"}},{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"a.jar"}}]}"#,
+        )
+        .unwrap();
+        let err = checked_names(&duplicate, &pack()).unwrap_err();
+        assert!(err.contains("duplicate project ID 12"), "{err}");
+
+        let escaped: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"../escape.jar"}}]}"#,
+        )
+        .unwrap();
+        let err = checked_names(&escaped, &pack()).unwrap_err();
+        assert!(err.contains("addon 12"), "{err}");
+        assert!(err.contains("safe JAR filename"), "{err}");
+
+        let missing: LocalProfile = serde_json::from_str(
+            r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34}}]}"#,
+        )
+        .unwrap();
+        let err = checked_names(&missing, &pack()).unwrap_err();
+        assert!(err.contains("addon 12"), "{err}");
+        assert!(err.contains("no filename"), "{err}");
+    }
+
     #[test]
     fn existing_roots_resolve_to_real_absolute_directory() {
         let temp = tempfile::tempdir().unwrap();
