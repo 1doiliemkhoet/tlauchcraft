@@ -13,7 +13,9 @@ const PACK_PROGRESS_LABELS: Record<string, string> = {
   'forge.pinned_mojang_maven': 'Đang tải và kiểm tra Minecraft, Forge và thư viện chính thức',
   'forge.processor_output_verified': 'Đã xác minh processor; đang publish instance',
   'forge.ready_after_independent_audit': 'Instance đã được xác minh và publish',
-  'local_import.manifest_ids': 'Đang đối chiếu CurseForge ZIP với metadata profile đã cài',
+  'local_import.manifest_ids': 'Đang đối chiếu danh sách mod JAR với metadata profile đã cài',
+  'local_import.read_installed_folder': 'Đang kiểm tra thư mục CurseForge và dựng manifest local, không cần ZIP',
+  'local_import.snapshot_manifest_verified': 'Đã xác minh manifest nội bộ và cấu hình; bắt đầu stage mod',
   'local_import.copied_mods_hashed': 'Đã chép và hash từng mod JAR; đang chuẩn bị Forge chính thức',
   'local_import.publishing_verified_forge': 'Đang ghép Minecraft, Forge và modpack vào instance riêng',
   'local_import.ready_local_hashes_only': 'Đã publish bản local, chưa kiểm chứng game chạy thật',
@@ -231,17 +233,17 @@ export default function App() {
       });
     })().catch(e => setError(backendError(e)));
   };
-  const importInstalledCurseForge = () => {
-    if (!packArchivePath || !installedCurseForgeFolder || !selectedProfile ||
-        !forgeJavaPath || !forgeHostConsent) return;
+  const importInstalledFolder = () => {
+    if (!installedCurseForgeFolder || !selectedProfile ||
+        !forgeJavaPath || !forgeHostConsent || busy) return;
     const operationId = `local-${crypto.randomUUID()}`;
     setPackOperationId(operationId);
-    void run('Import installed CurseForge profile', async () => {
-      const instance = await operations.importInstalledCurseForge(
-        caps, packArchivePath, installedCurseForgeFolder, operationId,
+    void run('Import installed CurseForge folder', async () => {
+      const instance = await operations.importInstalledFolder(
+        caps, installedCurseForgeFolder, operationId,
         selectedProfile, forgeJavaPath, forgeHostConsent
       );
-      log(`Local CurseForge profile imported as ${instance.id}. Local JAR digests are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
+      log(`Installed folder imported as ${instance.id}. Local JAR hashes are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
       await refresh(caps);
       setSelectedInstance(instance.id);
       setPage('instances');
@@ -433,49 +435,42 @@ export default function App() {
           </Notice>)}
           {!caps.features.game && <Unavailable feature="game"/>}
         </div>}
-        {page === 'modpacks' && <div className="panel"><h3>Inspect a modpack archive</h3><p className="muted">Rust tl-pack validates the ZIP and returns metadata without extraction. Installation remains disabled until a verified importer exists.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
+        {page === 'modpacks' && <div className="panel"><div className="panel">
+        <h3>Import Installed CurseForge — Chỉ cần thư mục</h3>
+        <p className="muted">Chọn folder modpack CurseForge đã cài đầy đủ, có minecraftinstance.json và mods/. Không cần ZIP gốc, CurseForge API key hay tải lại mod.</p>
+        <p className="muted">Launcher dùng metadata local để xác định Minecraft/Forge và danh sách mod, sao chép các JAR cùng cấu hình thường dùng vào instance riêng, hash lại file và không chạm tới saves/worlds gốc. Chỉ adapter Forge 1.16.5/36.2.29 đã được kiểm thử ở mức CI; gameplay còn cần test thực tế.</p>
+        <div className="form-row">
+          <button disabled={busy} onClick={() => void (async () => {
+            const path = await open({ directory: true, multiple: false });
+            if (typeof path === 'string') setInstalledCurseForgeFolder(path);
+          })().catch(e => setError(backendError(e)))}>Chọn thư mục modpack đã cài</button>
+          {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
+        </div>
+        <div className="form-row">
+          <select aria-label="Offline player for installed folder" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}>
+            <option value="">Chọn tài khoản Offline</option>
+            {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
+          </select>
+          <button disabled={busy || java8Search === 'searching'} onClick={rescanJava8}>
+            {java8Search === 'searching' ? 'Đang tìm Java 8...' : 'Tự tìm Java 8'}
+          </button>
+          <button disabled={busy} onClick={() => void (async () => {
+            const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
+            if (typeof path === 'string') { setForgeJavaPath(path); setJava8Search('found'); }
+          })().catch(e => setError(backendError(e)))}>Chọn Java thủ công</button>
+        </div>
+        {forgeJavaPath && <p className="mono" role="status">Java 8: {forgeJavaPath}</p>}
+        {!forgeJavaPath && java8Search === 'missing' && <Notice>Máy chưa tìm thấy Java 8. Cài Java 8 hoặc chọn thủ công.</Notice>}
+        {!forgeJavaPath && java8Search === 'error' && <Notice>Không thể quét Java. Chọn file java.exe thủ công.</Notice>}
+        <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
+          Tôi đồng ý chạy Java Forge và các mod từ thư mục đã cài trên tài khoản Windows này. Hash local không chứng thực nguồn phát hành; Windows Job Object không phải sandbox bảo vệ file/mạng.
+        </label>
+        <div className="form-row">
+          <button className="primary" disabled={busy || !caps.features.pack_inspection || !installedCurseForgeFolder || !selectedProfile || !forgeJavaPath || !forgeHostConsent} onClick={importInstalledFolder}>Import Folder → Install Forge → Play</button>
+        </div>
+      </div>
+      <h3>Optional: Inspect a modpack archive</h3><p className="muted">ZIP/MRPACK là tùy chọn dành cho việc kiểm tra manifest và quy trình tải mod qua API. Nếu CurseForge đã cài đủ mod, chỉ cần Import Folder bên trên.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
           <h3>CurseForge — verified file staging</h3>
-          <div className="panel">
-            <h3>Import Installed Modpack — không cần CurseForge API key</h3>
-            <p className="muted">Mở CurseForge App → Minecraft → My Modpacks → Rustic Waters II → dấu ba chấm → Open Folder. Chọn đúng thư mục profile có mods/ và minecraftinstance.json. TLaunchCraft chỉ sao chép các JAR khớp manifest ZIP, không sửa source hay world saves.</p>
-            <p className="muted">Giới hạn: để publish Forge ngay, bản kiểm thử đầu tiên hỗ trợ Minecraft 1.16.5 / Forge 36.2.29. Các mod được SHA-1/SHA-256 tại máy, không phải xác thực bởi CurseForge API.</p>
-            <div className="form-row">
-              <button disabled={busy} onClick={() => void (async () => {
-                const path = await open({ directory: true, multiple: false });
-                if (typeof path === 'string') setInstalledCurseForgeFolder(path);
-              })().catch(e => setError(backendError(e)))}>Choose installed CurseForge profile folder</button>
-              {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
-            </div>
-            <div className="form-row">
-              <select aria-label="Offline profile for imported pack" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}>
-                <option value="">Choose offline player</option>
-                {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
-              </select>
-              <button disabled={busy || java8Search === 'searching'} onClick={rescanJava8}>
-                {java8Search === 'searching' ? 'Đang tìm Java 8...' : 'Tự tìm Java 8'}
-              </button>
-              <button disabled={busy} onClick={() => void (async () => {
-                const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
-                if (typeof path === 'string') {
-                  setForgeJavaPath(path);
-                  setJava8Search('found');
-                }
-              })().catch(e => setError(backendError(e)))}>Chọn Java thủ công</button>
-              {forgeJavaPath && <span className="mono" role="status">Java đã chọn: {forgeJavaPath}</span>}
-              {!forgeJavaPath && java8Search === 'missing' && <span role="status">Không tìm thấy Java 8. Cài Java 8 hoặc chọn thủ công.</span>}
-              {!forgeJavaPath && java8Search === 'error' && <span role="status">Không thể quét Java. Có thể chọn file java.exe thủ công.</span>}
-            </div>
-            <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
-              I approve loading locally installed mods and running official Forge Java on this Windows account. Local hashes do not certify upstream safety; Windows Job Object is not a file/network sandbox.
-            </label>
-            <div className="form-row">
-              <button className="primary" disabled={busy || !installedCurseForgeFolder || !forgeJavaPath ||
-                !selectedProfile || !forgeHostConsent || packPreview.game_version !== '1.16.5' ||
-                packPreview.loader.version !== '36.2.29'
-              } onClick={importInstalledCurseForge}>Import locally installed modpack → Forge → Play</button>
-            </div>
-          </div>
-
           {curseForgeKeyConfigured === false && <Notice><strong>Chưa cấu hình CurseForge API key.</strong> Không có tác vụ tải mod nào được bắt đầu. Thiết lập biến môi trường <code>CURSEFORGE_API_KEY</code>, thoát hoàn toàn launcher và mở lại rồi mới Resolve/Download.</Notice>}
           {curseForgeKeyConfigured === null && <p className="muted" role="status">Đang kiểm tra cấu hình CurseForge API key...</p>}
           {curseForgeKeyConfigured === true && <p className="muted">Đã tìm thấy CurseForge API key trong môi trường backend (chưa kiểm tra quyền truy cập API).</p>}
