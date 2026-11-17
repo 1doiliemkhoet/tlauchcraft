@@ -96,9 +96,10 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
                 "CurseForge installedAddons[{index}] has an invalid project ID (0)"
             ));
         }
-        let installed = addon.installed_file.as_ref().ok_or_else(|| {
-            format!("CurseForge addon {id} has no installedFile metadata")
-        })?;
+        let installed = addon
+            .installed_file
+            .as_ref()
+            .ok_or_else(|| format!("CurseForge addon {id} has no installedFile metadata"))?;
         if installed.id == 0 {
             return Err(format!("CurseForge addon {id} has an invalid file ID (0)"));
         }
@@ -414,7 +415,10 @@ mod tests {
             r#"{"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileName":"fallback.jar"}}]}"#,
         )
         .unwrap();
-        assert_eq!(checked_names(&legacy, &pack()).unwrap()[0].3, "fallback.jar");
+        assert_eq!(
+            checked_names(&legacy, &pack()).unwrap()[0].3,
+            "fallback.jar"
+        );
     }
 
     #[test]
