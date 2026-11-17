@@ -100,7 +100,7 @@ export const operations = {
   listSkins: (c: Capabilities) => call<unknown[]>(c, 'skins', 'skin_list'),
   lanStatus: (c: Capabilities) => call<unknown>(c, 'lan', 'lan_status'),
 };
-export const EVENT_NAMES = ['profile.changed','instance.changed','download.progress','download.verified','pack.inspect','pack.needs_action','pack.ready','loader.installed','java.resolved','game.started','game.exited','lan.server_started','lan.peer_joined','skin.selected','skin.local_verified','skin.peer_verified'] as const;
+export const EVENT_NAMES = ['profile-changed','instance-changed','download-progress','download-verified','pack-inspect','pack-needs_action','pack-ready','loader-installed','java-resolved','game-started','game-exited','lan-server_started','lan-peer_joined','skin-selected','skin-local_verified','skin-peer_verified'] as const;
 export async function subscribeProgress(handler: (event: ProgressEvent) => void): Promise<() => void> {
   // Subscribe concurrently: sequential registrations made the initial "resolving" event
   // easy to miss. All listeners are installed before the UI negotiates/starts work.
