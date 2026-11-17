@@ -576,6 +576,96 @@ async fn pack_import_installed_curseforge(
     result.map_err(|e| format!("Local CurseForge import task failed: {e}"))?
 }
 
+
+/// User-facing folder-only import. The original CurseForge ZIP is NOT an input.
+/// A private, disposable snapshot manifest is derived from the installed
+/// minecraftinstance.json and approved pack assets to reuse the independently
+/// audited Forge pipeline. Snapshot is never claimed to be provider-authored.
+#[tauri::command]
+async fn pack_import_installed_folder(
+    app: AppHandle,
+    installed_profile_path: String,
+    operation_id: String,
+    profile_id: String,
+    java_path: String,
+    host_execution_consent: bool,
+) -> Result<GameInstance, String> {
+    if !host_execution_consent {
+        return Err("Explicit approval required to run local modded Forge Java".into());
+    }
+    if operation_id.len() < 8 || operation_id.len() > 64
+        || !operation_id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+    {
+        return Err("Invalid installed folder operation ID".into());
+    }
+    let path = Path::new(&installed_profile_path);
+    if !path.is_absolute() || !path.is_dir() {
+        return Err("Choose an existing absolute CurseForge installed profile folder".into());
+    }
+    let base = default_data_dir().map_err(|e| e.to_string())?;
+    let root = isolated_data_dir(&base.join("instances")).map_err(|e| e.to_string())?;
+    let snapshot = root.join(format!("{operation_id}.local-source.zip"));
+    if snapshot.exists() {
+        return Err("Private source snapshot already exists; choose a new operation".into());
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut jobs = pack_jobs().lock().map_err(|_| "pack job registry unavailable")?;
+        if jobs.contains_key(&operation_id) {
+            return Err("A pack operation with that ID is already running".into());
+        }
+        jobs.insert(operation_id.clone(), cancel.clone());
+    }
+    emit_pack_progress(&app, &operation_id, "VERIFYING", "local_import.read_installed_folder", None);
+    let installed_root = path.to_path_buf();
+    let snapshot_target = snapshot.clone();
+    let token = cancel.clone();
+    let built = tauri::async_runtime::spawn_blocking(move || {
+        tl_pack::installed_import::snapshot_installed_folder(
+            &installed_root, &snapshot_target, &token
+        )
+    }).await.map_err(|e| format!("Installed folder scan worker failed: {e}"));
+    if let Ok(mut jobs) = pack_jobs().lock() {
+        jobs.remove(&operation_id);
+    }
+    let report = match built {
+        Ok(Ok(report)) if !cancel.load(Ordering::SeqCst) => report,
+        Ok(Ok(_)) => {
+            let _ = std::fs::remove_file(&snapshot);
+            return Err("Import cancelled while validating installed folder".into());
+        }
+        Ok(Err(error)) => {
+            let _ = std::fs::remove_file(&snapshot);
+            return Err(error);
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&snapshot);
+            return Err(error);
+        }
+    };
+    emit_pack_progress(&app, &operation_id, "VERIFYING", "local_import.snapshot_manifest_verified", None);
+    let result = pack_import_installed_curseforge(
+        app,
+        snapshot.to_string_lossy().into_owned(),
+        installed_profile_path,
+        operation_id,
+        profile_id,
+        java_path,
+        host_execution_consent,
+    ).await;
+    // The synthetic archive is private intermediate validation evidence, NOT
+    // a user artifact or authentic upstream manifest; preserve only the trusted
+    // SQLite-anchored installed receipt, and do not touch the CurseForge source.
+    if let Err(error) = std::fs::remove_file(&snapshot) {
+        eprintln!("[local-pack] temporary source cleanup failed: {error}");
+    }
+    // This flow currently routes only to the reviewed 1.16.5/36.2.29
+    // official Forge runner. Versions are read from profile metadata; do not
+    // invent support for newer loader builds.
+    let _ = report;
+    result
+}
+
 /// Cancel a running staging transfer without deleting unrelated user data.
 #[tauri::command]
 fn pack_cancel(operation_id: String) -> Result<(), String> {
@@ -602,6 +692,7 @@ fn main() {
             pack_staged_receipt,
             pack_install_official_forge,
             pack_import_installed_curseforge,
+            pack_import_installed_folder,
             pack_cancel,
             java_settings_get,
             java_settings_save,
