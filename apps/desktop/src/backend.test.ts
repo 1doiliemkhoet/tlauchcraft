@@ -175,6 +175,16 @@ describe('real Vanilla and Java settings command contracts', () => {
   });
 });
 
+describe('Tauri event names are valid for Windows runtime', () => {
+  it('uses only supported Tauri event characters and matches native emit names', () => {
+    expect(EVENT_NAMES.every(name => /^[a-zA-Z0-9_:/-]+$/.test(name))).toBe(true);
+    expect(new Set(EVENT_NAMES).size).toBe(EVENT_NAMES.length);
+    expect(EVENT_NAMES).toContain('download-progress');
+    expect(EVENT_NAMES).toContain('game-started');
+    expect(EVENT_NAMES).toContain('game-exited');
+  });
+});
+
 describe('event listener startup race and cleanup', () => {
   it('registers every event listener concurrently instead of 15 serial handshakes', async () => {
     const cleanups = Array.from({length: EVENT_NAMES.length}, () => vi.fn());
