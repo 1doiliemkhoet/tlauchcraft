@@ -15,6 +15,9 @@ const PACK_PROGRESS_LABELS: Record<string, string> = {
   'forge.ready_after_independent_audit': 'Instance đã được xác minh và publish',
   'local_import.manifest_ids': 'Đang đối chiếu danh sách mod JAR với metadata profile đã cài',
   'local_import.read_installed_folder': 'Đang kiểm tra thư mục CurseForge và dựng manifest local, không cần ZIP',
+  'local_import.hashing_mods': 'Đang tính SHA-1/SHA-256 cho mod JAR đã cài',
+  'local_import.scanning_assets': 'Đang kiểm tra các thư mục cấu hình modpack',
+  'local_import.copying_assets': 'Đang tạo snapshot cấu hình vào ZIP nội bộ',
   'local_import.snapshot_manifest_verified': 'Đã xác minh manifest nội bộ và cấu hình; bắt đầu stage mod',
   'local_import.copied_mods_hashed': 'Đã chép và hash từng mod JAR; đang chuẩn bị Forge chính thức',
   'local_import.publishing_verified_forge': 'Đang ghép Minecraft, Forge và modpack vào instance riêng',
@@ -370,6 +373,10 @@ export default function App() {
           <div className="activity-head"><Activity size={18}/><strong>Đang chạy: {activeTask}</strong></div>
           {page === 'modpacks' && latestPackEvent
             && <div>{PACK_PROGRESS_LABELS[latestPackEvent.message_key] ?? `Backend: ${latestPackEvent.phase} · ${latestPackEvent.message_key}`}</div>}
+          {page === 'modpacks' && latestPackEvent &&
+            typeof latestPackEvent.details?.completed_files === 'string' &&
+            typeof latestPackEvent.details?.total_files === 'string' &&
+            <small>Đã xử lý {latestPackEvent.details.completed_files}/{latestPackEvent.details.total_files} mục ở giai đoạn này (số file thật, không phải % thời gian).</small>}
           <progress aria-label="Đang xử lý, chưa có tổng dung lượng để tính phần trăm"/>
           <small>Đang chờ backend hoàn tất. Thanh tiến trình không hiển thị % giả khi chưa có số byte xác minh.</small>
           {page === 'modpacks' && packOperationId && <button type="button" onClick={() => void operations.cancelPackStage(caps, packOperationId).catch(e => setError(backendError(e)))}>Yêu cầu hủy tác vụ modpack</button>}
