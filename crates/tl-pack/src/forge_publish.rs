@@ -343,8 +343,13 @@ pub fn publish_forge_from_execution(
     anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<ForgeInstallRecord, String> {
     publish_with_mod_evidence(
-        stage, destination, source_archive, pack,
-        ModEvidence::Provider(resolved), evidence, anchor_verified_receipt,
+        stage,
+        destination,
+        source_archive,
+        pack,
+        ModEvidence::Provider(resolved),
+        evidence,
+        anchor_verified_receipt,
     )
 }
 
@@ -362,8 +367,13 @@ pub fn publish_forge_from_local_execution(
     anchor_verified_receipt: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<ForgeInstallRecord, String> {
     publish_with_mod_evidence(
-        stage, destination, source_archive, pack,
-        ModEvidence::Local(local_mods), evidence, anchor_verified_receipt,
+        stage,
+        destination,
+        source_archive,
+        pack,
+        ModEvidence::Local(local_mods),
+        evidence,
+        anchor_verified_receipt,
     )
 }
 
@@ -420,9 +430,15 @@ fn publish_with_mod_evidence(
                 if !ids.insert((verified.project_id, verified.file_id))
                     || verified.bytes == 0
                     || verified.upstream_sha1.len() != 40
-                    || !verified.upstream_sha1.bytes().all(|v| v.is_ascii_hexdigit())
+                    || !verified
+                        .upstream_sha1
+                        .bytes()
+                        .all(|v| v.is_ascii_hexdigit())
                     || verified.observed_sha256.len() != 64
-                    || !verified.observed_sha256.bytes().all(|v| v.is_ascii_hexdigit())
+                    || !verified
+                        .observed_sha256
+                        .bytes()
+                        .all(|v| v.is_ascii_hexdigit())
                     || !pack.files.iter().any(|declared| {
                         declared.project_id == Some(verified.project_id)
                             && declared.file_id == Some(verified.file_id)
@@ -434,11 +450,17 @@ fn publish_with_mod_evidence(
                 // Hashes were taken from locally installed JARs, not from the
                 // provider. Rehash them AGAIN before minting the SQLite anchor.
                 check_file(
-                    stage, &verified.relative_path, verified.bytes,
-                    Some(&verified.upstream_sha1), Some(&verified.observed_sha256),
+                    stage,
+                    &verified.relative_path,
+                    verified.bytes,
+                    Some(&verified.upstream_sha1),
+                    Some(&verified.observed_sha256),
                 )?;
             }
-            (local_mods.to_vec(), "local-installed-curseforge/v1".to_owned())
+            (
+                local_mods.to_vec(),
+                "local-installed-curseforge/v1".to_owned(),
+            )
         }
     };
     let runtime = verify_forge_runtime_for_pack(
@@ -651,8 +673,10 @@ pub fn reverify_published_forge(
     verify_receipt_anchor(&bytes, trusted_sha256)?;
     let record: ForgeInstallRecord = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     if record.schema != "tl-forge-published/v1"
-        || !matches!(record.mod_provenance.as_str(),
-            "curseforge-api-sha1/v1" | "local-installed-curseforge/v1")
+        || !matches!(
+            record.mod_provenance.as_str(),
+            "curseforge-api-sha1/v1" | "local-installed-curseforge/v1"
+        )
         || record.minecraft_version.is_empty()
         || record.forge_version.is_empty()
         || !(8..=25).contains(&record.required_java_major)
