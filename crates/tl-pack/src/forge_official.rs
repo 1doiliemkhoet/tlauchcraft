@@ -539,10 +539,16 @@ mod tests {
         ))
         .unwrap();
         for key in ["_comment_", "icon", "logo", "mirrorList", "welcome"] {
-            assert!(profile.get(key).is_some(), "missing official profile field {key}");
+            assert!(
+                profile.get(key).is_some(),
+                "missing official profile field {key}"
+            );
         }
         for key in ["_comment_", "logging", "releaseTime", "time", "type"] {
-            assert!(derived.get(key).is_some(), "missing official version field {key}");
+            assert!(
+                derived.get(key).is_some(),
+                "missing official version field {key}"
+            );
         }
     }
 
