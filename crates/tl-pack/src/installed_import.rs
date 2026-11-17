@@ -8,11 +8,12 @@ use crate::{
 use serde::Deserialize;
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
+use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -45,6 +46,10 @@ struct LocalInstalledFile {
 #[serde(rename_all = "camelCase")]
 struct LocalProfile {
     #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    game_version: Option<String>,
+    #[serde(default)]
     installed_addons: Vec<LocalAddon>,
     #[serde(default)]
     base_mod_loader: Option<LocalLoader>,
@@ -71,6 +76,29 @@ fn no_symlink_ancestors(path: &Path) -> Result<(), String> {
 
 type MatchedMod = (u64, u64, bool, String);
 
+fn local_disk_name(addon: &LocalAddon) -> Result<&str, String> {
+    let installed = addon.installed_file.as_ref()
+        .ok_or_else(|| format!("CurseForge addon {} has no installedFile metadata", addon.addon_id))?;
+    installed.file_name_on_disk.as_deref().filter(|name| !name.is_empty())
+        .or(addon.file_name_on_disk.as_deref().filter(|name| !name.is_empty()))
+        .or(installed.file_name.as_deref().filter(|name| !name.is_empty()))
+        .ok_or_else(|| format!(
+            "CurseForge addon {} has no installed filename", addon.addon_id
+        ))
+}
+
+fn read_profile_metadata(root: &Path) -> Result<LocalProfile, String> {
+    let metadata_path = root.join("minecraftinstance.json");
+    no_symlink_ancestors(&metadata_path)?;
+    let info = fs::symlink_metadata(&metadata_path)
+        .map_err(|_| "CurseForge minecraftinstance.json missing; choose the installed instance folder")?;
+    if !info.file_type().is_file() || info.len() == 0 || info.len() > MAX_PROFILE_META_BYTES {
+        return Err("CurseForge profile metadata missing/oversized".into());
+    }
+    let raw = fs::read(&metadata_path).map_err(|e| e.to_string())?;
+    serde_json::from_slice(&raw).map_err(|e| format!("CurseForge profile metadata invalid: {e}"))
+}
+
 fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<MatchedMod>, String> {
     if manifest.source != PackSource::CurseforgeZip
         || manifest.loader.kind != "forge"
@@ -88,6 +116,15 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
             return Err("Installed CurseForge profile selects a different Forge loader".into());
         }
     }
+    if let Some(game_version) = local.game_version.as_deref() {
+        if game_version != manifest.game_version {
+            return Err(format!(
+                "CurseForge profile Minecraft {game_version} does not match selected pack {}",
+                manifest.game_version
+            ));
+        }
+    }
+    let wanted: HashSet<u64> = manifest.files.iter().filter_map(|f| f.project_id).collect();
     let mut map = BTreeMap::new();
     for (index, addon) in local.installed_addons.iter().enumerate() {
         let id = addon.addon_id;
@@ -96,6 +133,14 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
                 "CurseForge installedAddons[{index}] has an invalid project ID (0)"
             ));
         }
+        let name = local_disk_name(addon)?;
+        // CurseForge installedAddons may include the *modpack project itself*
+        // (e.g. 590644: Rustic Waters II 1.16-1.16.zip). It is not a mod JAR;
+        // exclude this record only if it is not referenced by manifest.files.
+        // Never silently skip an unknown extra JAR.
+        if name.to_ascii_lowercase().ends_with(".zip") && !wanted.contains(&id) {
+            continue;
+        }
         let installed = addon
             .installed_file
             .as_ref()
@@ -103,15 +148,6 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
         if installed.id == 0 {
             return Err(format!("CurseForge addon {id} has an invalid file ID (0)"));
         }
-        let name = installed
-            .file_name_on_disk
-            .as_deref()
-            .filter(|name| !name.is_empty())
-            .or(addon.file_name_on_disk.as_deref().filter(|name| !name.is_empty()))
-            .or(installed.file_name.as_deref().filter(|name| !name.is_empty()))
-            .ok_or_else(|| {
-                format!("CurseForge addon {id} has no filename in installedFile.fileNameOnDisk, addon.fileNameOnDisk, or installedFile.fileName")
-            })?;
         if !safe_mod_file_name(name) {
             return Err(format!(
                 "CurseForge addon {id} file {name:?} is not a safe JAR filename"
@@ -147,6 +183,236 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
         return Err("Installed profile has additional addons not declared by ZIP; import exact profile only".into());
     }
     Ok(matched)
+}
+
+
+/// A folder-only import needs no user-provided ZIP or provider API key.
+/// We create a temporary local *snapshot* manifest/archive only to reuse
+/// the proven Forge staging/publish audit, never to imply upstream trust.
+/// It includes only a strict allowlist of pack assets, NOT saves, worlds,
+/// logs, user identity, caches or the actual mods (which are rehashed
+/// separately by stage_installed_curseforge).
+pub fn snapshot_installed_folder(
+    installed_profile: &Path,
+    private_snapshot: &Path,
+    cancelled: &AtomicBool,
+) -> Result<PackMetadata, String> {
+    let root = fs::canonicalize(installed_profile)
+        .map_err(|e| format!("Could not resolve installed CurseForge profile folder: {e}"))?;
+    no_symlink_ancestors(&root)?;
+    if !root.is_dir() || !private_snapshot.is_absolute() || private_snapshot.exists() {
+        return Err("Installed profile must be a directory and private snapshot must be new".into());
+    }
+    no_symlink_ancestors(private_snapshot)?;
+    if private_snapshot.starts_with(&root) || root.starts_with(private_snapshot) {
+        return Err("Cannot create a private snapshot inside the CurseForge source profile".into());
+    }
+    let local = read_profile_metadata(&root)?;
+    let game = local.game_version.as_deref()
+        .filter(|v| !v.is_empty() && v.len() <= 40 && v.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-' || c == b'_'))
+        .ok_or("Installed CurseForge profile has invalid/missing gameVersion")?;
+    let loader = local.base_mod_loader.as_ref()
+        .ok_or("Installed CurseForge profile lacks baseModLoader.name")?;
+    let (loader_kind, loader_version) = loader.name.split_once('-')
+        .ok_or("Invalid baseModLoader.name: expected loader-version")?;
+    if loader_kind != "forge" || loader_version.is_empty()
+        || loader_version.len() > 40
+        || !loader_version.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
+    {
+        return Err(format!(
+            "Installed profile loader {:?} has no supported Forge version adapter",
+            loader.name
+        ));
+    }
+    let name = local.name.as_deref().filter(|v| !v.trim().is_empty())
+        .or_else(|| root.file_name().and_then(|v| v.to_str()))
+        .ok_or("Installed profile name not found")?;
+    if name.len() > 160 || name.chars().any(char::is_control) {
+        return Err("Installed profile name is too long/unsafe".into());
+    }
+    let mod_dir = root.join("mods");
+    no_symlink_ancestors(&mod_dir)?;
+    if !fs::symlink_metadata(&mod_dir).is_ok_and(|m| m.file_type().is_dir()) {
+        return Err("Installed profile mods/ folder missing".into());
+    }
+    let mut files = Vec::new();
+    let mut seen_projects = HashSet::new();
+    let mut seen_names = HashSet::new();
+    for addon in &local.installed_addons {
+        let filename = local_disk_name(addon)?;
+        if filename.to_ascii_lowercase().ends_with(".zip") {
+            // Pack self-entry is metadata about its original download.
+            // The archive itself is neither downloaded nor installed as a JAR.
+            continue;
+        }
+        if addon.addon_id == 0 || !safe_mod_file_name(filename) {
+            return Err(format!(
+                "CurseForge addon {} contains an unsupported/unsafe mod filename {:?}",
+                addon.addon_id, filename
+            ));
+        }
+        let installed = addon.installed_file.as_ref()
+            .ok_or("Installed addon missing file metadata")?;
+        if installed.id == 0
+            || !seen_projects.insert(addon.addon_id)
+            || !seen_names.insert(filename.to_ascii_lowercase())
+        {
+            return Err(format!(
+                "Duplicate/missing installed CurseForge addon/file ID or filename: {} ({filename})",
+                addon.addon_id
+            ));
+        }
+        let source = mod_dir.join(filename);
+        observed_hashes(&source)?;
+        files.push(serde_json::json!({
+            "projectID": addon.addon_id,
+            "fileID": installed.id,
+            "required": true,
+        }));
+    }
+    if files.is_empty() || files.len() > 4096 {
+        return Err("Installed profile has no supported JAR addons or exceeds limit".into());
+    }
+    // Preflight the actual local JAR directory, including any manually placed
+    // untracked mod. No silent omission and no reliance on CurseForge API.
+    for entry in fs::read_dir(&mod_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
+            return Err("Installed mods directory contains a link/special entry".into());
+        }
+        if kind.is_file() {
+            let name = entry.file_name().into_string()
+                .map_err(|_| "Invalid installed mod Unicode filename")?;
+            if name.to_ascii_lowercase().ends_with(".jar")
+                && !seen_names.contains(&name.to_ascii_lowercase())
+            {
+                return Err(format!("Untracked JAR in installed profile: {name}"));
+            }
+        }
+    }
+    let manifest = serde_json::json!({
+        "manifestType": "minecraftModpack",
+        "manifestVersion": 1,
+        "name": name,
+        "minecraft": {
+            "version": game,
+            "modLoaders": [{"id": loader.name, "primary": true}]
+        },
+        "files": files,
+        "overrides": "overrides"
+    });
+    // Only known pack content is copied. The source's saved worlds, user
+    // account information, screenshots and runtime logs are always excluded.
+    const PACK_ASSET_DIRS: &[&str] = &[
+        "config", "defaultconfigs", "scripts", "kubejs", "resourcepacks",
+        "shaderpacks", "patchouli_books", "openloader", "global_data_packs",
+        "global_packs", "datapacks", "assets", "resources", "crafttweaker",
+        "customnpcs", "flans", "modpack", "packmenu", "fancymenu",
+    ];
+    let mut assets = Vec::<(String, PathBuf, u64)>::new();
+    let mut seen_paths = HashSet::new();
+    let mut total = 0u64;
+    for folder in PACK_ASSET_DIRS {
+        let dir = root.join(folder);
+        if !dir.exists() { continue; }
+        no_symlink_ancestors(&dir)?;
+        if !fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir()) {
+            return Err(format!("Installed pack asset {folder} is not a regular directory"));
+        }
+        collect_pack_assets(
+            &root, &dir, cancelled, &mut assets, &mut seen_paths, &mut total
+        )?;
+    }
+    assets.sort_by(|a, b| a.0.cmp(&b.0));
+    let output = OpenOptions::new().write(true).create_new(true)
+        .open(private_snapshot).map_err(|e| format!("Private source snapshot failed: {e}"))?;
+    let result = (|| -> Result<(), String> {
+        let mut writer = ZipWriter::new(output);
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("manifest.json", opts).map_err(|e| e.to_string())?;
+        writer.write_all(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        for (relative, source, original_size) in assets {
+            if cancelled.load(Ordering::SeqCst) {
+                return Err("Cancelled while creating private pack snapshot".into());
+            }
+            writer.start_file(format!("overrides/{relative}"), opts)
+                .map_err(|e| e.to_string())?;
+            let copied = std::io::copy(
+                &mut File::open(&source).map_err(|e| e.to_string())?, &mut writer
+            ).map_err(|e| e.to_string())?;
+            if copied != original_size
+                || fs::symlink_metadata(&source).map_err(|e| e.to_string())?.len() != copied
+            {
+                return Err(format!("Pack asset changed while copying: {relative}"));
+            }
+        }
+        let output = writer.finish().map_err(|e| e.to_string())?;
+        output.sync_all().map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_file(private_snapshot);
+        return Err(error);
+    }
+    let report = crate::inspect_archive(private_snapshot).map_err(|e| {
+        let _ = fs::remove_file(private_snapshot);
+        format!("Generated local-only manifest failed validation: {e}")
+    })?;
+    // Use the same ZIP manifest binding as the old import path, now derived
+    // independently from the user's already-installed CurseForge profile.
+    if let Err(error) = checked_names(&local, &report) {
+        let _ = fs::remove_file(private_snapshot);
+        return Err(error);
+    }
+    Ok(report)
+}
+
+/// Collect a whitelist of pack content; preserve relative paths and refuse
+/// every linked/special input. Deterministic sorted ZIP evidence is created
+/// from these files, with a hard limit before staging.
+fn collect_pack_assets(
+    root: &Path,
+    current: &Path,
+    cancelled: &AtomicBool,
+    assets: &mut Vec<(String, PathBuf, u64)>,
+    seen: &mut HashSet<String>,
+    total: &mut u64,
+) -> Result<(), String> {
+    no_symlink_ancestors(current)?;
+    for entry in fs::read_dir(current).map_err(|e| e.to_string())? {
+        if cancelled.load(Ordering::SeqCst) {
+            return Err("Cancelled while scanning local pack assets".into());
+        }
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        no_symlink_ancestors(&path)?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if kind.is_dir() {
+            collect_pack_assets(root, &path, cancelled, assets, seen, total)?;
+        } else if kind.is_file() {
+            let rel = path.strip_prefix(root).map_err(|e| e.to_string())?
+                .to_str().ok_or("Non-Unicode pack asset path")?
+                .replace('\\', "/");
+            crate::safe_path(&rel).map_err(|e| e.to_string())?;
+            if !seen.insert(rel.to_ascii_lowercase()) {
+                return Err(format!("Case-duplicate installed pack asset: {rel}"));
+            }
+            let size = entry.metadata().map_err(|e| e.to_string())?.len();
+            if size > crate::MAX_SINGLE_FILE {
+                return Err(format!("Pack asset too large: {rel}"));
+            }
+            *total = total.checked_add(size).ok_or("Pack snapshot size overflow")?;
+            if *total > crate::MAX_UNCOMPRESSED || assets.len() >= crate::MAX_FILES - 2 {
+                return Err("Installed pack snapshot exceeds archive safety limits".into());
+            }
+            assets.push((rel, path, size));
+        } else {
+            return Err("Local pack assets contain a link or special file".into());
+        }
+    }
+    Ok(())
 }
 
 /// Hash source bytes; do not accept link/reparse-point mod inputs.
@@ -212,17 +478,7 @@ fn selection(
         return Err("Invalid/occupied private stage or installed CurseForge profile folder".into());
     }
     let pack = crate::inspect_archive(archive).map_err(|e| e.to_string())?;
-    let metadata_path = installed_profile.join("minecraftinstance.json");
-    no_symlink_ancestors(&metadata_path)?;
-    let info = fs::symlink_metadata(&metadata_path).map_err(|_| {
-        "CurseForge minecraftinstance.json missing; cannot match mod IDs without API"
-    })?;
-    if !info.file_type().is_file() || info.len() > MAX_PROFILE_META_BYTES {
-        return Err("CurseForge profile metadata missing/oversized".into());
-    }
-    let raw = fs::read(&metadata_path).map_err(|e| e.to_string())?;
-    let local: LocalProfile = serde_json::from_slice(&raw)
-        .map_err(|e| format!("CurseForge profile metadata invalid: {e}"))?;
+    let local = read_profile_metadata(installed_profile)?;
     let matching = checked_names(&local, &pack)?;
     let mod_dir = installed_profile.join("mods");
     no_symlink_ancestors(&mod_dir)?;
@@ -447,6 +703,56 @@ mod tests {
         assert!(err.contains("no filename"), "{err}");
     }
 
+    #[test]
+    fn installed_modpack_zip_entry_is_not_a_mod_jar() {
+        let data: LocalProfile = serde_json::from_str(
+            r#"{"gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":111,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}},{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"example.jar"}}]}"#,
+        ).unwrap();
+        let matched = checked_names(&data, &pack()).unwrap();
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].0, 12);
+        let mut pack_with_bad_id = pack();
+        pack_with_bad_id.files[0].project_id = Some(590644);
+        assert!(checked_names(&data, &pack_with_bad_id).is_err());
+    }
+
+    #[test]
+    fn folder_snapshot_does_not_require_original_zip_or_copy_saves() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Rustic Waters II");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::create_dir_all(root.join("config")).unwrap();
+        fs::create_dir_all(root.join("saves/world")).unwrap();
+        fs::write(root.join("mods/example.jar"), b"demo jar bytes").unwrap();
+        fs::write(root.join("config/pack.toml"), b"key=1").unwrap();
+        fs::write(root.join("saves/world/level.dat"), b"private world").unwrap();
+        fs::write(root.join("minecraftinstance.json"), r#"{"name":"Rustic Waters II","gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":123,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}},{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"example.jar"}}]}"#).unwrap();
+        let archive = temp.path().join("private-source.zip");
+        let cancel = AtomicBool::new(false);
+        let planned = snapshot_installed_folder(&root, &archive, &cancel).unwrap();
+        assert_eq!(planned.game_version, "1.16.5");
+        assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
+        assert_eq!(planned.files.len(), 1);
+        assert!(planned.overrides.iter().any(|x| x == "config/pack.toml"));
+        let zip = zip::ZipArchive::new(File::open(&archive).unwrap()).unwrap();
+        assert!(!zip.file_names().any(|s| s.contains("saves") || s.contains("mods/") || s.contains(".jar")));
+        let stage = temp.path().join("local-run-12345.staging");
+        let imported = stage_installed_curseforge(&archive, &root, &stage, &cancel).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(fs::read(stage.join("mods/example.jar")).unwrap(), b"demo jar bytes");
+        assert_eq!(fs::read(stage.join("config/pack.toml")).unwrap(), b"key=1");
+        assert_eq!(fs::read(root.join("saves/world/level.dat")).unwrap(), b"private world");
+    }
+
+    #[test]
+    fn folder_snapshot_rejects_untracked_local_mod() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("Test");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/unknown.jar"), b"unknown").unwrap();
+        fs::write(root.join("minecraftinstance.json"), r#"{"gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":123,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}}]}"#).unwrap();
+        assert!(snapshot_installed_folder(&root, &temp.path().join("private.zip"), &AtomicBool::new(false)).is_err());
+    }
     #[test]
     fn existing_roots_resolve_to_real_absolute_directory() {
         let temp = tempfile::tempdir().unwrap();
