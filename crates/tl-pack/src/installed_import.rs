@@ -213,7 +213,12 @@ pub fn snapshot_installed_folder(
     private_snapshot: &Path,
     cancelled: &AtomicBool,
 ) -> Result<PackMetadata, String> {
-    snapshot_installed_folder_with_progress(installed_profile, private_snapshot, cancelled, |_, _, _| {})
+    snapshot_installed_folder_with_progress(
+        installed_profile,
+        private_snapshot,
+        cancelled,
+        |_, _, _| {},
+    )
 }
 
 /// Report only genuine completed file/directory counts, never estimated bytes or percentages.
@@ -388,7 +393,11 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     for (index, folder) in PACK_ASSET_DIRS.iter().enumerate() {
         let dir = root.join(folder);
         if !dir.exists() {
-            progress("local_import.scanning_assets", index + 1, PACK_ASSET_DIRS.len());
+            progress(
+                "local_import.scanning_assets",
+                index + 1,
+                PACK_ASSET_DIRS.len(),
+            );
             continue;
         }
         no_symlink_ancestors(&dir)?;
@@ -405,7 +414,11 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
             &mut seen_paths,
             &mut total,
         )?;
-        progress("local_import.scanning_assets", index + 1, PACK_ASSET_DIRS.len());
+        progress(
+            "local_import.scanning_assets",
+            index + 1,
+            PACK_ASSET_DIRS.len(),
+        );
     }
     assets.sort_by(|a, b| a.0.cmp(&b.0));
     let output = OpenOptions::new()
@@ -837,15 +850,21 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let mut progress = Vec::new();
         let planned = snapshot_installed_folder_with_progress(
-            &root, &archive, &cancel,
+            &root,
+            &archive,
+            &cancel,
             |stage, completed, total| progress.push((stage.to_owned(), completed, total)),
-        ).unwrap();
-        assert!(progress.iter().any(|(stage, completed, total)|
-            stage == "local_import.hashing_mods" && completed == total));
-        assert!(progress.iter().any(|(stage, completed, total)|
-            stage == "local_import.scanning_assets" && completed == total));
-        assert!(progress.iter().any(|(stage, completed, total)|
-            stage == "local_import.copying_assets" && completed == total));
+        )
+        .unwrap();
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.hashing_mods"
+            && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.scanning_assets"
+            && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.copying_assets"
+            && completed == total));
         assert_eq!(planned.game_version, "1.16.5");
         assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
         assert_eq!(planned.files.len(), 1);
