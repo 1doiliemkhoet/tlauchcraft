@@ -36,6 +36,30 @@ describe('CurseForge API key preflight', () => {
     expect(mockedInvoke).not.toHaveBeenCalled();
   });
 });
+describe('folder-only installed CurseForge import', () => {
+  it('accepts a local installed folder without ZIP or API key', async () => {
+    mockedInvoke.mockResolvedValue({id: 'forged-instance', state: 'ready'});
+    await operations.importInstalledFolder(
+      withFeature('pack_inspection'),
+      'C:/Users/admin/curseforge/minecraft/Instances/Rustic Waters II',
+      'local-folder-123456', 'offline-id', 'C:/Java8/bin/java.exe', true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_folder', {
+      installedProfilePath: 'C:/Users/admin/curseforge/minecraft/Instances/Rustic Waters II',
+      operationId: 'local-folder-123456',
+      profileId: 'offline-id',
+      javaPath: 'C:/Java8/bin/java.exe',
+      hostExecutionConsent: true
+    });
+  });
+  it('cannot run on a backend without modpack import support', async () => {
+    await expect(operations.importInstalledFolder(
+      EMPTY_CAPABILITIES, 'C:/CurseForge/Instances/Rustic', 'local-123456',
+      'offline-id', 'C:/Java8/bin/java.exe', true
+    )).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
 describe('installed CurseForge profile import', () => {
   it('calls native no-API import with source folder and explicit consent', async () => {
     mockedInvoke.mockResolvedValue({id: 'new-forge-instance', state: 'ready'});
