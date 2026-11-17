@@ -67,6 +67,29 @@ pub struct ForgeInstallRecord {
     pub minecraft_verified_files: usize,
 }
 
+/// The binarypatcher output is not listed by version.json Maven libraries,
+/// but FML requires it at this exact private-instance path during client launch.
+fn require_patched_client(
+    libraries: &[InstalledForgeLibrary],
+    minecraft: &str,
+    forge: &str,
+) -> Result<(), String> {
+    let version = format!("{minecraft}-{forge}");
+    let expected =
+        format!("libraries/net/minecraftforge/forge/{version}/forge-{version}-client.jar");
+    if !libraries.iter().any(|lib| {
+        lib.relative_path == expected
+            && lib.size_bytes > 0
+            && lib.official_sha1.len() == 40
+            && lib.official_sha1.bytes().all(|c| c.is_ascii_hexdigit())
+    }) {
+        return Err(
+            "verified Forge patched client.jar missing from published inventory; re-import the installed CurseForge folder with the updated launcher".into(),
+        );
+    }
+    Ok(())
+}
+
 fn default_mod_provenance() -> String {
     "curseforge-api-sha1/v1".into()
 }
@@ -502,6 +525,11 @@ fn publish_with_mod_evidence(
     if libraries.is_empty() {
         return Err("Forge library inventory empty".into());
     }
+    require_patched_client(
+        &libraries,
+        &pack.game_version,
+        &evidence.selection.forge_version,
+    )?;
     let overrides = verify_original_overrides(stage, source_archive, pack)?;
     verify_natives(stage, "natives")?;
     let native_dlls = collect_verified_natives(stage)?;
@@ -696,6 +724,11 @@ pub fn reverify_published_forge(
     {
         return Err("Forge installed marker is not valid for its recorded loader selection".into());
     }
+    require_patched_client(
+        &record.installed_libraries,
+        &record.minecraft_version,
+        &record.forge_version,
+    )?;
     for library in &record.installed_libraries {
         check_file(
             root,
@@ -757,6 +790,23 @@ mod tests {
         fs::write(dir.join("config/modsettings.toml"), b"changed by Minecraft").unwrap();
         assert!(verify_mutable_config_path(&dir, "config/modsettings.toml").is_ok());
         assert!(verify_mutable_config_path(&dir, "../other").is_err());
+    }
+
+    #[test]
+    fn patched_client_is_required_for_forge_ready_and_reverify() {
+        let required = InstalledForgeLibrary {
+            relative_path: "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-client.jar".into(),
+            official_sha1: "42710a50971139d0f218e438a211a0dbe9bbb3d2".into(),
+            size_bytes: 1,
+        };
+        assert!(require_patched_client(&[required.clone()], "1.16.5", "36.2.29").is_ok());
+        assert!(require_patched_client(&[], "1.16.5", "36.2.29").is_err());
+        let stale = InstalledForgeLibrary {
+            relative_path: "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29.jar".into(),
+            ..required.clone()
+        };
+        assert!(require_patched_client(&[stale], "1.16.5", "36.2.29").is_err());
+        assert!(require_patched_client(&[required], "1.16.5", "36.2.34").is_err());
     }
 
     #[test]
