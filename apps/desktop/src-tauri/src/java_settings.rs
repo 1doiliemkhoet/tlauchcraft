@@ -305,6 +305,20 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
             scan_vendor(&mut candidates, &mut seen, &base.join(vendor), "User Java", 2);
         }
     }
+    // CurseForge App may manage a separate Minecraft installation and legacy JRE.
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let runtime = PathBuf::from(home).join("curseforge").join("minecraft")
+            .join("Install").join("runtime");
+        for family in ["jre-legacy", "java-runtime-alpha"] {
+            for arch in ["windows-x64", "windows-x86"] {
+                add_home(
+                    &mut candidates, &mut seen,
+                    &runtime.join(family).join(arch).join(family),
+                    "CurseForge-managed Minecraft runtime",
+                );
+            }
+        }
+    }
     // Official Minecraft Launcher jre-legacy (Java 8) runtime layout.
     if let Some(dir) = std::env::var_os("APPDATA") {
         let runtime = PathBuf::from(dir).join(".minecraft").join("runtime");
