@@ -99,6 +99,13 @@ async fn java_settings_save(instance_id:String,xms_mb:u32,xmx_mb:u32,java_path:S
 async fn java_memory_info() -> Result<java_settings::MemoryInfo,String>{
     tauri::async_runtime::spawn_blocking(java_settings::system_memory).await.map_err(|e|e.to_string())?
 }
+/// Reports only key presence to the UI. Never returns the value, does not
+/// validate permissions, and never logs or persists the credential.
+#[tauri::command]
+fn pack_api_key_configured() -> bool {
+    configured_api_key().is_ok()
+}
+
 /// Resolve official CurseForge file metadata, but NEVER claim installation or READY.
 /// Runs off the desktop UI thread and keeps the API credential out of frontend args.
 #[tauri::command]
@@ -446,6 +453,7 @@ fn main() {
             profile_create,
             instance_list,
             pack_inspect,
+            pack_api_key_configured,
             pack_resolve,
             pack_stage_curseforge,
             pack_import_restricted,

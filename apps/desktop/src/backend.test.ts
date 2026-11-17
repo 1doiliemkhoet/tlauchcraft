@@ -25,6 +25,17 @@ describe('capability negotiation', () => {
     expect(mockedInvoke).toHaveBeenCalledWith('desktop_capabilities');
   });
 });
+describe('CurseForge API key preflight', () => {
+  it('returns only a boolean; the frontend never receives the secret', async () => {
+    mockedInvoke.mockResolvedValue(true);
+    await expect(operations.curseForgeKeyConfigured(withFeature('pack_inspection'))).resolves.toBe(true);
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_api_key_configured', undefined);
+  });
+  it('refuses to query when the backend capability is unavailable', async () => {
+    await expect(operations.curseForgeKeyConfigured(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
 describe('typed backend transport', () => {
   it('rejects disabled operations without invoking Rust', async () => {
     expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);

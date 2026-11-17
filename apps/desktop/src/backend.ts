@@ -81,6 +81,7 @@ export const operations = {
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
+  curseForgeKeyConfigured: (c: Capabilities) => call<boolean>(c, 'pack_inspection', 'pack_api_key_configured'),
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
   stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
   stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
