@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: chat4-windows-lock-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows-lock:
     runs-on: windows-latest

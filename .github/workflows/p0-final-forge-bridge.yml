@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: p0-forge-bridge-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  # Latest push/PR wins; explicit manual reruns are not canceled.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   rust:
@@ -44,7 +45,7 @@ jobs:
 
   desktop:
     name: Windows Desktop and Tauri checks
-    needs: rust
+    # Independent of the Rust job: run in parallel to shorten critical path.
     runs-on: windows-latest
     timeout-minutes: 65
     steps:

@@ -52,6 +52,10 @@ jobs:
       - name: Desktop stable Rust
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: chat4-desktop-verify
       - name: Locked desktop compile and tests
         shell: pwsh
         working-directory: apps/desktop/src-tauri
@@ -74,6 +78,10 @@ jobs:
       - name: Install Rust stable
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: chat4-nsis-release
       - name: Frontend dependency install
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
