@@ -795,14 +795,17 @@ mod tests {
     #[test]
     fn patched_client_is_required_for_forge_ready_and_reverify() {
         let required = InstalledForgeLibrary {
-            relative_path: "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-client.jar".into(),
+            relative_path:
+                "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-client.jar"
+                    .into(),
             official_sha1: "42710a50971139d0f218e438a211a0dbe9bbb3d2".into(),
             size_bytes: 1,
         };
         assert!(require_patched_client(&[required.clone()], "1.16.5", "36.2.29").is_ok());
         assert!(require_patched_client(&[], "1.16.5", "36.2.29").is_err());
         let stale = InstalledForgeLibrary {
-            relative_path: "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29.jar".into(),
+            relative_path:
+                "libraries/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29.jar".into(),
             ..required.clone()
         };
         assert!(require_patched_client(&[stale], "1.16.5", "36.2.29").is_err());
