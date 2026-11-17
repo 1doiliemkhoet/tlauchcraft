@@ -60,11 +60,33 @@ fn no_symlink(path: &Path) -> Result<(), String> {
     }
     for ancestor in path.ancestors() {
         if fs::symlink_metadata(ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err("official Forge input/cache path contains a symlink".into());
+            return Err(format!(
+                "official Forge input/cache path contains a symlink: {} (resolve the path or choose a real Java executable)",
+                ancestor.display()
+            ));
         }
     }
     Ok(())
 }
+/// The caller already checked the Java major by running the selected executable.
+/// Windows installers can expose java.exe through a legitimate PATH alias
+/// (Oracle `javapath` uses symlinks). Use its stable real executable for the
+/// guarded Forge runner and local SHA1 binding; never drop path-safety checks
+/// for cached Mojang/Forge libraries or staging destinations.
+fn resolve_selected_java(java_path: &Path) -> Result<std::path::PathBuf, String> {
+    if !java_path.is_absolute() {
+        return Err("Selected Forge Java executable must have an absolute path".into());
+    }
+    let resolved = fs::canonicalize(java_path)
+        .map_err(|e| format!("Could not resolve selected Java executable: {e}"))?;
+    no_symlink(&resolved)?;
+    let meta = fs::symlink_metadata(&resolved).map_err(|e| e.to_string())?;
+    if !meta.file_type().is_file() {
+        return Err("Selected Java resolves to a non-file".into());
+    }
+    Ok(resolved)
+}
+
 fn verify(path: &Path, expected: &str, size: Option<u64>, limit: u64) -> Result<(), String> {
     no_symlink(path)?;
     if expected.len() != 40 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -276,7 +298,8 @@ pub fn prepare_official_windows_1165(
         return Err("no approved official Forge adapter or consent for this version".into());
     }
     no_symlink(data_dir)?;
-    no_symlink(java_path)?;
+    let java_executable = resolve_selected_java(java_path)?;
+    let java_path = java_executable.as_path();
     let version = tl_game::vanilla::resolve_official_version(selected_minecraft)
         .map_err(|e| format!("official Minecraft metadata unavailable: {e}"))?;
     let mojang_cache = data_dir.join("cache").join("mojang");
@@ -504,6 +527,37 @@ pub fn prepare_official_windows_1165(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_java_executable_remains_usable() {
+        let temp = tempfile::tempdir().unwrap();
+        let java = temp.path().join("java.exe");
+        fs::write(&java, b"fixture").unwrap();
+        assert_eq!(resolve_selected_java(&java).unwrap(), fs::canonicalize(&java).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn forge_accepts_verified_java_path_alias_but_not_cache_links() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("java.exe");
+        fs::write(&real, b"fixture").unwrap();
+        let alias = temp.path().join("java-alias.exe");
+        if symlink_file(&real, &alias).is_err() {
+            // Symlink creation may require Developer Mode or special privileges.
+            return;
+        }
+        assert!(no_symlink(&alias).is_err());
+        assert_eq!(resolve_selected_java(&alias).unwrap(), fs::canonicalize(&real).unwrap());
+        let safe_cache = temp.path().join("private");
+        fs::create_dir(&safe_cache).unwrap();
+        let linked_cache = temp.path().join("redirected-cache");
+        if symlink_dir(&safe_cache, &linked_cache).is_ok() {
+            let err = no_symlink(&linked_cache.join("forge.jar")).unwrap_err();
+            assert!(err.contains("redirected-cache"), "{err}");
+        }
+    }
     #[test]
     fn no_host_execution_without_consent_and_release_adapter() {
         let dir = tempfile::tempdir().unwrap();
