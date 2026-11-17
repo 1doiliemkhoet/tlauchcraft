@@ -233,7 +233,10 @@ fn verified_patched_client(
     }
     let source = request.stage_root.join(&output.relative_path);
     if !path_is_within(&request.stage_root, &source)
-        || !report.verified_outputs.iter().any(|verified| verified == &source)
+        || !report
+            .verified_outputs
+            .iter()
+            .any(|verified| verified == &source)
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
@@ -245,10 +248,8 @@ fn verified_patched_client(
         ));
     }
     crate::runtime::verify_sha1(&source, pinned)?;
-    let forge_minecraft_version = format!(
-        "{}-{}",
-        selected.minecraft_version, selected.forge_version
-    );
+    let forge_minecraft_version =
+        format!("{}-{}", selected.minecraft_version, selected.forge_version);
     let relative_path = format!(
         "net/minecraftforge/forge/{forge_minecraft_version}/forge-{forge_minecraft_version}-client.jar"
     );
@@ -687,9 +688,8 @@ mod tests {
     fn final_forge_patch_is_a_checksum_verified_runtime_library() {
         use crate::runtime::{ApprovedProcessor, ExpectedOutput, ProcessorOutcome};
         use sha1::{Digest, Sha1};
-        let root = std::env::temp_dir().join(format!(
-            "forge-patched-client-test-{}", std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("forge-patched-client-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let stage = root.join("forge-execution").join("test-op");
         let output = stage.join("generated/forge-client.jar");
@@ -729,8 +729,8 @@ mod tests {
             intermediate_evidence: vec![],
             error: None,
         };
-        let accepted = verified_patched_client(&selected("36.2.29"), &profile, &request, &report)
-            .unwrap();
+        let accepted =
+            verified_patched_client(&selected("36.2.29"), &profile, &request, &report).unwrap();
         assert_eq!(
             accepted.relative_path,
             "net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-client.jar"
@@ -740,7 +740,9 @@ mod tests {
         assert!(accepted.size_bytes > 0);
 
         fs::write(&accepted.path, b"tampered patch").unwrap();
-        assert!(verified_patched_client(&selected("36.2.29"), &profile, &request, &report).is_err());
+        assert!(
+            verified_patched_client(&selected("36.2.29"), &profile, &request, &report).is_err()
+        );
         fs::write(&accepted.path, content).unwrap();
         let missing_proof = ProcessorRunReport {
             verified_outputs: vec![],
