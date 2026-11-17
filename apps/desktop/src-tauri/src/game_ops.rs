@@ -102,7 +102,7 @@ fn event(app:&AppHandle,instance:Uuid,phase:&str,key:&str){
 }
 fn event_detail(app:&AppHandle,instance:Uuid,phase:&str,key:&str,details:Value){
     // Only actual values reported by tl-game; bytes/percentage stay unknown.
-    let _=app.emit("download.progress",json!({
+    let _=app.emit("download-progress",json!({
         "contract_version":1,"operation_id":instance.to_string(),
         "instance_id":instance.to_string(),
         "timestamp":chrono::Utc::now().to_rfc3339(),
@@ -445,7 +445,7 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
     let child=tl_game::launch(&launch,&stdout,&stderr).map_err(|e|e.to_string())?;
     let pid=child.id();
     children.insert(i.id,child);
-    let _=app.emit("game.started",json!({
+    let _=app.emit("game-started",json!({
         "contract_version":1,"operation_id":i.id.to_string(),
         "instance_id":i.id.to_string(),"timestamp":chrono::Utc::now().to_rfc3339(),
         "phase":"started","message_key":"Java process created; Minecraft menu not verified",
@@ -466,7 +466,7 @@ pub fn game_stop(app:AppHandle,state:State<'_,Arc<GameState>>,instance_id:String
         child.kill().map_err(|e|e.to_string())?;
         child.wait().map_err(|e|e.to_string())?;
     }
-    let _=app.emit("game.exited",json!({
+    let _=app.emit("game-exited",json!({
       "contract_version":1,"operation_id":instance_id,
       "instance_id":uuid.to_string(),"timestamp":chrono::Utc::now().to_rfc3339(),
       "phase":"stopped","message_key":"Launcher-owned Java process terminated",

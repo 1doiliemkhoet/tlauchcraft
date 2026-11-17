@@ -213,6 +213,22 @@ pub fn snapshot_installed_folder(
     private_snapshot: &Path,
     cancelled: &AtomicBool,
 ) -> Result<PackMetadata, String> {
+    snapshot_installed_folder_with_progress(
+        installed_profile,
+        private_snapshot,
+        cancelled,
+        |_, _, _| {},
+    )
+}
+
+/// Report only genuine completed file/directory counts, never estimated bytes or percentages.
+/// The callback is invoked on the worker thread, and must not mutate the source profile.
+pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usize)>(
+    installed_profile: &Path,
+    private_snapshot: &Path,
+    cancelled: &AtomicBool,
+    mut progress: F,
+) -> Result<PackMetadata, String> {
     let root = fs::canonicalize(installed_profile)
         .map_err(|e| format!("Could not resolve installed CurseForge profile folder: {e}"))?;
     no_symlink_ancestors(&root)?;
@@ -273,7 +289,9 @@ pub fn snapshot_installed_folder(
     let mut files = Vec::new();
     let mut seen_projects = HashSet::new();
     let mut seen_names = HashSet::new();
-    for addon in &local.installed_addons {
+    let total_addons = local.installed_addons.len();
+    progress("local_import.hashing_mods", 0, total_addons);
+    for (index, addon) in local.installed_addons.iter().enumerate() {
         let filename = local_disk_name(addon)?;
         if filename.to_ascii_lowercase().ends_with(".zip") {
             // Pack self-entry is metadata about its original download.
@@ -301,12 +319,16 @@ pub fn snapshot_installed_folder(
         }
         let source = mod_dir.join(filename);
         observed_hashes(&source)?;
+        if index % 8 == 0 {
+            progress("local_import.hashing_mods", index + 1, total_addons);
+        }
         files.push(serde_json::json!({
             "projectID": addon.addon_id,
             "fileID": installed.id,
             "required": true,
         }));
     }
+    progress("local_import.hashing_mods", total_addons, total_addons);
     if files.is_empty() || files.len() > 4096 {
         return Err("Installed profile has no supported JAR addons or exceeds limit".into());
     }
@@ -367,9 +389,15 @@ pub fn snapshot_installed_folder(
     let mut assets = Vec::<(String, PathBuf, u64)>::new();
     let mut seen_paths = HashSet::new();
     let mut total = 0u64;
-    for folder in PACK_ASSET_DIRS {
+    progress("local_import.scanning_assets", 0, PACK_ASSET_DIRS.len());
+    for (index, folder) in PACK_ASSET_DIRS.iter().enumerate() {
         let dir = root.join(folder);
         if !dir.exists() {
+            progress(
+                "local_import.scanning_assets",
+                index + 1,
+                PACK_ASSET_DIRS.len(),
+            );
             continue;
         }
         no_symlink_ancestors(&dir)?;
@@ -386,6 +414,11 @@ pub fn snapshot_installed_folder(
             &mut seen_paths,
             &mut total,
         )?;
+        progress(
+            "local_import.scanning_assets",
+            index + 1,
+            PACK_ASSET_DIRS.len(),
+        );
     }
     assets.sort_by(|a, b| a.0.cmp(&b.0));
     let output = OpenOptions::new()
@@ -402,7 +435,9 @@ pub fn snapshot_installed_folder(
         writer
             .write_all(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-        for (relative, source, original_size) in assets {
+        let total_assets = assets.len();
+        progress("local_import.copying_assets", 0, total_assets);
+        for (index, (relative, source, original_size)) in assets.into_iter().enumerate() {
             if cancelled.load(Ordering::SeqCst) {
                 return Err("Cancelled while creating private pack snapshot".into());
             }
@@ -422,7 +457,11 @@ pub fn snapshot_installed_folder(
             {
                 return Err(format!("Pack asset changed while copying: {relative}"));
             }
+            if index % 8 == 0 {
+                progress("local_import.copying_assets", index + 1, total_assets);
+            }
         }
+        progress("local_import.copying_assets", total_assets, total_assets);
         let output = writer.finish().map_err(|e| e.to_string())?;
         output.sync_all().map_err(|e| e.to_string())?;
         Ok(())
@@ -809,7 +848,23 @@ mod tests {
         fs::write(root.join("minecraftinstance.json"), r#"{"name":"Rustic Waters II","gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":123,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}},{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"example.jar"}}]}"#).unwrap();
         let archive = temp.path().join("private-source.zip");
         let cancel = AtomicBool::new(false);
-        let planned = snapshot_installed_folder(&root, &archive, &cancel).unwrap();
+        let mut progress = Vec::new();
+        let planned = snapshot_installed_folder_with_progress(
+            &root,
+            &archive,
+            &cancel,
+            |stage, completed, total| progress.push((stage.to_owned(), completed, total)),
+        )
+        .unwrap();
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.hashing_mods"
+            && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.scanning_assets"
+            && completed == total));
+        assert!(progress.iter().any(|(stage, completed, total)| stage
+            == "local_import.copying_assets"
+            && completed == total));
         assert_eq!(planned.game_version, "1.16.5");
         assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
         assert_eq!(planned.files.len(), 1);
