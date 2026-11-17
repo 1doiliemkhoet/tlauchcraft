@@ -780,7 +780,7 @@ mod tests {
         .unwrap();
         let err = checked_names(&missing, &pack()).unwrap_err();
         assert!(err.contains("addon 12"), "{err}");
-        assert!(err.contains("no filename"), "{err}");
+        assert!(err.contains("no installed filename"), "{err}");
     }
 
     #[test]
