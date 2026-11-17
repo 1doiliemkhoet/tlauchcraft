@@ -286,10 +286,13 @@ mod tests {
         assert!(!staged[0].starts_with(&cache));
         assert!(staged[0].starts_with(stage.join("libraries")));
 
-        assert!(staged_native_archives(&[original], &cache, &temp.path().join("missing.staging"))
-            .is_err());
-        assert!(staged_native_archives(&[temp.path().join("outside.jar")], &cache, &stage)
-            .is_err());
+        assert!(
+            staged_native_archives(&[original], &cache, &temp.path().join("missing.staging"))
+                .is_err()
+        );
+        assert!(
+            staged_native_archives(&[temp.path().join("outside.jar")], &cache, &stage).is_err()
+        );
     }
 
     #[cfg(windows)]
@@ -307,7 +310,10 @@ mod tests {
         fs::create_dir_all(copied.parent().unwrap()).unwrap();
         let mut archive = zip::ZipWriter::new(fs::File::create(&copied).unwrap());
         archive
-            .start_file("org/lwjgl/native-test.dll", zip::write::SimpleFileOptions::default())
+            .start_file(
+                "org/lwjgl/native-test.dll",
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         archive.write_all(b"safe-native-dll").unwrap();
         archive.finish().unwrap();
@@ -316,7 +322,10 @@ mod tests {
         let staged = staged_native_archives(&[original], &cache, &stage).unwrap();
         let output = stage.join("natives");
         extract_natives(&staged, &output).unwrap();
-        assert_eq!(fs::read(output.join("native-test.dll")).unwrap(), b"safe-native-dll");
+        assert_eq!(
+            fs::read(output.join("native-test.dll")).unwrap(),
+            b"safe-native-dll"
+        );
     }
 
     #[test]
