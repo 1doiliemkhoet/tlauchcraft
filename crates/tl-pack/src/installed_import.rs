@@ -123,6 +123,41 @@ fn read_profile_metadata(root: &Path) -> Result<LocalProfile, String> {
     serde_json::from_slice(&raw).map_err(|e| format!("CurseForge profile metadata invalid: {e}"))
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InstalledProfilePreview {
+    pub minecraft_version: String,
+    pub loader_kind: String,
+    pub loader_version: String,
+    pub required_java: Option<u32>,
+    pub install_supported: bool,
+}
+
+/// Read-only preview: a recommended Java major is not evidence that the
+/// corresponding loader adapter can install or launch a game.
+pub fn inspect_installed_profile(path: &Path) -> Result<InstalledProfilePreview, String> {
+    let root = fs::canonicalize(path).map_err(|e| e.to_string())?;
+    no_symlink_ancestors(&root)?;
+    let local = read_profile_metadata(&root)?;
+    let minecraft = local.game_version.ok_or("Missing Minecraft version")?;
+    let loader = local.base_mod_loader.ok_or("Missing mod loader")?;
+    let (kind, version) = loader.name.split_once('-').ok_or("Invalid mod loader")?;
+    let install_supported = kind == "forge"
+        && crate::forge_official::ensure_supported_forge_release(&minecraft, version).is_ok();
+    let required_java = match minecraft.as_str() {
+        "1.12.2" | "1.16.5" => Some(8),
+        "1.18.2" | "1.20.1" => Some(17),
+        "1.21.1" => Some(21),
+        _ => None,
+    };
+    Ok(InstalledProfilePreview {
+        minecraft_version: minecraft,
+        loader_kind: kind.to_owned(),
+        loader_version: version.to_owned(),
+        required_java,
+        install_supported,
+    })
+}
+
 fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<MatchedMod>, String> {
     if manifest.source != PackSource::CurseforgeZip
         || manifest.loader.kind != "forge"
@@ -944,11 +979,20 @@ mod tests {
         let cancelled = AtomicBool::new(false);
         let metadata = snapshot_installed_folder(&root, &archive, &cancelled).unwrap();
         assert_eq!(metadata.files.len(), 1);
-        assert!(metadata.overrides.iter().any(|p| p == "mods/antiquecities-1.2.1.jar"));
+        assert!(metadata
+            .overrides
+            .iter()
+            .any(|p| p == "mods/antiquecities-1.2.1.jar"));
         let stage = temp.path().join("local-test.staging");
         let receipts = stage_installed_curseforge(&archive, &root, &stage, &cancelled).unwrap();
         assert_eq!(receipts.len(), 3);
-        assert_eq!(receipts.iter().filter(|r| r.project_id == 0 && r.file_id == 0).count(), 2);
+        assert_eq!(
+            receipts
+                .iter()
+                .filter(|r| r.project_id == 0 && r.file_id == 0)
+                .count(),
+            2
+        );
         assert_eq!(
             fs::read(stage.join("mods/antiquecities-1.2.1.jar")).unwrap(),
             b"bundled"
@@ -959,15 +1003,44 @@ mod tests {
             &root,
             &temp.path().join("changed.staging"),
             &cancelled
-        ).is_err());
+        )
+        .is_err());
         fs::write(root.join("mods/unlisted.jar"), b"extra after snapshot").unwrap();
         assert!(stage_installed_curseforge(
             &archive,
             &root,
             &temp.path().join("extra.staging"),
             &cancelled
-        ).is_err());
+        )
+        .is_err());
     }
+    #[test]
+    fn preview_distinguishes_java_compatibility_from_install_support() {
+        let temp = tempfile::tempdir().unwrap();
+        let metadata = temp.path().join("minecraftinstance.json");
+        for (mc, loader, java, supported) in [
+            ("1.12.2", "forge-14.23.5.2860", 8, false),
+            ("1.16.5", "forge-36.2.29", 8, true),
+            ("1.18.2", "forge-40.2.21", 17, false),
+            ("1.20.1", "forge-47.3.0", 17, false),
+            ("1.20.1", "fabric-0.16.10", 17, false),
+            ("1.21.1", "neoforge-21.1.80", 21, false),
+        ] {
+            fs::write(
+                &metadata,
+                serde_json::to_vec(&serde_json::json!({
+                    "gameVersion": mc,
+                    "baseModLoader": {"name": loader}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let preview = inspect_installed_profile(temp.path()).unwrap();
+            assert_eq!(preview.required_java, Some(java));
+            assert_eq!(preview.install_supported, supported);
+        }
+    }
+
     #[test]
     fn existing_roots_resolve_to_real_absolute_directory() {
         let temp = tempfile::tempdir().unwrap();
