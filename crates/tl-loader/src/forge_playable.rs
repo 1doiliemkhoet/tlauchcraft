@@ -375,13 +375,15 @@ fn verified_minecraft_slim(
     }
     let source = request.stage_root.join(&output.relative_path);
     if !path_is_within(&request.stage_root, &source)
-        || !report.verified_outputs.iter().any(|verified| verified == &source)
+        || !report
+            .verified_outputs
+            .iter()
+            .any(|verified| verified == &source)
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
-    let metadata = fs::symlink_metadata(&source).map_err(|e| {
-        LoaderError::InvalidMetadata(format!("Minecraft client slim missing: {e}"))
-    })?;
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client slim missing: {e}")))?;
     if !metadata.file_type().is_file() || metadata.len() == 0 {
         return Err(LoaderError::InvalidMetadata(
             "Minecraft client slim JAR is not a nonempty regular file".into(),
@@ -425,8 +427,7 @@ fn verified_minecraft_srg(
     let matches = report
         .intermediate_evidence
         .iter()
-        .filter(|item| item.producer_index == 2
-            && item.relative_path == "generated/client-srg.jar")
+        .filter(|item| item.producer_index == 2 && item.relative_path == "generated/client-srg.jar")
         .collect::<Vec<_>>();
     if matches.len() != 1 {
         return Err(LoaderError::NeedsInstallerExecution);
@@ -434,7 +435,10 @@ fn verified_minecraft_srg(
     let evidence = matches[0];
     if evidence.size_bytes == 0
         || evidence.observed_sha1.len() != 40
-        || !evidence.observed_sha1.bytes().all(|c| c.is_ascii_hexdigit())
+        || !evidence
+            .observed_sha1
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit())
     {
         return Err(LoaderError::InvalidMetadata(
             "SpecialSource observed SRG identity/digest invalid".into(),
@@ -444,9 +448,8 @@ fn verified_minecraft_srg(
     if !path_is_within(&request.stage_root, &source) {
         return Err(LoaderError::InvalidInput);
     }
-    let metadata = fs::symlink_metadata(&source).map_err(|e| {
-        LoaderError::InvalidMetadata(format!("Minecraft client SRG missing: {e}"))
-    })?;
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client SRG missing: {e}")))?;
     if !metadata.file_type().is_file() || metadata.len() != evidence.size_bytes {
         return Err(LoaderError::InvalidMetadata(
             "Minecraft client SRG size or file type differs from processor evidence".into(),
@@ -774,7 +777,10 @@ pub fn verify_forge_runtime_for_pack(
         verified_minecraft_slim(selected, &official_profile, request, execution)?,
         verified_minecraft_srg(selected, &official_profile, request, execution)?,
     ] {
-        if libraries.iter().any(|library| library.relative_path == generated.relative_path) {
+        if libraries
+            .iter()
+            .any(|library| library.relative_path == generated.relative_path)
+        {
             return Err(LoaderError::InvalidMetadata(
                 "Minecraft generated resource collides with Maven inventory".into(),
             ));
@@ -932,8 +938,8 @@ mod tests {
             ApprovedProcessor, ExpectedOutput, IntermediateEvidence, ProcessorOutcome,
         };
         use sha1::{Digest, Sha1};
-        let root = std::env::temp_dir()
-            .join(format!("forge-generated-srg-test-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("forge-generated-srg-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let stage = root.join("forge-execution").join("test-op");
         fs::create_dir_all(stage.join("generated")).unwrap();
