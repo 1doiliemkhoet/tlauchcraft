@@ -34,9 +34,15 @@ jobs:
               digest=hashlib.sha1(blob).hexdigest()
               assert digest==expected_sha1,(version,"SHA1 mismatch",digest)
               with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                  p=json.loads(z.read("install_profile.json"))
-                  v=json.loads(z.read("version.json"))
+                  profile_bytes=z.read("install_profile.json")
+                  version_bytes=z.read("version.json")
+                  p=json.loads(profile_bytes)
+                  v=json.loads(version_bytes)
                   print("RELEASE",version,"sha1",digest,"size",len(blob))
+                  print("PINNED_METADATA",version,
+                        "profile_sha1",hashlib.sha1(profile_bytes).hexdigest(),
+                        "derived_canonical_sha1",hashlib.sha1(
+                            json.dumps(v,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest())
                   print("META",json.dumps({
                       "forge_id":v.get("id"),
                       "mc":p.get("minecraft"),
