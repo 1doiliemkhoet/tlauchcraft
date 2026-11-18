@@ -192,42 +192,29 @@ impl VerifiedProcessorExecution {
         explicit_user_consent: bool,
         cancel: &AtomicBool,
     ) -> Result<Self, LoaderError> {
-        const OFFICIAL_VERSION: &str = "36.2.29";
-        const OFFICIAL_INSTALLER_SHA1: &str = "7d247279cf06eed6ffcf609f36d11e34c70350f3";
+        let release = crate::forge_family::approved_forge_release(
+            &selection.minecraft_version,
+            &selection.forge_version,
+        )?;
+        let installer_filename = release.installer_filename();
         if !explicit_user_consent
-            || selection.minecraft_version != "1.16.5"
-            || selection.forge_version != OFFICIAL_VERSION
             || bindings.minecraft != selection.minecraft_version
             || bindings.forge_version != selection.forge_version
             || !official_installer.is_absolute()
             || official_installer.file_name().and_then(|v| v.to_str())
-                != Some("forge-1.16.5-36.2.29-installer.jar")
+                != Some(installer_filename.as_str())
             || bindings.stage_root.parent().and_then(|v| v.file_name())
                 != Some(std::ffi::OsStr::new("forge-execution"))
         {
             return Err(LoaderError::NeedsInstallerExecution);
         }
         reject_symlink_ancestors(official_installer)?;
-        verify_sha1(official_installer, OFFICIAL_INSTALLER_SHA1)?;
+        verify_sha1(official_installer, release.installer_sha1)?;
         valid_sha1(approved_java_sha1)?;
         verify_sha1(&bindings.java, approved_java_sha1)?;
-        // These fixtures were extracted from the audited official installer.
-        // Arbitrary user JSON cannot define executable coordinates/main classes.
-        let pinned_profile: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/forge_36229_official_profile.json"
-        ))
-        .map_err(|_| LoaderError::InvalidInput)?;
-        let claimed_profile: Value =
-            serde_json::from_str(profile_json).map_err(|_| LoaderError::InvalidInput)?;
-        let pinned_derived: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/forge_36229_official_version.json"
-        ))
-        .map_err(|_| LoaderError::InvalidInput)?;
-        if claimed_profile != pinned_profile || *derived != pinned_derived {
-            return Err(LoaderError::InvalidMetadata(
-                "official Forge installer metadata is not the audited release".into(),
-            ));
-        }
+        // No caller-supplied JSON may change the approved, checksum-pinned
+        // toolchain or the full officially audited profile/version metadata.
+        release.verify_metadata(profile_json, derived)?;
         let plan = prepare_forge_1165(profile_json, derived, bindings);
         if plan.state != PrepareState::Verified || !plan.unresolved.is_empty() {
             return Err(LoaderError::NeedsInstallerExecution);

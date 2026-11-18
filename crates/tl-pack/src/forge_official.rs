@@ -23,11 +23,15 @@ use tl_loader::{
 };
 use zip::ZipArchive;
 
-const FORGE_MC: &str = "1.16.5";
-const FORGE_VERSION: &str = "36.2.29";
-const FORGE_INSTALLER_SHA1: &str = "7d247279cf06eed6ffcf609f36d11e34c70350f3";
-const FORGE_INSTALLER_URL: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar";
 const MAX_LIB: u64 = 256 * 1024 * 1024;
+
+/// Desktop-facing version gate. The Desktop crate intentionally consumes
+/// tl-pack rather than depending directly on tl-loader.
+pub fn ensure_supported_forge_release(minecraft: &str, forge: &str) -> Result<(), String> {
+    tl_loader::forge_family::approved_forge_release(minecraft, forge)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
 
 pub struct PreparedOfficialForge {
     selection: PackForgeSelection,
@@ -284,9 +288,10 @@ pub fn prepare_official_windows_1165(
     explicitly_approved_host_execution: bool,
     cancelled: &AtomicBool,
 ) -> Result<PreparedOfficialForge, String> {
+    let release =
+        tl_loader::forge_family::approved_forge_release(selected_minecraft, selected_forge)
+            .map_err(|e| e.to_string())?;
     if !explicitly_approved_host_execution
-        || selected_minecraft != FORGE_MC
-        || selected_forge != FORGE_VERSION
         || operation_id.len() < 8
         || operation_id.len() > 64
         || !operation_id
@@ -310,8 +315,8 @@ pub fn prepare_official_windows_1165(
         .map_err(|e| format!("Mojang client/cache preparation: {e}"))?;
     let minecraft_client = mojang_cache
         .join("versions")
-        .join(FORGE_MC)
-        .join(format!("{FORGE_MC}.jar"));
+        .join(release.minecraft)
+        .join(format!("{}.jar", release.minecraft));
     let client_sha = version["downloads"]["client"]["sha1"]
         .as_str()
         .ok_or("missing official Mojang client SHA-1")?;
@@ -322,12 +327,12 @@ pub fn prepare_official_windows_1165(
     let client = network_client()?;
     let forge_cache = data_dir.join("cache").join("forge-official");
     fs::create_dir_all(&forge_cache).map_err(|e| e.to_string())?;
-    let installer = forge_cache.join("forge-1.16.5-36.2.29-installer.jar");
+    let installer = forge_cache.join(release.installer_filename());
     fetch_verified(
         &client,
         &installer,
-        FORGE_INSTALLER_URL,
-        FORGE_INSTALLER_SHA1,
+        &release.installer_url(),
+        release.installer_sha1,
         None,
         32 * 1024 * 1024,
         cancelled,
@@ -335,19 +340,9 @@ pub fn prepare_official_windows_1165(
     let profile_json = installer_json(&installer, "install_profile.json")?;
     let derived_text = installer_json(&installer, "version.json")?;
     let derived: Value = serde_json::from_str(&derived_text).map_err(|e| e.to_string())?;
-    let pinned_profile: Value = serde_json::from_str(include_str!(
-        "../../tl-loader/tests/fixtures/forge_36229_official_profile.json"
-    ))
-    .map_err(|e| e.to_string())?;
-    let pinned_derived: Value = serde_json::from_str(include_str!(
-        "../../tl-loader/tests/fixtures/forge_36229_official_version.json"
-    ))
-    .map_err(|e| e.to_string())?;
-    if serde_json::from_str::<Value>(&profile_json).map_err(|e| e.to_string())? != pinned_profile
-        || derived != pinned_derived
-    {
-        return Err("official installer metadata differs from pinned reviewed release".into());
-    }
+    release
+        .verify_metadata(&profile_json, &derived)
+        .map_err(|e| format!("official Forge metadata audit failed: {e}"))?;
     let audit =
         audit_official_forge_metadata(&profile_json, &derived).map_err(|e| e.to_string())?;
     let mut artifact_map = BTreeMap::<String, VerifiedProcessorJar>::new();
@@ -413,7 +408,7 @@ pub fn prepare_official_windows_1165(
         "entry": "data/client.lzma",
         "installer": installer.to_string_lossy().to_string(),
         "extracted": patch_file.to_string_lossy().to_string(),
-        "installer_sha1": FORGE_INSTALLER_SHA1,
+        "installer_sha1": release.installer_sha1,
         "extracted_sha1": binpatch_sha,
         "bytes": fs::metadata(&patch_file).map_err(|e| e.to_string())?.len(),
     });
@@ -423,7 +418,7 @@ pub fn prepare_official_windows_1165(
         "BINPATCH".into(),
         BoundValue::VerifiedInstallerEntry(InstallerEntryEvidence {
             installer: installer.clone(),
-            installer_sha1: FORGE_INSTALLER_SHA1.into(),
+            installer_sha1: release.installer_sha1.into(),
             entry: "data/client.lzma".into(),
             extracted: patch_file,
             extracted_sha1: binpatch_sha,
@@ -433,7 +428,7 @@ pub fn prepare_official_windows_1165(
     data.insert(
         "MINECRAFT_JAR".into(),
         BoundValue::VerifiedExternal(VerifiedProcessorJar {
-            coordinate: format!("net.minecraft:client:{FORGE_MC}"),
+            coordinate: format!("net.minecraft:client:{}", release.minecraft),
             path: minecraft_client,
             sha1: client_sha.to_owned(),
             source: client_url.to_owned(),
@@ -449,8 +444,8 @@ pub fn prepare_official_windows_1165(
         data.insert(key.into(), BoundValue::Staged(rel.into()));
     }
     let bindings = ForgeBindings {
-        minecraft: FORGE_MC.into(),
-        forge_version: FORGE_VERSION.into(),
+        minecraft: release.minecraft.into(),
+        forge_version: release.forge.into(),
         java: java_path.to_owned(),
         stage_root: exec_stage.clone(),
         timeout_seconds: 180,

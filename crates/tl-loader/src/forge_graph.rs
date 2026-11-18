@@ -56,21 +56,15 @@ fn verify_installer_entry(
     data: &InstallerEntryEvidence,
     bindings: &ForgeBindings,
 ) -> Result<String, PrepareFailure> {
-    // The first Control-approved version digest is explicit. New loader versions
-    // require their own published checksum policy, not a guessed Maven URL.
-    let approved = match (bindings.minecraft.as_str(), bindings.forge_version.as_str()) {
-        ("1.16.5", "36.2.29") => "7d247279cf06eed6ffcf609f36d11e34c70350f3",
-        _ => {
-            return Err(PrepareFailure::Missing(vec![
-                "approved-installer-sha1".into()
-            ]))
-        }
-    };
+    let release =
+        crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
+            .map_err(PrepareFailure::Invalid)?;
+    let approved = release.installer_sha1;
+    let installer_filename = release.installer_filename();
     if key != "BINPATCH"
         || data.entry != "data/client.lzma"
         || !data.installer_sha1.eq_ignore_ascii_case(approved)
-        || data.installer.file_name().and_then(|s| s.to_str())
-            != Some("forge-1.16.5-36.2.29-installer.jar")
+        || data.installer.file_name().and_then(|s| s.to_str()) != Some(installer_filename.as_str())
         || !data.installer.is_absolute()
         || !data.extracted.is_absolute()
         || !data.report.is_absolute()
@@ -258,7 +252,8 @@ fn prepare_inner(
     version_json: &Value,
     bindings: &ForgeBindings,
 ) -> Result<Vec<ApprovedProcessor>, PrepareFailure> {
-    if bindings.minecraft != "1.16.5"
+    if crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
+        .is_err()
         || bindings.timeout_seconds == 0
         || bindings.timeout_seconds > 900
         || bindings.stage_root.exists()
@@ -330,7 +325,8 @@ fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFail
     }
     if step.outputs.is_empty() {
         let flag = match step.jar.as_str() {
-            "net.minecraftforge:installertools:1.2.6" => "--output",
+            "net.minecraftforge:installertools:1.2.6"
+            | "net.minecraftforge:installertools:1.3.0" => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
             _ => {
                 return Err(

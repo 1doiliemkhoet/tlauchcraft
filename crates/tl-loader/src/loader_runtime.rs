@@ -139,12 +139,8 @@ pub fn forge_adapter_for(
 ) -> Result<ForgeLegacy1165Adapter, LoaderError> {
     crate::validate_component(minecraft_version)?;
     crate::validate_component(forge_version)?;
-    if minecraft_version == "1.16.5" && forge_version.starts_with("36.2.") {
-        return Ok(ForgeLegacy1165Adapter);
-    }
-    Err(LoaderError::UnsupportedVersion(format!(
-        "Forge {minecraft_version}-{forge_version}: runtime adapter not implemented"
-    )))
+    crate::forge_family::approved_forge_release(minecraft_version, forge_version)?;
+    Ok(ForgeLegacy1165Adapter)
 }
 
 /// Convert plan and actual process evidence into a typed Chat 4 handoff.
@@ -276,6 +272,8 @@ mod tests {
     fn only_supported_forge_family_can_prepare() {
         assert!(forge_adapter_for("1.16.5", "36.2.29").is_ok());
         assert!(forge_adapter_for("1.16.5", "36.2.34").is_ok());
+        assert!(forge_adapter_for("1.16.5", "36.2.42").is_ok());
+        assert!(forge_adapter_for("1.16.5", "36.2.35").is_err());
         assert!(forge_adapter_for("1.20.1", "47.3.0").is_err());
         assert!(forge_adapter_for("1.21.1", "52.0.0").is_err());
     }
