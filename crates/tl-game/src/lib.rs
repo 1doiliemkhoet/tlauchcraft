@@ -150,7 +150,10 @@ pub fn inherit(parent: &Value, child: &Value) -> Result<Value, GameError> {
                         if old.get("name") == Some(name) {
                             return false;
                         }
-                        let old_key = old.get("name").and_then(Value::as_str).and_then(maven_conflict_key);
+                        let old_key = old
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .and_then(maven_conflict_key);
                         // For an unparseable or synthetic library name, retain
                         // the legacy exact-name replacement behavior.
                         conflict_key.is_none() || old_key != conflict_key
@@ -667,14 +670,23 @@ mod tests {
                 {"name":"org.lwjgl:lwjgl:3.3.0"}
             ]
         });
-        let libs = inherit(&parent, &child).unwrap()["libraries"].as_array().unwrap().clone();
-        let names = libs.iter().map(|v| v["name"].as_str().unwrap()).collect::<Vec<_>>();
+        let libs = inherit(&parent, &child).unwrap()["libraries"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let names = libs
+            .iter()
+            .map(|v| v["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
         assert!(!names.contains(&"org.apache.logging.log4j:log4j-core:2.8.1"));
         assert!(!names.contains(&"org.apache.logging.log4j:log4j-api:2.8.1"));
         assert!(names.contains(&"org.apache.logging.log4j:log4j-core:2.15.0"));
         assert!(names.contains(&"org.apache.logging.log4j:log4j-api:2.15.0"));
-        assert_eq!(names.iter().filter(|v| v.contains("log4j-core:")).count(),1);
-        assert_eq!(names.iter().filter(|v| v.contains("log4j-api:")).count(),1);
+        assert_eq!(
+            names.iter().filter(|v| v.contains("log4j-core:")).count(),
+            1
+        );
+        assert_eq!(names.iter().filter(|v| v.contains("log4j-api:")).count(), 1);
         assert!(names.contains(&"org.lwjgl:lwjgl:3.3.0"));
         // Classifier-specific native artifacts must survive a version override.
         assert!(names.contains(&"org.lwjgl:lwjgl:3.2.2:natives-windows"));
