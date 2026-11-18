@@ -676,9 +676,9 @@ async fn pack_import_installed_folder(
     if let Err(error) = std::fs::remove_file(&snapshot) {
         eprintln!("[local-pack] temporary source cleanup failed: {error}");
     }
-    // This flow currently routes only to the reviewed 1.16.5/36.2.29
-    // official Forge runner. Versions are read from profile metadata; do not
-    // invent support for newer loader builds.
+    // Routes only to explicitly reviewed Forge 1.16.5 releases in the
+    // checksum-pinned family registry. Never infer support for unrelated
+    // Minecraft versions or unreviewed mod loaders.
     let _ = report;
     result
 }
