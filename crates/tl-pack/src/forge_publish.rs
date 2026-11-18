@@ -939,31 +939,38 @@ mod tests {
         let version = serde_json::json!({"arguments":{
             "game":["--launchTarget","fmlclient","--fml.mcpVersion","20210115.111550"]
         }});
-        let entry = |classifier: &str| InstalledForgeLibrary {
-            relative_path: format!(
-                "libraries/net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-{classifier}.jar"
-            ),
-            official_sha1: "4aef4168f94d97bc73bf510213b2518942f931d1".into(),
-            size_bytes: 42,
+        let entry = |classifier: &str| {
+            InstalledForgeLibrary {
+                relative_path: format!(
+                    "libraries/net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-{classifier}.jar"
+                ),
+                official_sha1: "4aef4168f94d97bc73bf510213b2518942f931d1".into(),
+                size_bytes: 42,
+            }
         };
         let extra = entry("extra");
         let slim = entry("slim");
         let srg = entry("srg");
         assert!(require_all_minecraft_generated_jars(
-            &[extra.clone(), slim.clone(), srg.clone()], &version, "1.16.5"
-        ).is_ok());
+            &[extra.clone(), slim.clone(), srg.clone()],
+            &version,
+            "1.16.5"
+        )
+        .is_ok());
         assert!(require_all_minecraft_generated_jars(
-            &[extra.clone(), slim.clone()], &version, "1.16.5"
-        ).is_err());
+            &[extra.clone(), slim.clone()],
+            &version,
+            "1.16.5"
+        )
+        .is_err());
         assert!(require_all_minecraft_generated_jars(
-            &[extra.clone(), srg.clone()], &version, "1.16.5"
-        ).is_err());
-        assert!(require_all_minecraft_generated_jars(
-            &[slim, srg], &version, "1.16.5"
-        ).is_err());
-        assert!(require_all_minecraft_generated_jars(
-            &[extra], &version, "1.16.6"
-        ).is_err());
+            &[extra.clone(), srg.clone()],
+            &version,
+            "1.16.5"
+        )
+        .is_err());
+        assert!(require_all_minecraft_generated_jars(&[slim, srg], &version, "1.16.5").is_err());
+        assert!(require_all_minecraft_generated_jars(&[extra], &version, "1.16.6").is_err());
     }
 
     #[test]
