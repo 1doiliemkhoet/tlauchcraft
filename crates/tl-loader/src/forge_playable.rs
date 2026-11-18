@@ -263,6 +263,77 @@ fn verified_patched_client(
     })
 }
 
+/// Forge FML validates a second Minecraft resource at startup: the
+/// jarsplitter-generated client EXTRA JAR. The official installer pins its
+/// digest in MC_EXTRA_SHA.client but never lists it in version.json Maven libs.
+/// Supply only output verified from the *second* authentic jarsplitter step.
+fn verified_minecraft_extra(
+    selected: &PackForgeSelection,
+    profile: &Value,
+    request: &ProcessorRunRequest,
+    report: &ProcessorRunReport,
+) -> Result<VerifiedForgeLibrary, LoaderError> {
+    let pinned = profile["data"]["MC_EXTRA_SHA"]["client"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("official MC_EXTRA_SHA missing".into()))?
+        .trim_matches('\'');
+    let mcp_version = profile["data"]["MCP_VERSION"]["client"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("official MCP_VERSION missing".into()))?
+        .trim_matches('\'');
+    if mcp_version.is_empty()
+        || mcp_version.len() > 64
+        || !mcp_version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
+    {
+        return Err(LoaderError::InvalidMetadata("unsafe official MCP version".into()));
+    }
+    let splitter = request
+        .processors
+        .get(1)
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
+        || splitter.outputs.len() != 2
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let output = splitter
+        .outputs
+        .iter()
+        .find(|item| item.relative_path == "generated/client-extra.jar")
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if !output.sha1.eq_ignore_ascii_case(pinned) {
+        return Err(LoaderError::InvalidMetadata(
+            "jarsplitter extra JAR digest differs from official installer".into(),
+        ));
+    }
+    let source = request.stage_root.join(&output.relative_path);
+    if !path_is_within(&request.stage_root, &source)
+        || !report.verified_outputs.iter().any(|verified| verified == &source)
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client extra missing: {e}")))?;
+    if !metadata.file_type().is_file() || metadata.len() == 0 {
+        return Err(LoaderError::InvalidMetadata(
+            "Minecraft client extra JAR is empty, a symlink or not a regular file".into(),
+        ));
+    }
+    crate::runtime::verify_sha1(&source, pinned)?;
+    let version = format!("{}-{mcp_version}", selected.minecraft_version);
+    let relative_path = format!(
+        "net/minecraft/client/{version}/client-{version}-extra.jar"
+    );
+    Ok(VerifiedForgeLibrary {
+        coordinate: format!("net.minecraft:client:{version}:extra"),
+        relative_path,
+        path: source,
+        official_sha1: pinned.to_owned(),
+        size_bytes: metadata.len(),
+        origin: ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
+    })
+}
+
 /// Bind a user-selected pack to the official installer, rather than silently
 /// continuing with a hardcoded fixture version.
 pub fn validate_forge_pack_selection(
@@ -539,6 +610,17 @@ pub fn verify_forge_runtime_for_pack(
         ));
     }
     libraries.push(patched_client);
+    let minecraft_extra =
+        verified_minecraft_extra(selected, &official_profile, request, execution)?;
+    if libraries
+        .iter()
+        .any(|library| library.relative_path == minecraft_extra.relative_path)
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "Minecraft client extra conflicts with declared Maven library".into(),
+        ));
+    }
+    libraries.push(minecraft_extra);
     let inherited = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
     if inherited["mainClass"] != "cpw.mods.modlauncher.Launcher" {
         return Err(LoaderError::CompatibilityConflict);
@@ -682,6 +764,80 @@ mod tests {
         let mut malformed = merged.clone();
         malformed["javaVersion"]["majorVersion"] = json!("8");
         assert!(forge_java8_launch_version(&malformed).is_err());
+    }
+
+    #[test]
+    fn jarsplitter_extra_is_pinned_and_published_to_fml_maven_path() {
+        use crate::runtime::{ApprovedProcessor, ExpectedOutput, ProcessorOutcome};
+        use sha1::{Digest, Sha1};
+        let root =
+            std::env::temp_dir().join(format!("forge-client-extra-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let stage = root.join("forge-execution").join("test-op");
+        let source = stage.join("generated/client-extra.jar");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        let contents = b"synthetic jarsplitter extra resource";
+        fs::write(&source, contents).unwrap();
+        let hash = format!("{:x}", Sha1::digest(contents));
+        let profile = json!({"data":{
+            "MCP_VERSION":{"client":"'20210115.111550'"},
+            "MC_EXTRA_SHA":{"client":format!("'{hash}'")}
+        }});
+        let processor = |coordinate: &str, outputs: Vec<ExpectedOutput>| ApprovedProcessor {
+            executable: VerifiedProcessorJar {
+                coordinate: coordinate.into(),
+                path: root.join("processor.jar"),
+                sha1: "0".repeat(40),
+                source: String::new(),
+            },
+            classpath: vec![],
+            main_class: "net.minecraftforge.jarsplitter.ConsoleTool".into(),
+            arguments: vec![],
+            outputs,
+            intermediate_outputs: vec![],
+        };
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: stage,
+            processors: vec![
+                processor("net.minecraftforge:installertools:1.2.6",vec![]),
+                processor("net.minecraftforge:jarsplitter:1.1.4",vec![
+                    ExpectedOutput{relative_path:"generated/client-extra.jar".into(),sha1:hash.clone()},
+                    ExpectedOutput{relative_path:"generated/client-slim.jar".into(),sha1:"a".repeat(40)},
+                ]),
+            ],
+            timeout_seconds: 180,
+        };
+        let report = ProcessorRunReport {
+            outcome: ProcessorOutcome::Verified,
+            completed: 2,
+            exit_codes: vec![Some(0),Some(0)],
+            log_paths: vec![],
+            verified_outputs: vec![source.clone()],
+            intermediate_evidence: vec![],
+            error: None,
+        };
+        let verified =
+            verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &report).unwrap();
+        assert_eq!(
+            verified.relative_path,
+            "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-extra.jar"
+        );
+        assert_eq!(verified.path,source);
+        assert_eq!(verified.official_sha1,hash);
+        fs::write(&source,b"tampered").unwrap();
+        assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &report).is_err());
+        fs::write(&source,contents).unwrap();
+        let unverified = ProcessorRunReport {verified_outputs:vec![],..report.clone()};
+        assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &unverified).is_err());
+        let mut wrong = request.clone();
+        wrong.processors[1].outputs[0].sha1 = "0".repeat(40);
+        assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &wrong, &report).is_err());
+        let mut wrong_version = profile.clone();
+        wrong_version["data"]["MCP_VERSION"]["client"] = json!("'../../escape'");
+        assert!(verified_minecraft_extra(&selected("36.2.29"), &wrong_version, &request, &report).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
