@@ -331,7 +331,10 @@ fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFail
     }
     if step.outputs.is_empty() {
         let flag = match step.jar.as_str() {
-            "net.minecraftforge:installertools:1.2.6" => "--output",
+            jar if crate::forge_family::approved_forge_release(
+                &bindings.minecraft,
+                &bindings.forge_version,
+            ).is_ok_and(|release| jar == release.installertools) => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
             _ => {
                 return Err(
