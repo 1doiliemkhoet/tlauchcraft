@@ -132,9 +132,19 @@ pub struct RemovedInstance {
 
 fn archive_instance_directory(i:&GameInstance)->Result<Option<PathBuf>,String> {
     let base=default_data_dir().map_err(|e|e.to_string())?;
-    let source=root(i)?;
+    archive_instance_directory_under(&base,i)
+}
+
+fn archive_instance_directory_under(base:&Path,i:&GameInstance)->Result<Option<PathBuf>,String> {
+    i.validate().map_err(|e|e.to_string())?;
+    let source=base.join(&i.root_path);
     if source != base.join("instances").join(i.id.to_string()) {
         return Err("Instance removal refused unsafe or unexpected root".into());
+    }
+    for part in source.ancestors().take_while(|path|path.starts_with(base)) {
+        if fs::symlink_metadata(part).is_ok_and(|meta|meta.file_type().is_symlink()) {
+            return Err("Refusing symlinked instance or data root".into());
+        }
     }
     match fs::symlink_metadata(&source) {
         Err(error) if error.kind()==std::io::ErrorKind::NotFound=>return Ok(None),
@@ -808,6 +818,35 @@ mod tests {
         assert_eq!(count_native_dlls(&path).unwrap(),1);
         fs::remove_dir_all(&path).unwrap();
     }
+    #[test]
+    fn removed_instance_is_archived_without_touching_other_worlds() {
+        let base=std::env::temp_dir().join(format!("tl-remove-instance-{}",Uuid::new_v4()));
+        fs::create_dir_all(base.join("instances")).unwrap();
+        let profile=Uuid::new_v4();
+        let first=GameInstance::new(
+            "Rustic Waters II","1.16.5",
+            LoaderSpec{kind:LoaderKind::Forge,version:Some("36.2.29".into())},profile
+        ).unwrap();
+        let second=GameInstance::new(
+            "Rustic Waters II","1.16.5",
+            LoaderSpec{kind:LoaderKind::Forge,version:Some("36.2.29".into())},profile
+        ).unwrap();
+        let world=base.join(&first.root_path).join("saves").join("test-world");
+        let other=base.join(&second.root_path).join("saves").join("untouched");
+        fs::create_dir_all(&world).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        fs::write(world.join("level.dat"),b"world bytes").unwrap();
+        fs::write(other.join("level.dat"),b"other bytes").unwrap();
+
+        let archived=archive_instance_directory_under(&base,&first).unwrap().unwrap();
+        assert_eq!(archived,base.join("deleted-instances").join(first.id.to_string()));
+        assert_eq!(fs::read(archived.join("saves/test-world/level.dat")).unwrap(),b"world bytes");
+        assert!(!base.join(&first.root_path).exists());
+        assert_eq!(fs::read(other.join("level.dat")).unwrap(),b"other bytes");
+        assert!(archive_instance_directory_under(&base,&first).unwrap().is_none());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
     #[test]
     fn rejects_jvm_memory_inversion_before_process_spawn() {
         let config=tl_game::LaunchConfig{
