@@ -19,7 +19,8 @@ pub struct ApprovedForgeRelease {
 
 pub const FORGE_1165_RELEASES: &[ApprovedForgeRelease] = &[
     ApprovedForgeRelease {
-        minecraft: "1.16.5", forge: "36.2.29",
+        minecraft: "1.16.5",
+        forge: "36.2.29",
         installer_sha1: "7d247279cf06eed6ffcf609f36d11e34c70350f3",
         profile_sha1: "c0cad8e48ccc275c476733be75f1ee2fff7da5dc",
         derived_canonical_sha1: "6c24a13715ae66a78dbc8cd56069a1e60fd810e3",
@@ -28,7 +29,8 @@ pub const FORGE_1165_RELEASES: &[ApprovedForgeRelease] = &[
         profile_libraries: 39,
     },
     ApprovedForgeRelease {
-        minecraft: "1.16.5", forge: "36.2.34",
+        minecraft: "1.16.5",
+        forge: "36.2.34",
         installer_sha1: "ab306b654c44d659ce69da5d4f87590b66dc91e8",
         profile_sha1: "39afdc71d5568710b096c52aa25d36b502f040ba",
         derived_canonical_sha1: "abcb4a9826e1d6461feb9e4f5879d99e3f4d6210",
@@ -37,7 +39,8 @@ pub const FORGE_1165_RELEASES: &[ApprovedForgeRelease] = &[
         profile_libraries: 39,
     },
     ApprovedForgeRelease {
-        minecraft: "1.16.5", forge: "36.2.42",
+        minecraft: "1.16.5",
+        forge: "36.2.42",
         installer_sha1: "e09ecf910e4d5eae12fb3564d9b7de212c1958b2",
         profile_sha1: "1937994ba2c8ab39294542d4ef5daa74e1377242",
         derived_canonical_sha1: "68b823079cbf2a7fcfc9a203f05c4e4e75e8a4ea",
@@ -54,9 +57,11 @@ pub fn approved_forge_release(
     FORGE_1165_RELEASES
         .iter()
         .find(|release| release.minecraft == minecraft && release.forge == forge)
-        .ok_or_else(|| LoaderError::UnsupportedVersion(format!(
-            "Forge {minecraft}-{forge}: official installer not reviewed/pinned"
-        )))
+        .ok_or_else(|| {
+            LoaderError::UnsupportedVersion(format!(
+                "Forge {minecraft}-{forge}: official installer not reviewed/pinned"
+            ))
+        })
 }
 
 impl ApprovedForgeRelease {
@@ -76,16 +81,12 @@ impl ApprovedForgeRelease {
     /// The release's metadata is authenticated by the SHA-1-pinned installer,
     /// and additionally compared to audited independent metadata fingerprints.
     /// A new processor family needs a new explicitly reviewed adapter.
-    pub fn verify_metadata(
-        self,
-        profile_json: &str,
-        derived: &Value,
-    ) -> Result<(), LoaderError> {
+    pub fn verify_metadata(self, profile_json: &str, derived: &Value) -> Result<(), LoaderError> {
         let profile = serde_json::from_str::<Value>(profile_json)
             .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
         let profile_hash = format!("{:x}", Sha1::digest(profile_json.as_bytes()));
-        let canonical_derived = serde_json::to_vec(derived)
-            .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+        let canonical_derived =
+            serde_json::to_vec(derived).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
         let derived_hash = format!("{:x}", Sha1::digest(&canonical_derived));
         if profile_hash != self.profile_sha1
             || derived_hash != self.derived_canonical_sha1
@@ -108,7 +109,11 @@ impl ApprovedForgeRelease {
             "net.minecraftforge:binarypatcher:1.0.12",
         ];
         if blueprint.steps.len() != expected.len()
-            || !blueprint.steps.iter().zip(expected).all(|(step, jar)| step.jar == jar)
+            || !blueprint
+                .steps
+                .iter()
+                .zip(expected)
+                .all(|(step, jar)| step.jar == jar)
         {
             return Err(LoaderError::InvalidMetadata(
                 "unapproved Forge processor graph".into(),
@@ -126,8 +131,10 @@ mod tests {
         for version in ["36.2.29", "36.2.34", "36.2.42"] {
             let release = approved_forge_release("1.16.5", version).unwrap();
             assert_eq!(release.installer_sha1.len(), 40);
-            assert_eq!(release.installer_filename(),
-                format!("forge-1.16.5-{version}-installer.jar"));
+            assert_eq!(
+                release.installer_filename(),
+                format!("forge-1.16.5-{version}-installer.jar")
+            );
         }
         for (mc, forge) in [
             ("1.16.5", "36.2.35"),
@@ -143,7 +150,8 @@ mod tests {
         let profile = include_str!("../tests/fixtures/forge_36229_official_profile.json");
         let derived: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/forge_36229_official_version.json"
-        )).unwrap();
+        ))
+        .unwrap();
         let release = approved_forge_release("1.16.5", "36.2.29").unwrap();
         // The fixtures were extracted from the authentic 36.2.29 installer.
         assert!(release.verify_metadata(profile, &derived).is_ok());
