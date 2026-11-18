@@ -92,6 +92,9 @@ jobs:
               path.mkdir(parents=True,exist_ok=True)
               (path/"profile.json").write_bytes(arc.read("install_profile.json"))
               (path/"version.json").write_bytes(arc.read("version.json"))
+              print("NEOFORGE_COORDINATES",json.dumps([
+                {"jar":x.get("jar"),"classpath":x.get("classpath",[])} for x in p.get("processors",[])
+              ],sort_keys=True)[:6000])
               print("NEOFORGE_META",json.dumps({
                 "minecraft":p.get("minecraft"),
                 "profile_version":p.get("version"),
