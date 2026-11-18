@@ -280,10 +280,9 @@ pub fn prepare_official_windows_1165(
     explicitly_approved_host_execution: bool,
     cancelled: &AtomicBool,
 ) -> Result<PreparedOfficialForge, String> {
-    let release = tl_loader::forge_family::approved_forge_release(
-        selected_minecraft,
-        selected_forge,
-    ).map_err(|e| e.to_string())?;
+    let release =
+        tl_loader::forge_family::approved_forge_release(selected_minecraft, selected_forge)
+            .map_err(|e| e.to_string())?;
     if !explicitly_approved_host_execution
         || operation_id.len() < 8
         || operation_id.len() > 64
@@ -333,7 +332,8 @@ pub fn prepare_official_windows_1165(
     let profile_json = installer_json(&installer, "install_profile.json")?;
     let derived_text = installer_json(&installer, "version.json")?;
     let derived: Value = serde_json::from_str(&derived_text).map_err(|e| e.to_string())?;
-    release.verify_metadata(&profile_json, &derived)
+    release
+        .verify_metadata(&profile_json, &derived)
         .map_err(|e| format!("official Forge metadata audit failed: {e}"))?;
     let audit =
         audit_official_forge_metadata(&profile_json, &derived).map_err(|e| e.to_string())?;
