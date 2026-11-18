@@ -417,7 +417,8 @@ fn verified_minecraft_srg(
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if processor.executable.coordinate != "net.md-5:SpecialSource:1.8.5"
         || processor.outputs.len() != 0
-        || processor.intermediate_outputs.as_slice() != ["generated/client-srg.jar"]
+        || processor.intermediate_outputs.len() != 1
+        || processor.intermediate_outputs[0] != "generated/client-srg.jar"
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
@@ -923,6 +924,116 @@ mod tests {
         let mut malformed = merged.clone();
         malformed["javaVersion"]["majorVersion"] = json!("8");
         assert!(forge_java8_launch_version(&malformed).is_err());
+    }
+
+    #[test]
+    fn client_srg_and_slim_outputs_require_real_processor_evidence() {
+        use crate::runtime::{
+            ApprovedProcessor, ExpectedOutput, IntermediateEvidence, ProcessorOutcome,
+        };
+        use sha1::{Digest, Sha1};
+        let root = std::env::temp_dir()
+            .join(format!("forge-generated-srg-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let stage = root.join("forge-execution").join("test-op");
+        fs::create_dir_all(stage.join("generated")).unwrap();
+        let srg = stage.join("generated/client-srg.jar");
+        let slim = stage.join("generated/client-slim.jar");
+        let srg_bytes = b"SpecialSource generated SRG intermediate";
+        let slim_bytes = b"official jarsplitter SLIM output";
+        fs::write(&srg, srg_bytes).unwrap();
+        fs::write(&slim, slim_bytes).unwrap();
+        let srg_sha = format!("{:x}", Sha1::digest(srg_bytes));
+        let slim_sha = format!("{:x}", Sha1::digest(slim_bytes));
+        let profile = json!({"data":{
+            "MCP_VERSION":{"client":"'20210115.111550'"},
+            "MC_SLIM_SHA":{"client":format!("'{slim_sha}'")}
+        }});
+        let processor = |coordinate: &str| ApprovedProcessor {
+            executable: VerifiedProcessorJar {
+                coordinate: coordinate.into(),
+                path: root.join("processor.jar"),
+                sha1: "a".repeat(40),
+                source: String::new(),
+            },
+            classpath: vec![],
+            main_class: "example.Processor".into(),
+            arguments: vec![],
+            outputs: vec![],
+            intermediate_outputs: vec![],
+        };
+        let mut request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: stage,
+            processors: vec![
+                processor("net.minecraftforge:installertools:1.2.6"),
+                processor("net.minecraftforge:jarsplitter:1.1.4"),
+                processor("net.md-5:SpecialSource:1.8.5"),
+            ],
+            timeout_seconds: 180,
+        };
+        request.processors[1].outputs = vec![
+            ExpectedOutput {
+                relative_path: "generated/client-extra.jar".into(),
+                sha1: "a".repeat(40),
+            },
+            ExpectedOutput {
+                relative_path: "generated/client-slim.jar".into(),
+                sha1: slim_sha.clone(),
+            },
+        ];
+        request.processors[2].intermediate_outputs = vec!["generated/client-srg.jar".into()];
+        let mut report = ProcessorRunReport {
+            outcome: ProcessorOutcome::Verified,
+            completed: 3,
+            exit_codes: vec![Some(0); 3],
+            log_paths: vec![],
+            verified_outputs: vec![slim.clone()],
+            intermediate_evidence: vec![IntermediateEvidence {
+                producer_index: 2,
+                relative_path: "generated/client-srg.jar".into(),
+                observed_sha1: srg_sha.clone(),
+                size_bytes: srg_bytes.len() as u64,
+            }],
+            error: None,
+        };
+        let selected = selected("36.2.29");
+        let srg_result = verified_minecraft_srg(&selected, &profile, &request, &report).unwrap();
+        assert_eq!(
+            srg_result.relative_path,
+            "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-srg.jar"
+        );
+        assert_eq!(srg_result.official_sha1, srg_sha);
+        let slim_result = verified_minecraft_slim(&selected, &profile, &request, &report).unwrap();
+        assert_eq!(
+            slim_result.relative_path,
+            "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-slim.jar"
+        );
+        assert_eq!(slim_result.official_sha1, slim_sha);
+
+        fs::write(&srg, b"tampered").unwrap();
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        fs::write(&srg, srg_bytes).unwrap();
+        report.intermediate_evidence.clear();
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence.push(IntermediateEvidence {
+            producer_index: 1,
+            relative_path: "generated/client-srg.jar".into(),
+            observed_sha1: srg_sha.clone(),
+            size_bytes: srg_bytes.len() as u64,
+        });
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence[0].producer_index = 2;
+        report.intermediate_evidence[0].observed_sha1 = "f".repeat(40);
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence[0].observed_sha1 = srg_sha;
+        let mut wrong = request.clone();
+        wrong.processors[2].intermediate_outputs = vec!["generated/different.jar".into()];
+        assert!(verified_minecraft_srg(&selected, &profile, &wrong, &report).is_err());
+        report.verified_outputs.clear();
+        assert!(verified_minecraft_slim(&selected, &profile, &request, &report).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
