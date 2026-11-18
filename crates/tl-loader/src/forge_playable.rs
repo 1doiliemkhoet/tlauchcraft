@@ -200,6 +200,69 @@ fn path_is_within(base: &Path, path: &Path) -> bool {
     path != base && path.starts_with(base) && path.is_absolute()
 }
 
+/// The patched Minecraft+Forge client is an output of the official final
+/// binarypatcher processor. It is deliberately absent from version.json's
+/// declared Maven libraries, but FML requires it at this Maven coordinate.
+/// Accept only the output whose exact SHA-1 was pinned by install_profile.json.
+fn verified_patched_client(
+    selected: &PackForgeSelection,
+    profile: &Value,
+    request: &ProcessorRunRequest,
+    report: &ProcessorRunReport,
+) -> Result<VerifiedForgeLibrary, LoaderError> {
+    let pinned = profile["data"]["PATCHED_SHA"]["client"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("official PATCHED_SHA missing".into()))?
+        .trim_matches('\'');
+    let final_processor = request
+        .processors
+        .last()
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if final_processor.executable.coordinate != "net.minecraftforge:binarypatcher:1.0.12"
+        || final_processor.outputs.len() != 1
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let output = &final_processor.outputs[0];
+    if output.relative_path != "generated/forge-client.jar"
+        || !output.sha1.eq_ignore_ascii_case(pinned)
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "patched Forge client output differs from official processor contract".into(),
+        ));
+    }
+    let source = request.stage_root.join(&output.relative_path);
+    if !path_is_within(&request.stage_root, &source)
+        || !report
+            .verified_outputs
+            .iter()
+            .any(|verified| verified == &source)
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("patched Forge client missing: {e}")))?;
+    if !metadata.file_type().is_file() || metadata.len() == 0 {
+        return Err(LoaderError::InvalidMetadata(
+            "patched Forge client is empty, a symlink or not a regular file".into(),
+        ));
+    }
+    crate::runtime::verify_sha1(&source, pinned)?;
+    let forge_minecraft_version =
+        format!("{}-{}", selected.minecraft_version, selected.forge_version);
+    let relative_path = format!(
+        "net/minecraftforge/forge/{forge_minecraft_version}/forge-{forge_minecraft_version}-client.jar"
+    );
+    Ok(VerifiedForgeLibrary {
+        coordinate: format!("net.minecraftforge:forge:{forge_minecraft_version}:client"),
+        relative_path,
+        path: source,
+        official_sha1: pinned.to_owned(),
+        size_bytes: metadata.len(),
+        origin: ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
+    })
+}
+
 /// Bind a user-selected pack to the official installer, rather than silently
 /// continuing with a hardcoded fixture version.
 pub fn validate_forge_pack_selection(
@@ -463,6 +526,19 @@ pub fn verify_forge_runtime_for_pack(
             origin,
         });
     }
+    // A successful binarypatcher output is needed by FML at launch but is not
+    // listed in the installer/derived Maven library arrays. Include it in the
+    // trusted inventory so tl-pack copies, publishes and later re-hashes it.
+    let patched_client = verified_patched_client(selected, &official_profile, request, execution)?;
+    if libraries
+        .iter()
+        .any(|library| library.relative_path == patched_client.relative_path)
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "patched Forge client conflicts with a declared Maven library".into(),
+        ));
+    }
+    libraries.push(patched_client);
     let inherited = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
     if inherited["mainClass"] != "cpw.mods.modlauncher.Launcher" {
         return Err(LoaderError::CompatibilityConflict);
@@ -606,6 +682,77 @@ mod tests {
         let mut malformed = merged.clone();
         malformed["javaVersion"]["majorVersion"] = json!("8");
         assert!(forge_java8_launch_version(&malformed).is_err());
+    }
+
+    #[test]
+    fn final_forge_patch_is_a_checksum_verified_runtime_library() {
+        use crate::runtime::{ApprovedProcessor, ExpectedOutput, ProcessorOutcome};
+        use sha1::{Digest, Sha1};
+        let root =
+            std::env::temp_dir().join(format!("forge-patched-client-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let stage = root.join("forge-execution").join("test-op");
+        let output = stage.join("generated/forge-client.jar");
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        let content = b"synthetic checksum-verified Forge client output";
+        fs::write(&output, content).unwrap();
+        let hash = format!("{:x}", Sha1::digest(content));
+        let profile = json!({"data":{"PATCHED_SHA":{"client":format!("'{hash}'")}}});
+        let request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: stage.clone(),
+            processors: vec![ApprovedProcessor {
+                executable: VerifiedProcessorJar {
+                    coordinate: "net.minecraftforge:binarypatcher:1.0.12".into(),
+                    path: root.join("binarypatcher.jar"),
+                    sha1: "0".repeat(40),
+                    source: String::new(),
+                },
+                classpath: vec![],
+                main_class: "net.minecraftforge.binarypatcher.ConsoleTool".into(),
+                arguments: vec![],
+                outputs: vec![ExpectedOutput {
+                    relative_path: "generated/forge-client.jar".into(),
+                    sha1: hash.clone(),
+                }],
+                intermediate_outputs: vec![],
+            }],
+            timeout_seconds: 180,
+        };
+        let report = ProcessorRunReport {
+            outcome: ProcessorOutcome::Verified,
+            completed: 1,
+            exit_codes: vec![Some(0)],
+            log_paths: vec![],
+            verified_outputs: vec![output.clone()],
+            intermediate_evidence: vec![],
+            error: None,
+        };
+        let accepted =
+            verified_patched_client(&selected("36.2.29"), &profile, &request, &report).unwrap();
+        assert_eq!(
+            accepted.relative_path,
+            "net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-client.jar"
+        );
+        assert_eq!(accepted.path, output);
+        assert_eq!(accepted.official_sha1, hash);
+        assert!(accepted.size_bytes > 0);
+
+        fs::write(&accepted.path, b"tampered patch").unwrap();
+        assert!(
+            verified_patched_client(&selected("36.2.29"), &profile, &request, &report).is_err()
+        );
+        fs::write(&accepted.path, content).unwrap();
+        let missing_proof = ProcessorRunReport {
+            verified_outputs: vec![],
+            ..report.clone()
+        };
+        assert!(
+            verified_patched_client(&selected("36.2.29"), &profile, &request, &missing_proof)
+                .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
