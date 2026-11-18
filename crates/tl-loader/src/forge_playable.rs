@@ -78,6 +78,8 @@ pub struct VerifiedForgeLibrary {
     /// Official immutable Maven-relative destination under Chat 4's new instance.
     pub relative_path: String,
     pub path: PathBuf,
+    /// Integrity SHA-1: upstream pinned for Maven/installer outputs; for
+    /// SpecialSource SRG only, observed from the approved processor run.
     pub official_sha1: String,
     pub size_bytes: u64,
     pub origin: ForgeLibraryOrigin,
@@ -336,6 +338,150 @@ fn verified_minecraft_extra(
         size_bytes: metadata.len(),
         origin: ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
     })
+}
+
+/// jarsplitter produces both SLIM and EXTRA resources, each with an upstream
+/// SHA-1 pinned in install_profile.json. Neither appears as a Maven dependency
+/// in the standard version JSON, yet they are useful immutable runtime outputs.
+fn verified_minecraft_slim(
+    selected: &PackForgeSelection,
+    profile: &Value,
+    request: &ProcessorRunRequest,
+    report: &ProcessorRunReport,
+) -> Result<VerifiedForgeLibrary, LoaderError> {
+    let pinned = profile["data"]["MC_SLIM_SHA"]["client"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("official MC_SLIM_SHA missing".into()))?
+        .trim_matches('\'');
+    let mcp_version = official_mcp_version(profile)?;
+    let splitter = request
+        .processors
+        .get(1)
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
+        || splitter.outputs.len() != 2
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let output = splitter
+        .outputs
+        .iter()
+        .find(|output| output.relative_path == "generated/client-slim.jar")
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if !output.sha1.eq_ignore_ascii_case(pinned) {
+        return Err(LoaderError::InvalidMetadata(
+            "jarsplitter slim SHA-1 differs from official installer".into(),
+        ));
+    }
+    let source = request.stage_root.join(&output.relative_path);
+    if !path_is_within(&request.stage_root, &source)
+        || !report
+            .verified_outputs
+            .iter()
+            .any(|verified| verified == &source)
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client slim missing: {e}")))?;
+    if !metadata.file_type().is_file() || metadata.len() == 0 {
+        return Err(LoaderError::InvalidMetadata(
+            "Minecraft client slim JAR is not a nonempty regular file".into(),
+        ));
+    }
+    crate::runtime::verify_sha1(&source, pinned)?;
+    let version = format!("{}-{mcp_version}", selected.minecraft_version);
+    Ok(VerifiedForgeLibrary {
+        coordinate: format!("net.minecraft:client:{version}:slim"),
+        relative_path: format!("net/minecraft/client/{version}/client-{version}-slim.jar"),
+        path: source,
+        official_sha1: pinned.to_owned(),
+        size_bytes: metadata.len(),
+        origin: ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
+    })
+}
+
+/// The SpecialSource processor's --out-jar is a generated INTERMEDIATE.
+/// Forge's official profile does NOT provide an expected MC_SRG_SHA; the
+/// runner records an observed SHA-1 after executing this approved processor.
+/// Bind that evidence to its exact output identity, then re-hash the same
+/// immutable bytes at publication and Play. Do not claim this SHA-1 is upstream.
+fn verified_minecraft_srg(
+    selected: &PackForgeSelection,
+    profile: &Value,
+    request: &ProcessorRunRequest,
+    report: &ProcessorRunReport,
+) -> Result<VerifiedForgeLibrary, LoaderError> {
+    let mcp_version = official_mcp_version(profile)?;
+    let processor = request
+        .processors
+        .get(2)
+        .ok_or(LoaderError::NeedsInstallerExecution)?;
+    if processor.executable.coordinate != "net.md-5:SpecialSource:1.8.5"
+        || !processor.outputs.is_empty()
+        || processor.intermediate_outputs.len() != 1
+        || processor.intermediate_outputs[0] != "generated/client-srg.jar"
+    {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let matches = report
+        .intermediate_evidence
+        .iter()
+        .filter(|item| item.producer_index == 2 && item.relative_path == "generated/client-srg.jar")
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(LoaderError::NeedsInstallerExecution);
+    }
+    let evidence = matches[0];
+    if evidence.size_bytes == 0
+        || evidence.observed_sha1.len() != 40
+        || !evidence
+            .observed_sha1
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "SpecialSource observed SRG identity/digest invalid".into(),
+        ));
+    }
+    let source = request.stage_root.join(&evidence.relative_path);
+    if !path_is_within(&request.stage_root, &source) {
+        return Err(LoaderError::InvalidInput);
+    }
+    let metadata = fs::symlink_metadata(&source)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client SRG missing: {e}")))?;
+    if !metadata.file_type().is_file() || metadata.len() != evidence.size_bytes {
+        return Err(LoaderError::InvalidMetadata(
+            "Minecraft client SRG size or file type differs from processor evidence".into(),
+        ));
+    }
+    crate::runtime::verify_sha1(&source, &evidence.observed_sha1)?;
+    let version = format!("{}-{mcp_version}", selected.minecraft_version);
+    Ok(VerifiedForgeLibrary {
+        coordinate: format!("net.minecraft:client:{version}:srg"),
+        relative_path: format!("net/minecraft/client/{version}/client-{version}-srg.jar"),
+        path: source,
+        // Stored as a digest for independent rehash, NOT an official pinned SHA.
+        official_sha1: evidence.observed_sha1.clone(),
+        size_bytes: metadata.len(),
+        origin: ForgeLibraryOrigin::VerifiedInstallerOrProcessor,
+    })
+}
+
+fn official_mcp_version(profile: &Value) -> Result<&str, LoaderError> {
+    let mcp_version = profile["data"]["MCP_VERSION"]["client"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("official MCP_VERSION missing".into()))?
+        .trim_matches('\'');
+    if mcp_version.is_empty()
+        || mcp_version.len() > 64
+        || !mcp_version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "unsafe official MCP version".into(),
+        ));
+    }
+    Ok(mcp_version)
 }
 
 /// Bind a user-selected pack to the official installer, rather than silently
@@ -625,6 +771,22 @@ pub fn verify_forge_runtime_for_pack(
         ));
     }
     libraries.push(minecraft_extra);
+    // Audit the full set of client generated JARs now, rather than allowing
+    // FML to discover one missing resource per operator launch attempt.
+    for generated in [
+        verified_minecraft_slim(selected, &official_profile, request, execution)?,
+        verified_minecraft_srg(selected, &official_profile, request, execution)?,
+    ] {
+        if libraries
+            .iter()
+            .any(|library| library.relative_path == generated.relative_path)
+        {
+            return Err(LoaderError::InvalidMetadata(
+                "Minecraft generated resource collides with Maven inventory".into(),
+            ));
+        }
+        libraries.push(generated);
+    }
     let inherited = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
     if inherited["mainClass"] != "cpw.mods.modlauncher.Launcher" {
         return Err(LoaderError::CompatibilityConflict);
@@ -768,6 +930,116 @@ mod tests {
         let mut malformed = merged.clone();
         malformed["javaVersion"]["majorVersion"] = json!("8");
         assert!(forge_java8_launch_version(&malformed).is_err());
+    }
+
+    #[test]
+    fn client_srg_and_slim_outputs_require_real_processor_evidence() {
+        use crate::runtime::{
+            ApprovedProcessor, ExpectedOutput, IntermediateEvidence, ProcessorOutcome,
+        };
+        use sha1::{Digest, Sha1};
+        let root =
+            std::env::temp_dir().join(format!("forge-generated-srg-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let stage = root.join("forge-execution").join("test-op");
+        fs::create_dir_all(stage.join("generated")).unwrap();
+        let srg = stage.join("generated/client-srg.jar");
+        let slim = stage.join("generated/client-slim.jar");
+        let srg_bytes = b"SpecialSource generated SRG intermediate";
+        let slim_bytes = b"official jarsplitter SLIM output";
+        fs::write(&srg, srg_bytes).unwrap();
+        fs::write(&slim, slim_bytes).unwrap();
+        let srg_sha = format!("{:x}", Sha1::digest(srg_bytes));
+        let slim_sha = format!("{:x}", Sha1::digest(slim_bytes));
+        let profile = json!({"data":{
+            "MCP_VERSION":{"client":"'20210115.111550'"},
+            "MC_SLIM_SHA":{"client":format!("'{slim_sha}'")}
+        }});
+        let processor = |coordinate: &str| ApprovedProcessor {
+            executable: VerifiedProcessorJar {
+                coordinate: coordinate.into(),
+                path: root.join("processor.jar"),
+                sha1: "a".repeat(40),
+                source: String::new(),
+            },
+            classpath: vec![],
+            main_class: "example.Processor".into(),
+            arguments: vec![],
+            outputs: vec![],
+            intermediate_outputs: vec![],
+        };
+        let mut request = ProcessorRunRequest {
+            minecraft_version: "1.16.5".into(),
+            java: root.join("java.exe"),
+            stage_root: stage,
+            processors: vec![
+                processor("net.minecraftforge:installertools:1.2.6"),
+                processor("net.minecraftforge:jarsplitter:1.1.4"),
+                processor("net.md-5:SpecialSource:1.8.5"),
+            ],
+            timeout_seconds: 180,
+        };
+        request.processors[1].outputs = vec![
+            ExpectedOutput {
+                relative_path: "generated/client-extra.jar".into(),
+                sha1: "a".repeat(40),
+            },
+            ExpectedOutput {
+                relative_path: "generated/client-slim.jar".into(),
+                sha1: slim_sha.clone(),
+            },
+        ];
+        request.processors[2].intermediate_outputs = vec!["generated/client-srg.jar".into()];
+        let mut report = ProcessorRunReport {
+            outcome: ProcessorOutcome::Verified,
+            completed: 3,
+            exit_codes: vec![Some(0); 3],
+            log_paths: vec![],
+            verified_outputs: vec![slim.clone()],
+            intermediate_evidence: vec![IntermediateEvidence {
+                producer_index: 2,
+                relative_path: "generated/client-srg.jar".into(),
+                observed_sha1: srg_sha.clone(),
+                size_bytes: srg_bytes.len() as u64,
+            }],
+            error: None,
+        };
+        let selected = selected("36.2.29");
+        let srg_result = verified_minecraft_srg(&selected, &profile, &request, &report).unwrap();
+        assert_eq!(
+            srg_result.relative_path,
+            "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-srg.jar"
+        );
+        assert_eq!(srg_result.official_sha1, srg_sha);
+        let slim_result = verified_minecraft_slim(&selected, &profile, &request, &report).unwrap();
+        assert_eq!(
+            slim_result.relative_path,
+            "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-slim.jar"
+        );
+        assert_eq!(slim_result.official_sha1, slim_sha);
+
+        fs::write(&srg, b"tampered").unwrap();
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        fs::write(&srg, srg_bytes).unwrap();
+        report.intermediate_evidence.clear();
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence.push(IntermediateEvidence {
+            producer_index: 1,
+            relative_path: "generated/client-srg.jar".into(),
+            observed_sha1: srg_sha.clone(),
+            size_bytes: srg_bytes.len() as u64,
+        });
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence[0].producer_index = 2;
+        report.intermediate_evidence[0].observed_sha1 = "f".repeat(40);
+        assert!(verified_minecraft_srg(&selected, &profile, &request, &report).is_err());
+        report.intermediate_evidence[0].observed_sha1 = srg_sha;
+        let mut wrong = request.clone();
+        wrong.processors[2].intermediate_outputs = vec!["generated/different.jar".into()];
+        assert!(verified_minecraft_srg(&selected, &profile, &wrong, &report).is_err());
+        report.verified_outputs.clear();
+        assert!(verified_minecraft_slim(&selected, &profile, &request, &report).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
