@@ -135,7 +135,11 @@ pub fn installer_plan(
     };
     Ok(LoaderPlan {
         loader: spec.clone(),
-        version_id: format!("{}-{}-{}", match &spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, minecraft_version, loader_version),
+        version_id: match &spec.kind {
+            LoaderKind::Forge => format!("{minecraft_version}-forge-{loader_version}"),
+            LoaderKind::NeoForge => format!("neoforge-{loader_version}"),
+            _ => return Err(LoaderError::InvalidInput),
+        },
         inherits_from: minecraft_version.to_owned(),
         main_class: None,
         libraries: vec![],
