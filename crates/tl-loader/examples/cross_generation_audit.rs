@@ -23,25 +23,39 @@ fn inspect() -> Result<(), String> {
             let release = tl_loader::loader_matrix::reviewed_cross_generation(&args[2], &args[3])
                 .map_err(|e| e.to_string())?;
             let proof = inspect_reviewed_installer(
-                &args[2], &args[3], release.installer_sha1, &profile, &version
-            ).map_err(|e| e.to_string())?;
+                &args[2],
+                &args[3],
+                release.installer_sha1,
+                &profile,
+                &version,
+            )
+            .map_err(|e| e.to_string())?;
             if proof.instance_ready || proof.ready_to_execute {
                 return Err("metadata inspection incorrectly granted execution or READY".into());
             }
-            println!("FORGE_OFFICIAL_RUST_INSPECTION_PASS mc={} loader={} java={} processors={}",
-                args[2], args[3], proof.java_major, proof.selected_processor_count);
+            println!(
+                "FORGE_OFFICIAL_RUST_INSPECTION_PASS mc={} loader={} java={} processors={}",
+                args[2], args[3], proof.java_major, proof.selected_processor_count
+            );
         }
         "neoforge" => {
             let release = tl_loader::loader_matrix::neoforge_candidate(&args[2], &args[3])
                 .map_err(|e| e.to_string())?;
             let proof = inspect_reviewed_neoforge(
-                &args[2], &args[3], release.installer_sha1, &profile, &version
-            ).map_err(|e| e.to_string())?;
+                &args[2],
+                &args[3],
+                release.installer_sha1,
+                &profile,
+                &version,
+            )
+            .map_err(|e| e.to_string())?;
             if proof.instance_ready || proof.ready_to_execute {
                 return Err("metadata inspection incorrectly granted execution or READY".into());
             }
-            println!("NEOFORGE_OFFICIAL_RUST_INSPECTION_PASS mc={} loader={} java={} processors={}",
-                args[2], args[3], proof.java_major, proof.selected_processors);
+            println!(
+                "NEOFORGE_OFFICIAL_RUST_INSPECTION_PASS mc={} loader={} java={} processors={}",
+                args[2], args[3], proof.java_major, proof.selected_processors
+            );
         }
         _ => return Err("unknown loader kind".into()),
     }
