@@ -139,7 +139,10 @@ fn neoforge_only_plans_explicit_candidate_and_never_publishes() {
     assert_eq!(candidate.required_java_major, 21);
     assert!(!candidate.ready_for_metadata_merge);
     assert!(candidate.main_class.is_none());
-    assert!(candidate.installer.unwrap().expected_sha1.is_none());
+    assert_eq!(
+        candidate.installer.unwrap().expected_sha1.as_deref(),
+        Some("191c8211ffd2d8e754359d15e96a0441a66f2eac")
+    );
     assert!(matches!(
         NeoForge.plan(
             "1.20.1",
