@@ -418,7 +418,7 @@ fn verified_minecraft_srg(
         .get(2)
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if processor.executable.coordinate != "net.md-5:SpecialSource:1.8.5"
-        || processor.outputs.len() != 0
+        || !processor.outputs.is_empty()
         || processor.intermediate_outputs.len() != 1
         || processor.intermediate_outputs[0] != "generated/client-srg.jar"
     {
