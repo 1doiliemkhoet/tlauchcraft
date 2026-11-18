@@ -5,6 +5,8 @@ on:
     branches: [feat/p0-multiversion-forge-family-20261118]
     paths:
       - '.github/workflows/forge-family-audit.yml'
+      - 'crates/tl-loader/src/forge_family.rs'
+      - 'crates/tl-loader/examples/forge_family_audit.rs'
   workflow_dispatch:
 
 permissions:
@@ -13,13 +15,13 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Fetch and audit official pinned installers (metadata only; no execution)
         shell: python
         run: |
-          import hashlib, io, json, urllib.request, zipfile
+          import hashlib, io, json, pathlib, urllib.request, zipfile
           releases = [
               ("36.2.29", "7d247279cf06eed6ffcf609f36d11e34c70350f3"),
               ("36.2.34", "ab306b654c44d659ce69da5d4f87590b66dc91e8"),
@@ -36,6 +38,10 @@ jobs:
               with zipfile.ZipFile(io.BytesIO(blob)) as z:
                   profile_bytes=z.read("install_profile.json")
                   version_bytes=z.read("version.json")
+                  path=pathlib.Path("target/forge-family-audit")/version
+                  path.mkdir(parents=True,exist_ok=True)
+                  (path/"install_profile.json").write_bytes(profile_bytes)
+                  (path/"version.json").write_bytes(version_bytes)
                   p=json.loads(profile_bytes)
                   v=json.loads(version_bytes)
                   print("RELEASE",version,"sha1",digest,"size",len(blob))
@@ -56,3 +62,14 @@ jobs:
                   assert len(p.get("processors",[]))<=16
                   assert v.get("inheritsFrom")=="1.16.5"
           print("OFFICIAL_FORGE_FAMILY_METADATA_AUDIT_PASS")
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate all three actual official metadata pairs with tl-loader Rust policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for version in 36.2.29 36.2.34 36.2.42; do
+            cargo run --locked -p tl-loader --example forge_family_audit -- \
+              1.16.5 "$version" \
+              "target/forge-family-audit/$version/install_profile.json" \
+              "target/forge-family-audit/$version/version.json"
+          done
