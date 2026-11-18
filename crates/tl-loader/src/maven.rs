@@ -48,6 +48,24 @@ pub fn artifact(
     })
 }
 
+/// Validate a Maven JAR path provided by an already approved loader plan.
+/// A profile cannot substitute a relative traversal for a published coordinate.
+pub fn artifact_path_from_relative(relative: &str) -> Result<(), LoaderError> {
+    if relative.is_empty()
+        || relative.len() > 1024
+        || !relative.ends_with(".jar")
+        || relative.starts_with('/')
+        || relative.contains('\\')
+        || relative.contains(':')
+    {
+        return Err(LoaderError::InvalidInput);
+    }
+    for component in relative.split('/') {
+        validate_component(component)?;
+    }
+    Ok(())
+}
+
 /// Official Maven XML catalog. Parser is deliberately network-free.
 pub fn parse_catalog(xml: &str) -> Result<Vec<String>, LoaderError> {
     let doc =
