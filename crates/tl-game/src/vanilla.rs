@@ -530,7 +530,16 @@ pub fn build_vanilla_launch(
     }
     let required = required_java(version)?;
     probe_java(&paths.java, required)?;
-    let planned = plan_version(version, &paths.root, &env)?;
+    // Forge's previously published receipts may contain both Mojang's
+    // legacy library and a newer Forge override. Rehash/published metadata
+    // stays immutable; remove shadowed Maven versions from the Java classpath
+    // of the launch view only, so old instances do not need another import.
+    let launch_libraries = if version["mainClass"] == "cpw.mods.modlauncher.Launcher" {
+        crate::effective_launch_libraries(version)?
+    } else {
+        version.clone()
+    };
+    let planned = plan_version(&launch_libraries, &paths.root, &env)?;
     let client = planned
         .iter()
         .find(|p| p.role == FileRole::ClientJar)

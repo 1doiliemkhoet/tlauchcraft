@@ -102,8 +102,61 @@ pub fn permitted(rules: Option<&Value>, env: &Environment) -> bool {
     result
 }
 
-/// Parent and child metadata merge: parent libraries first, child overrides matching 'name';
-/// argument arrays append, while scalar/object settings prefer the child.
+/// Maven libraries with the same group, artifact and classifier must not
+/// coexist on one Java classpath just because their versions differ. The
+/// classifier is preserved: native-only JARs are distinct from the base JAR.
+fn maven_conflict_key(name: &str) -> Option<(&str, &str, Option<&str>)> {
+    let mut parts = name.split(':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts.next()?;
+    let classifier = parts.next();
+    if group.is_empty()
+        || artifact.is_empty()
+        || version.is_empty()
+        || classifier.is_some_and(str::is_empty)
+        || parts.next().is_some()
+    {
+        return None;
+    }
+    Some((group, artifact, classifier))
+}
+
+/// Construct a launch-only metadata view for already published historical
+/// instances whose serialized library list contains shadowed versions.
+/// The immutable published receipt and on-disk library hashes are untouched.
+/// An inherited child library appears later than its parent; keep the last
+/// artifact with the same Maven group, name and classifier.
+pub fn effective_launch_libraries(version: &Value) -> Result<Value, GameError> {
+    let libraries = version["libraries"]
+        .as_array()
+        .ok_or_else(|| GameError::InvalidInput("launch libraries must be an array".into()))?;
+    let mut last = HashMap::new();
+    for (index, lib) in libraries.iter().enumerate() {
+        if let Some(key) = lib["name"].as_str().and_then(maven_conflict_key) {
+            last.insert(key, index);
+        }
+    }
+    let mut effective = version.clone();
+    effective["libraries"] = Value::Array(
+        libraries
+            .iter()
+            .enumerate()
+            .filter(|(index, lib)| {
+                lib["name"]
+                    .as_str()
+                    .and_then(maven_conflict_key)
+                    .is_none_or(|key| last.get(&key) == Some(index))
+            })
+            .map(|(_, lib)| lib.clone())
+            .collect(),
+    );
+    Ok(effective)
+}
+
+/// Parent and child metadata merge: parent libraries first, child overrides
+/// the same Maven group:artifact:classifier even with a different version.
+/// Arguments append; scalar/object settings prefer the child.
 pub fn inherit(parent: &Value, child: &Value) -> Result<Value, GameError> {
     let mut merged = parent.clone();
     let base = merged
@@ -124,7 +177,19 @@ pub fn inherit(parent: &Value, child: &Value) -> Result<Value, GameError> {
                 .ok_or_else(|| GameError::InvalidInput("libraries must be array".into()))?
             {
                 if let Some(name) = lib.get("name") {
-                    libs.retain(|old| old.get("name") != Some(name));
+                    let conflict_key = name.as_str().and_then(maven_conflict_key);
+                    libs.retain(|old| {
+                        if old.get("name") == Some(name) {
+                            return false;
+                        }
+                        let old_key = old
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .and_then(maven_conflict_key);
+                        // For an unparseable or synthetic library name, retain
+                        // the legacy exact-name replacement behavior.
+                        conflict_key.is_none() || old_key != conflict_key
+                    });
                 }
                 libs.push(lib.clone());
             }
@@ -617,6 +682,80 @@ mod tests {
         v.insert("p".into(), json!({"inheritsFrom":"c"}));
         assert!(resolve_version("c", &v).is_err());
     }
+    #[test]
+    fn old_published_forge_receipt_gets_safe_launch_only_library_view() {
+        let published = json!({
+            "mainClass":"cpw.mods.modlauncher.Launcher",
+            "libraries":[
+                {"name":"org.apache.logging.log4j:log4j-core:2.8.1"},
+                {"name":"org.apache.logging.log4j:log4j-api:2.8.1"},
+                {"name":"org.lwjgl:lwjgl:3.2.2:natives-windows"},
+                {"name":"org.apache.logging.log4j:log4j-core:2.15.0"},
+                {"name":"org.apache.logging.log4j:log4j-api:2.15.0"}
+            ]
+        });
+        let effective = effective_launch_libraries(&published).unwrap();
+        let names = effective["libraries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                "org.lwjgl:lwjgl:3.2.2:natives-windows",
+                "org.apache.logging.log4j:log4j-core:2.15.0",
+                "org.apache.logging.log4j:log4j-api:2.15.0"
+            ]
+        );
+        assert_eq!(published["libraries"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn derived_maven_version_shadows_parent_not_both_on_classpath() {
+        let parent = json!({
+            "id":"1.16.5",
+            "libraries":[
+                {"name":"org.apache.logging.log4j:log4j-core:2.8.1"},
+                {"name":"org.apache.logging.log4j:log4j-api:2.8.1"},
+                {"name":"org.lwjgl:lwjgl:3.2.2"},
+                {"name":"org.lwjgl:lwjgl:3.2.2:natives-windows"},
+                {"name":"com.example:unrelated:1.0"}
+            ]
+        });
+        let child = json!({
+            "id":"1.16.5-forge-36.2.29",
+            "libraries":[
+                {"name":"org.apache.logging.log4j:log4j-api:2.15.0"},
+                {"name":"org.apache.logging.log4j:log4j-core:2.15.0"},
+                {"name":"org.lwjgl:lwjgl:3.3.0"}
+            ]
+        });
+        let libs = inherit(&parent, &child).unwrap()["libraries"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let names = libs
+            .iter()
+            .map(|v| v["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(!names.contains(&"org.apache.logging.log4j:log4j-core:2.8.1"));
+        assert!(!names.contains(&"org.apache.logging.log4j:log4j-api:2.8.1"));
+        assert!(names.contains(&"org.apache.logging.log4j:log4j-core:2.15.0"));
+        assert!(names.contains(&"org.apache.logging.log4j:log4j-api:2.15.0"));
+        assert_eq!(
+            names.iter().filter(|v| v.contains("log4j-core:")).count(),
+            1
+        );
+        assert_eq!(names.iter().filter(|v| v.contains("log4j-api:")).count(), 1);
+        assert!(names.contains(&"org.lwjgl:lwjgl:3.3.0"));
+        // Classifier-specific native artifacts must survive a version override.
+        assert!(names.contains(&"org.lwjgl:lwjgl:3.2.2:natives-windows"));
+        assert!(names.contains(&"com.example:unrelated:1.0"));
+        assert!(!names.contains(&"org.lwjgl:lwjgl:3.2.2"));
+    }
+
     #[test]
     fn java_versions() {
         assert_eq!(parse_java_major("java version \"1.8.0_321\"").unwrap(), 8);
