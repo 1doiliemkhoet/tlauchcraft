@@ -129,7 +129,9 @@ pub fn installer_plan(
                     .map(|r| r.installer_sha1.to_owned())
             })
     } else {
-        None
+        crate::loader_matrix::neoforge_candidate(minecraft_version, loader_version)
+            .ok()
+            .map(|r| r.installer_sha1.to_owned())
     };
     Ok(LoaderPlan {
         loader: spec.clone(),
