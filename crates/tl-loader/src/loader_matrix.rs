@@ -158,12 +158,14 @@ pub struct NeoForgeCandidate {
     pub minecraft: &'static str,
     pub version: &'static str,
     pub java_major: u32,
+    pub installer_sha1: &'static str,
 }
 pub const NEOFORGE_CANDIDATES: &[NeoForgeCandidate] = &[
     NeoForgeCandidate {
         minecraft: "1.21.1",
         version: "21.1.80",
         java_major: 21,
+        installer_sha1: "191c8211ffd2d8e754359d15e96a0441a66f2eac",
     },
 ];
 pub fn neoforge_candidate(
@@ -176,6 +178,59 @@ pub fn neoforge_candidate(
         .ok_or_else(|| LoaderError::UnsupportedVersion(format!(
             "NeoForge {version} / Minecraft {minecraft}: no reviewed candidate"
         )))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeoForgeInspection {
+    pub minecraft_version: String,
+    pub neoforge_version: String,
+    pub java_major: u32,
+    pub selected_processors: usize,
+    pub ready_to_execute: bool,
+    pub instance_ready: bool,
+}
+
+/// Inspect JSON extracted from a verified, exactly pinned NeoForge installer.
+/// A valid metadata graph still requires an audited Windows Java runner
+/// and immutable publication; it never authorizes arbitrary processor main classes.
+pub fn inspect_reviewed_neoforge(
+    minecraft: &str,
+    version: &str,
+    observed_installer_sha1: &str,
+    profile_json: &str,
+    derived_json: &str,
+) -> Result<NeoForgeInspection, LoaderError> {
+    let candidate = neoforge_candidate(minecraft, version)?;
+    if !candidate
+        .installer_sha1
+        .eq_ignore_ascii_case(observed_installer_sha1)
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "NeoForge archive SHA-1 differs from reviewed official release".into(),
+        ));
+    }
+    let profile: Value = serde_json::from_str(profile_json)
+        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let derived: Value = serde_json::from_str(derived_json)
+        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let exact_id = format!("neoforge-{version}");
+    if profile["version"] != exact_id
+        || derived["id"] != exact_id
+        || profile["minecraft"] != minecraft
+        || derived["inheritsFrom"] != minecraft
+        || derived["mainClass"] != "cpw.mods.bootstraplauncher.BootstrapLauncher"
+    {
+        return Err(LoaderError::CompatibilityConflict);
+    }
+    let steps = installer::inspect_install_profile(profile_json, minecraft)?;
+    Ok(NeoForgeInspection {
+        minecraft_version: minecraft.into(),
+        neoforge_version: version.into(),
+        java_major: candidate.java_major,
+        selected_processors: steps.processors.len(),
+        ready_to_execute: false,
+        instance_ready: false,
+    })
 }
 
 #[cfg(test)]
@@ -222,8 +277,23 @@ mod tests {
         assert!(inspect_reviewed_installer("1.12.2", "14.23.5.2860", release.installer_sha1, malicious, version).is_err());
     }
     #[test]
+    fn neoforge_verified_metadata_still_needs_approved_runtime_execution() {
+        let p = r#"{"minecraft":"1.21.1","version":"neoforge-21.1.80","processors":[{"jar":"net.minecraftforge:installertools:2.1.1","sides":["client"],"args":["--task","EXTRACT_FILES"]}]}"#;
+        let v = r#"{"id":"neoforge-21.1.80","inheritsFrom":"1.21.1","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher"}"#;
+        let release = neoforge_candidate("1.21.1", "21.1.80").unwrap();
+        let inspected = inspect_reviewed_neoforge("1.21.1", "21.1.80", release.installer_sha1, p, v).unwrap();
+        assert_eq!(inspected.java_major, 21);
+        assert_eq!(inspected.selected_processors, 1);
+        assert!(!inspected.ready_to_execute);
+        assert!(!inspected.instance_ready);
+        assert!(inspect_reviewed_neoforge("1.21.1", "21.1.80", &"0".repeat(40), p, v).is_err());
+        assert!(inspect_reviewed_neoforge("1.20.4", "21.1.80", release.installer_sha1, p, v).is_err());
+    }
+    #[test]
     fn neoforge_candidates_are_exact_and_not_wildcard_versions() {
-        assert_eq!(neoforge_candidate("1.21.1", "21.1.80").unwrap().java_major, 21);
+        let release = neoforge_candidate("1.21.1", "21.1.80").unwrap();
+        assert_eq!(release.java_major, 21);
+        assert_eq!(release.installer_sha1, "191c8211ffd2d8e754359d15e96a0441a66f2eac");
         assert!(neoforge_candidate("1.20.1", "21.1.80").is_err());
         assert!(neoforge_candidate("1.21.1", "21.1.81").is_err());
     }
