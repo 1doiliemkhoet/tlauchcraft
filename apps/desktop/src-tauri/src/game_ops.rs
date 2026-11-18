@@ -121,6 +121,103 @@ pub fn instance_create_vanilla(req:NewVanillaInstance)->Result<GameInstance,Stri
     store.create_instance(&instance).map_err(|e|e.to_string())?;
     Ok(instance)
 }
+/// Removing an instance always preserves its private data (including saves)
+/// in app-local deleted-instances/<uuid>, allowing manual recovery. The original
+/// CurseForge installation is never used as a deletion target.
+#[derive(Serialize)]
+pub struct RemovedInstance {
+    pub id: String,
+    pub archived_path: Option<String>,
+}
+
+fn archive_instance_directory(i:&GameInstance)->Result<Option<PathBuf>,String> {
+    let base=default_data_dir().map_err(|e|e.to_string())?;
+    let source=root(i)?;
+    if source != base.join("instances").join(i.id.to_string()) {
+        return Err("Instance removal refused unsafe or unexpected root".into());
+    }
+    match fs::symlink_metadata(&source) {
+        Err(error) if error.kind()==std::io::ErrorKind::NotFound=>return Ok(None),
+        Err(error)=>return Err(format!("Unable to inspect instance directory: {error}")),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink()=>
+            return Err("Instance removal requires a regular private directory".into()),
+        _=>{}
+    }
+    let parent=base.join("deleted-instances");
+    if parent.exists() {
+        let metadata=fs::symlink_metadata(&parent).map_err(|e|e.to_string())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Unsafe deleted-instances directory".into());
+        }
+    } else {
+        fs::create_dir(&parent).map_err(|e|e.to_string())?;
+    }
+    let target=parent.join(i.id.to_string());
+    if fs::symlink_metadata(&target).is_ok() {
+        return Err("Deleted instance backup already exists; refusing overwrite".into());
+    }
+    fs::rename(&source,&target).map_err(|e|format!("Unable to archive instance: {e}"))?;
+    Ok(Some(target))
+}
+
+#[tauri::command]
+pub async fn instance_remove(
+    state:State<'_,Arc<GameState>>,
+    instance_id:String,
+    confirm_instance_id:String
+)->Result<RemovedInstance,String>{
+    let shared=state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move ||
+        remove_instance_work(shared,&instance_id,&confirm_instance_id)
+    ).await.map_err(|e|e.to_string())?
+}
+
+fn remove_instance_work(
+    state:Arc<GameState>,instance_id:&str,confirm_instance_id:&str
+)->Result<RemovedInstance,String>{
+    let uuid=id(instance_id)?;
+    if confirm_instance_id!=uuid.to_string() {
+        return Err("Confirmation ID must exactly match the selected instance".into());
+    }
+    let instance=find_instance(uuid)?;
+    // A pending install or Forge publish may still own private files.
+    if !matches!(instance.state,InstanceState::Empty|InstanceState::Ready|
+        InstanceState::NeedsAction|InstanceState::Failed|InstanceState::Cancelled) {
+        return Err("Cannot remove an instance while install or publication is pending".into());
+    }
+    let installs=state.installs.lock().map_err(|_|"Install lock poisoned")?;
+    if installs.contains_key(&uuid) {
+        return Err("Cannot remove an instance while its install worker is active".into());
+    }
+    let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
+    if let Some(child)=children.get_mut(&uuid) {
+        if child.try_wait().map_err(|e|e.to_string())?.is_none() {
+            return Err("Stop the running Minecraft process before removing its instance".into());
+        }
+        children.remove(&uuid);
+    }
+    let archived=archive_instance_directory(&instance)?;
+    let mut store=db()?;
+    if let Err(error)=store.delete_instance_record(uuid) {
+        if let Some(ref path)=archived {
+            let original=root(&instance)?;
+            if let Err(restore_error)=fs::rename(path,&original) {
+                return Err(format!(
+                    "SQLite removal failed ({error}); recovery archive at {} (restore failed: {restore_error})",
+                    path.display()
+                ));
+            }
+        }
+        return Err(format!("SQLite instance removal failed: {error}"));
+    }
+    drop(children);
+    drop(installs);
+    Ok(RemovedInstance{
+        id:uuid.to_string(),
+        archived_path:archived.map(|p|p.to_string_lossy().into_owned())
+    })
+}
+
 fn game_dir_for(root:&Path)->PathBuf {
     // Vanilla's established world location remains untouched.
     root.join("game")
