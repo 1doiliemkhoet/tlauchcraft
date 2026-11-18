@@ -115,8 +115,7 @@ fn require_minecraft_extra(
         return Err("Forge MCP version is unsafe or ambiguous".into());
     }
     let version = format!("{minecraft}-{mcp_version}");
-    let required =
-        format!("libraries/net/minecraft/client/{version}/client-{version}-extra.jar");
+    let required = format!("libraries/net/minecraft/client/{version}/client-{version}-extra.jar");
     if !libraries.iter().any(|lib| {
         lib.relative_path == required
             && lib.size_bytes > 0
@@ -570,7 +569,11 @@ fn publish_with_mod_evidence(
         &pack.game_version,
         &evidence.selection.forge_version,
     )?;
-    require_minecraft_extra(&libraries, &runtime.java8_launch_version, &pack.game_version)?;
+    require_minecraft_extra(
+        &libraries,
+        &runtime.java8_launch_version,
+        &pack.game_version,
+    )?;
     let overrides = verify_original_overrides(stage, source_archive, pack)?;
     verify_natives(stage, "natives")?;
     let native_dlls = collect_verified_natives(stage)?;
@@ -876,7 +879,10 @@ mod tests {
             ..extra.clone()
         };
         assert!(require_minecraft_extra(&[altered], &profile_version, "1.16.5").is_err());
-        let no_sha = InstalledForgeLibrary {official_sha1:String::new(),..extra};
+        let no_sha = InstalledForgeLibrary {
+            official_sha1: String::new(),
+            ..extra
+        };
         assert!(require_minecraft_extra(&[no_sha], &profile_version, "1.16.5").is_err());
         let unsafe_version = serde_json::json!({
             "arguments":{"game":["--fml.mcpVersion","../escape"]}
