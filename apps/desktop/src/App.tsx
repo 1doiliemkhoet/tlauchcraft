@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Users, Wifi, XCircle } from 'lucide-react';
+import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Trash2, Users, Wifi, XCircle } from 'lucide-react';
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
 import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
 
@@ -405,7 +405,9 @@ export default function App() {
               })}>Create Vanilla</button>
           </div>
           {instances.map(i => <div className="item" key={i.id}>
-            <Box size={18}/><strong>{i.display_name}</strong><span>{i.minecraft_version} · {i.loader.kind}</span>
+            <Box size={18}/><strong>{i.display_name}</strong>
+            <small className="mono" title={i.id}>#{i.id.slice(0,8)}</small>
+            <span>{i.minecraft_version} · {i.loader.kind}{i.loader.version ? ' ' + i.loader.version : ''}</span>
             <span className="chip">{i.state}</span>
             {gameStatusById[i.id]?.process_state === 'running' && <span>PID {gameStatusById[i.id]?.pid}</span>}
             {i.loader.kind === 'vanilla' && <>
@@ -432,8 +434,21 @@ export default function App() {
                 await operations.stopGame(caps,i.id);
                 const status=await operations.gameStatus(caps,i.id); setGameStatusById(old=>({...old,[i.id]:status}));
               })}>Stop</button>
-              <button disabled={!caps.features.settings || busy} onClick={() => { setSelectedInstance(i.id);setPage('settings'); }}>Java & Memory</button>
             </>}
+            <button disabled={!caps.features.settings || busy}
+              onClick={() => { setSelectedInstance(i.id);setPage('settings'); }}>Java & Memory</button>
+            <button aria-label={`Remove instance ${i.display_name} ${i.id.slice(0,8)}`}
+              disabled={!caps.features.instances || busy || !['empty','ready','needs_action','failed','cancelled'].includes(i.state) || gameStatusById[i.id]?.process_state === 'running'}
+              onClick={() => {
+                if (!window.confirm(`Remove instance "${i.display_name}" (#${i.id.slice(0,8)}) from the launcher?\n\nIts private files, including saves/worlds, will be preserved in the TLaunchCraft deleted-instances folder. The original CurseForge modpack is never touched.`)) return;
+                void run('Remove instance',async()=>{
+                  const removed=await operations.removeInstance(caps,i.id,i.id);
+                  log(`Removed instance ${removed.id}. Recovery folder: ${removed.archived_path ?? '(no private files)'}`);
+                  if (selectedInstance===i.id) setSelectedInstance('');
+                  setGameStatusById(old=>{const next={...old};delete next[i.id];return next;});
+                  await refresh(caps);
+                });
+              }}><Trash2 size={14}/> Remove</button>
           </div>)}
           {!instances.length && <Empty title="No instances" description="Create a real Vanilla instance linked to your offline profile."/>}
           <Notice>Install is asynchronous. Current status is read from Rust/SQLite; stage events are not completion confirmations. Exact download percentage is unavailable until tl-game reports verified byte counts.</Notice>
@@ -541,13 +556,13 @@ export default function App() {
           onClick={() => void run('Cancel actual Vanilla install', () => operations.cancelInstall(caps, event.instance_id!))}>Cancel Vanilla install</button></div>) : <Empty title="No events received" description="Download and install progress will appear here when the backend publishes events."/>}{events.length > 24 && <button onClick={() => setShowAllEvents(old => !old)}>{showAllEvents ? 'Show latest 24' : `Show all ${events.length} events`}</button>}{!caps.features.downloads && <Unavailable feature="downloads"/>}</div>}
         {page === 'settings' && <div className="panel">
           <h3>Java & Memory · per instance</h3>
-          <p className="muted">Saved locally in SQLite with revision protection. JVM receives these values as actual -Xms/-Xmx on launch.</p>
+          <p className="muted">Saved per instance. Default maximum heap is 8192 MB (8 GiB) on machines with sufficient physical RAM; JVM starts at Xms 512 MB and grows as needed. Free RAM is informative, not a launch blocker.</p>
           <div className="form-row">
             <select aria-label="Java settings instance" value={selectedInstance} onChange={e => setSelectedInstance(e.target.value)}>
-              <option value="">Choose instance</option>{instances.map(i=><option key={i.id} value={i.id}>{i.display_name} · {i.minecraft_version} · {i.loader.kind}</option>)}
+              <option value="">Choose instance</option>{instances.map(i=><option key={i.id} value={i.id}>{i.display_name} · # {i.id.slice(0,8)} · {i.minecraft_version} · {i.loader.kind}</option>)}
             </select>
           </div>
-          {memoryInfo && <div className="item"><HardDrive size={18}/> System RAM <span>Total {memoryInfo.total_mb} MB · Available {memoryInfo.available_mb} MB · Reserve {memoryInfo.reserved_mb} MB</span></div>}
+          {memoryInfo && <div className="item"><HardDrive size={18}/> System RAM <span>Total {memoryInfo.total_mb} MB · Available {memoryInfo.available_mb} MB (not a limit)</span></div>}
           {javaSettings && <div>
             <div className="form-row">
               <label>Initial RAM (Xms MB)
