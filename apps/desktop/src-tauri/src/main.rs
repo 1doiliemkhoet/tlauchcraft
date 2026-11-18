@@ -383,7 +383,7 @@ async fn pack_install_official_forge(
             }
             let loader_version = metadata.loader.version.as_deref()
                 .ok_or("Original pack manifest has no selected Forge version")?;
-            tl_loader::forge_family::approved_forge_release(
+            tl_pack::forge_official::ensure_supported_forge_release(
                 &metadata.game_version,
                 loader_version,
             ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
@@ -514,7 +514,7 @@ async fn pack_import_installed_curseforge(
             }
             let forge_version = metadata.loader.version.as_deref()
                 .ok_or("Original manifest lacks Forge version")?;
-            tl_loader::forge_family::approved_forge_release(
+            tl_pack::forge_official::ensure_supported_forge_release(
                 &metadata.game_version,
                 forge_version,
             ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
