@@ -40,6 +40,26 @@ struct RawProcessor {
     sides: Vec<String>,
 }
 
+/// Modern NeoForge install_profile processor classpath supports explicit
+/// Maven artifact type suffixes, e.g. group:name:version@jar or :all@jar.
+/// Treat this as metadata, never interpolate it into a shell/path. Only the
+/// Java JAR type is allowed until a separately reviewed executor exists.
+fn validate_processor_coordinate(raw: &str) -> Result<(), LoaderError> {
+    let coordinate = if let Some(stripped) = raw.strip_suffix("@jar") {
+        if stripped.contains('@') {
+            return Err(LoaderError::InvalidInput);
+        }
+        stripped
+    } else {
+        if raw.contains('@') {
+            return Err(LoaderError::InvalidInput);
+        }
+        raw
+    };
+    maven::artifact_path(coordinate)?;
+    Ok(())
+}
+
 /// Inspect an installation profile for the selected Minecraft version.
 /// Unsupported legacy profiles are rejected rather than guessed.
 pub fn inspect_install_profile(
@@ -60,14 +80,14 @@ pub fn inspect_install_profile(
     }
     let mut processors = Vec::with_capacity(raw.processors.len());
     for p in raw.processors {
-        maven::artifact_path(&p.jar)?;
+        validate_processor_coordinate(&p.jar)?;
         if p.classpath.len() > 256 || p.args.len() > 256 {
             return Err(LoaderError::InvalidMetadata(
                 "excessive processor entries".into(),
             ));
         }
         for item in &p.classpath {
-            maven::artifact_path(item)?;
+            validate_processor_coordinate(item)?;
         }
         for side in &p.sides {
             if side != "client" && side != "server" {
@@ -112,6 +132,21 @@ mod tests {
             p.processors[0].opaque_arguments,
             vec!["--task", "EXTRACT_FILES"]
         );
+    }
+    #[test]
+    fn accepts_only_explicit_jar_maven_type_in_neoforge_classpath() {
+        let profile = r#"{"minecraft":"1.21.1","processors":[{"jar":"net.neoforged.installertools:installertools:2.1.2","classpath":["net.neoforged.installertools:installertools:2.1.2@jar","net.neoforged:AutoRenamingTool:2.0.3:all@jar"],"sides":["client"],"args":["--task","EXTRACT_FILES"]}]}"#;
+        let parsed = inspect_install_profile(profile, "1.21.1").unwrap();
+        assert_eq!(parsed.processors.len(), 1);
+        assert!(!parsed.ready_to_execute);
+        for bad in [
+            "x:y:1@zip",
+            "x:y:1@jar@jar",
+            "../escape:x:1@jar",
+            "x:y:../../escape@jar",
+        ] {
+            assert!(validate_processor_coordinate(bad).is_err());
+        }
     }
     #[test]
     fn rejects_minecraft_mismatch() {
