@@ -534,7 +534,10 @@ fn publish_with_mod_evidence(
                 .map(|p| p.as_str())
                 .collect();
             if local_mods.len() != pack.files.len() + bundled.len() || local_mods.is_empty() {
-                return Err("local installed profile does not match ZIP manifest and bundled JAR count".into());
+                return Err(
+                    "local installed profile does not match ZIP manifest and bundled JAR count"
+                        .into(),
+                );
             }
             verify_exact_mod_inventory(stage, local_mods)?;
             let mut ids = std::collections::HashSet::new();

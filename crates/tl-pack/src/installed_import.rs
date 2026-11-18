@@ -379,6 +379,9 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     let mut bundled = Vec::new();
     let mut disk_names = HashSet::new();
     for entry in fs::read_dir(&mod_dir).map_err(|e| e.to_string())? {
+        if cancelled.load(Ordering::SeqCst) {
+            return Err("Cancelled while scanning local mod inventory".into());
+        }
         let entry = entry.map_err(|e| e.to_string())?;
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
@@ -443,7 +446,9 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     let mut seen_paths = HashSet::new();
     let mut total = 0u64;
     for (relative, source, size) in bundled {
-        total = total.checked_add(size).ok_or("Pack snapshot size overflow")?;
+        total = total
+            .checked_add(size)
+            .ok_or("Pack snapshot size overflow")?;
         if total > crate::MAX_UNCOMPRESSED || assets.len() >= crate::MAX_FILES - 2 {
             return Err("Bundled mods exceed archive safety limits".into());
         }

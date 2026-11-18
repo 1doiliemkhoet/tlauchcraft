@@ -70,3 +70,12 @@ The P0 Rustic Waters II instance must remain untouched. Unverified source hashes
 - Cross-generation Rust fixture tests: `cargo test --locked -p tl-loader --all-targets`.
 - Full regression: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets`, Desktop/Tauri check, NSIS build/smoke.
 - Gameplay acceptance: **NOT_VERIFIED** for all new target releases.
+
+
+## Follow-up: installed profile inventory and Java selection
+
+- Local installed folder includes bundled/manual JARs as hash-bound archive overrides, with 0/0 reserved for no provider identity. Original manifest IDs remain validated; no additional executable is implicitly trusted by provider SHA-1. Exact inventory and immutable hashes are verified again before publication and Play.
+- Host execution consent explicitly covers all JARs in the selected installed folder.
+- Java discovery now accepts majors 8, 17, 21, including standard vendor and managed Minecraft runtime locations. Installed-folder preview selects the required major for the target Minecraft versions. No download or silent Java installation.
+- Preview reports unsupported loader adapter before staging. Forge 1.12.2, 1.18.2, 1.20.1, Fabric and NeoForge remain metadata-only; no real gameplay claim.
+- Regression fixtures: bundled JARs, source mutation after snapshot, additional JAR after snapshot, profile preview compatibility matrix, Tauri transport. Windows CI and real profile acceptance pending.
