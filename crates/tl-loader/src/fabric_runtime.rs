@@ -155,6 +155,17 @@ pub fn verify_local_fabric_runtime(
                 "duplicate Fabric Maven coordinate".into(),
             ));
         }
+        // The upstream hash must be present in the authenticated Fabric
+        // profile itself, not invented by hashing a locally supplied JAR.
+        if !artifact
+            .expected_sha1
+            .as_deref()
+            .is_some_and(|sha| sha.eq_ignore_ascii_case(&proof.upstream_sha1))
+        {
+            return Err(LoaderError::InvalidMetadata(
+                "Fabric proof does not match official profile SHA-1".into(),
+            ));
+        }
         rehash_jar(root, proof)?;
         library["downloads"] = json!({
             "artifact": {
@@ -205,8 +216,8 @@ mod tests {
             "arguments":{"game":[],"jvm":[]},
         })
     }
-    fn profile() -> &'static str {
-        r#"{"id":"fabric-loader-0.16.10-1.20.1","inheritsFrom":"1.20.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/"}]}"#
+    fn profile(sha: &str) -> String {
+        format!(r#"{{"id":"fabric-loader-0.16.10-1.20.1","inheritsFrom":"1.20.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/","sha1":"{sha}"}}]}}"#)
     }
     #[test]
     fn hashes_local_library_but_does_not_claim_published_instance() {
@@ -216,26 +227,27 @@ mod tests {
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, b"test fixture only").unwrap();
         let sha = format!("{:x}", Sha1::digest(b"test fixture only"));
+        let profile = profile(&sha);
         let proofs = vec![FabricLibraryProof {
             relative_path: relative.into(),
             upstream_sha1: sha,
             size_bytes: 17,
         }];
-        let out = verify_local_fabric_runtime(MC, LOADER, &parent(), profile(), &root, &proofs).unwrap();
+        let out = verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).unwrap();
         assert_eq!(out.required_java_major, 17);
         assert_eq!(out.verified_libraries.len(), 1);
         assert_eq!(out.merged_version["mainClass"], "net.fabricmc.loader.impl.launch.knot.KnotClient");
         assert!(!out.instance_ready);
         fs::write(&file, b"another fixture!").unwrap();
-        assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), profile(), &root, &proofs).is_err());
+        assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]
     fn rejects_missing_proof_wrong_version_and_traversal() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
-        assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), profile(), &root, &[]).is_err());
-        assert!(verify_local_fabric_runtime("1.19.2", LOADER, &parent(), profile(), &root, &[]).is_err());
+        let root = temp_root();
+        let profile = profile(&"a".repeat(40));
+        assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &[]).is_err());
+        assert!(verify_local_fabric_runtime("1.19.2", LOADER, &parent(), &profile, &root, &[]).is_err());
         assert!(crate::maven::artifact_path_from_relative("../../evil.jar").is_err());
         fs::remove_dir_all(&root).unwrap();
     }
