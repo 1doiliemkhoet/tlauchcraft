@@ -90,6 +90,46 @@ fn require_patched_client(
     Ok(())
 }
 
+/// Resolve the MCP resource version from the actual verified Forge
+/// launch arguments. Never infer a Maven filename from a user-provided path.
+fn require_minecraft_extra(
+    libraries: &[InstalledForgeLibrary],
+    version: &Value,
+    minecraft: &str,
+) -> Result<(), String> {
+    let game_args = version["arguments"]["game"]
+        .as_array()
+        .ok_or("Forge game arguments missing")?;
+    let mut found = game_args
+        .windows(2)
+        .filter(|pair| pair[0].as_str() == Some("--fml.mcpVersion"));
+    let mcp_version = found
+        .next()
+        .and_then(|pair| pair[1].as_str())
+        .ok_or("Forge MCP version missing")?;
+    if found.next().is_some()
+        || mcp_version.is_empty()
+        || mcp_version.len() > 64
+        || !mcp_version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
+    {
+        return Err("Forge MCP version is unsafe or ambiguous".into());
+    }
+    let version = format!("{minecraft}-{mcp_version}");
+    let required =
+        format!("libraries/net/minecraft/client/{version}/client-{version}-extra.jar");
+    if !libraries.iter().any(|lib| {
+        lib.relative_path == required
+            && lib.size_bytes > 0
+            && lib.official_sha1.len() == 40
+            && lib.official_sha1.bytes().all(|c| c.is_ascii_hexdigit())
+    }) {
+        return Err(
+            "verified Minecraft client extra.jar missing from Forge publish inventory; re-import the installed CurseForge folder using the updated launcher".into(),
+        );
+    }
+    Ok(())
+}
+
 fn default_mod_provenance() -> String {
     "curseforge-api-sha1/v1".into()
 }
@@ -530,6 +570,7 @@ fn publish_with_mod_evidence(
         &pack.game_version,
         &evidence.selection.forge_version,
     )?;
+    require_minecraft_extra(&libraries, &runtime.java8_launch_version, &pack.game_version)?;
     let overrides = verify_original_overrides(stage, source_archive, pack)?;
     verify_natives(stage, "natives")?;
     let native_dlls = collect_verified_natives(stage)?;
@@ -729,6 +770,11 @@ pub fn reverify_published_forge(
         &record.minecraft_version,
         &record.forge_version,
     )?;
+    require_minecraft_extra(
+        &record.installed_libraries,
+        &record.version,
+        &record.minecraft_version,
+    )?;
     for library in &record.installed_libraries {
         check_file(
             root,
@@ -810,6 +856,32 @@ mod tests {
         };
         assert!(require_patched_client(&[stale], "1.16.5", "36.2.29").is_err());
         assert!(require_patched_client(&[required], "1.16.5", "36.2.34").is_err());
+    }
+
+    #[test]
+    fn jarsplitter_extra_is_required_for_ready_and_rehash_inventory() {
+        let profile_version = serde_json::json!({
+            "arguments":{"game":["--launchTarget","fmlclient","--fml.mcpVersion","20210115.111550"]}
+        });
+        let extra = InstalledForgeLibrary {
+            relative_path: "libraries/net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-extra.jar".into(),
+            official_sha1: "4aef4168f94d97bc73bf510213b2518942f931d1".into(),
+            size_bytes: 1234,
+        };
+        assert!(require_minecraft_extra(&[extra.clone()], &profile_version, "1.16.5").is_ok());
+        assert!(require_minecraft_extra(&[], &profile_version, "1.16.5").is_err());
+        assert!(require_minecraft_extra(&[extra.clone()], &profile_version, "1.17").is_err());
+        let altered = InstalledForgeLibrary {
+            relative_path: "libraries/net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550.jar".into(),
+            ..extra.clone()
+        };
+        assert!(require_minecraft_extra(&[altered], &profile_version, "1.16.5").is_err());
+        let no_sha = InstalledForgeLibrary {official_sha1:String::new(),..extra};
+        assert!(require_minecraft_extra(&[no_sha], &profile_version, "1.16.5").is_err());
+        let unsafe_version = serde_json::json!({
+            "arguments":{"game":["--fml.mcpVersion","../escape"]}
+        });
+        assert!(require_minecraft_extra(&[], &unsafe_version, "1.16.5").is_err());
     }
 
     #[test]
