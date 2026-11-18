@@ -148,6 +148,14 @@ describe('real Vanilla and Java settings command contracts', () => {
       req: { name: 'Vanilla', version: '1.21.1', profile_id: 'profile-uuid' }
     });
   });
+  it('requires the exact selected UUID when removing an instance', async () => {
+    const removed = { id: 'aaa-bbb', archived_path: 'C:/TLaunchCraft/deleted-instances/aaa-bbb' };
+    mockedInvoke.mockResolvedValue(removed);
+    await expect(operations.removeInstance(withFeature('instances'), 'aaa-bbb', 'aaa-bbb')).resolves.toEqual(removed);
+    expect(mockedInvoke).toHaveBeenCalledWith('instance_remove', {
+      instanceId: 'aaa-bbb', confirmInstanceId: 'aaa-bbb'
+    });
+  });
   it('sends persisted per-instance RAM and CAS revision without fake success', async () => {
     const value = {instance_id:'uuid',xms_mb:512,xmx_mb:4096,java_path:'C:/Java/bin/java.exe',revision:4};
     mockedInvoke.mockResolvedValue({...value,revision:5});
