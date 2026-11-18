@@ -25,6 +25,14 @@ use zip::ZipArchive;
 
 const MAX_LIB: u64 = 256 * 1024 * 1024;
 
+/// Desktop-facing version gate. The Desktop crate intentionally consumes
+/// tl-pack rather than depending directly on tl-loader.
+pub fn ensure_supported_forge_release(minecraft: &str, forge: &str) -> Result<(), String> {
+    tl_loader::forge_family::approved_forge_release(minecraft, forge)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 pub struct PreparedOfficialForge {
     selection: PackForgeSelection,
     profile_json: String,
