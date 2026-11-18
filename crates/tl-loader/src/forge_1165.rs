@@ -181,9 +181,14 @@ mod tests {
                 .filter_map(|item| item["name"].as_str())
                 .filter(|name| name.starts_with(&format!("org.apache.logging.log4j:{artifact}:")))
                 .collect::<Vec<_>>();
-            assert_eq!(names, vec![format!("org.apache.logging.log4j:{artifact}:2.15.0")]);
+            assert_eq!(
+                names,
+                vec![format!("org.apache.logging.log4j:{artifact}:2.15.0")]
+            );
         }
-        assert!(libs.iter().any(|item| item["name"] == "com.example:preserved:1.0"));
+        assert!(libs
+            .iter()
+            .any(|item| item["name"] == "com.example:preserved:1.0"));
         assert_eq!(merged["mainClass"], "cpw.mods.modlauncher.Launcher");
     }
 
