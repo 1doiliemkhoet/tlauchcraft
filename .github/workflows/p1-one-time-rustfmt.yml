@@ -29,7 +29,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/tl-loader/src crates/tl-loader/tests
+          git add crates/tl-loader/src crates/tl-loader/tests crates/tl-loader/examples
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "style: apply cargo fmt to P1 loader changes"
