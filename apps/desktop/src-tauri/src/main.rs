@@ -108,6 +108,14 @@ async fn java_detect_8() -> Result<Option<java_settings::JavaDetection>, String>
         .map_err(|e| format!("Java discovery worker failed: {e}"))?
 }
 
+/// Discover an existing compatible Java runtime without installing anything.
+#[tauri::command]
+async fn java_detect_major(required_major: u32) -> Result<Option<java_settings::JavaDetection>, String> {
+    tauri::async_runtime::spawn_blocking(move || java_settings::detect_java_major(required_major))
+        .await
+        .map_err(|e| format!("Java discovery worker failed: {e}"))?
+}
+
 /// Reports only key presence to the UI. Never returns the value, does not
 /// validate permissions, and never logs or persists the credential.
 #[tauri::command]
@@ -584,6 +592,14 @@ async fn pack_import_installed_curseforge(
 }
 
 
+/// Read profile metadata without copying or running any mod or Java process.
+#[tauri::command]
+async fn pack_inspect_installed_folder(installed_profile_path: String) -> Result<tl_pack::installed_import::InstalledProfilePreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tl_pack::installed_import::inspect_installed_profile(Path::new(&installed_profile_path))
+    }).await.map_err(|e| format!("Installed profile preview failed: {e}"))?
+}
+
 /// User-facing folder-only import. The original CurseForge ZIP is NOT an input.
 /// A private, disposable snapshot manifest is derived from the installed
 /// minecraftinstance.json and approved pack assets to reuse the independently
@@ -630,6 +646,11 @@ async fn pack_import_installed_folder(
     let progress_app = app.clone();
     let progress_id = operation_id.clone();
     let built = tauri::async_runtime::spawn_blocking(move || {
+        let preview = tl_pack::installed_import::inspect_installed_profile(&installed_root)?;
+        if !preview.install_supported {
+            return Err(format!("Loader adapter not installed: Minecraft {} {} {} (metadata only, Java {:?})",
+                preview.minecraft_version, preview.loader_kind, preview.loader_version, preview.required_java));
+        }
         tl_pack::installed_import::snapshot_installed_folder_with_progress(
             &installed_root, &snapshot_target, &token,
             |stage, completed, total| {
@@ -710,11 +731,13 @@ fn main() {
             pack_install_official_forge,
             pack_import_installed_curseforge,
             pack_import_installed_folder,
+            pack_inspect_installed_folder,
             pack_cancel,
             java_settings_get,
             java_settings_save,
             java_memory_info,
             java_detect_8,
+            java_detect_major,
             game_ops::instance_create_vanilla,
             game_ops::instance_remove,
             game_ops::game_install,

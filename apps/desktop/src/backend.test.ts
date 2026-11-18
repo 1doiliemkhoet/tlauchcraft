@@ -85,6 +85,18 @@ describe('Windows Java 8 runtime discovery transport', () => {
     await expect(operations.detectJava8(withFeature('settings'))).resolves.toEqual(found);
     expect(mockedInvoke).toHaveBeenCalledWith('java_detect_8', undefined);
   });
+  it('requests the selected runtime major rather than using a fixed Java 8 path', async () => {
+    const found = {path: 'C:/Java21/bin/java.exe', major: 21, source: 'Installed Java'};
+    mockedInvoke.mockResolvedValue(found);
+    await expect(operations.detectJavaMajor(withFeature('settings'), 21)).resolves.toEqual(found);
+    expect(mockedInvoke).toHaveBeenCalledWith('java_detect_major', {requiredMajor: 21});
+  });
+  it('inspects installed profile without starting installation', async () => {
+    const preview = {minecraft_version: '1.12.2', loader_kind: 'forge', loader_version: '14.23.5.2860', required_java: 8, install_supported: false};
+    mockedInvoke.mockResolvedValue(preview);
+    await expect(operations.inspectInstalledFolder(withFeature('pack_inspection'), 'C:/RLCraft')).resolves.toEqual(preview);
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_inspect_installed_folder', {installedProfilePath: 'C:/RLCraft'});
+  });
   it('returns null if no Java 8 was detected', async () => {
     mockedInvoke.mockResolvedValue(null);
     await expect(operations.detectJava8(withFeature('settings'))).resolves.toBeNull();

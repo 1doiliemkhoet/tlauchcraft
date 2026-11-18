@@ -1,0 +1,41 @@
+name: P1 one-time Rustfmt on feature branch
+on:
+  push:
+    branches: [feat/p1-multiloader-adapters-20261118]
+    paths: ['.github/workflows/p1-one-time-rustfmt.yml']
+permissions:
+  contents: write
+jobs:
+  rustfmt:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+          components: rustfmt
+      - name: Format new loader source only
+        shell: pwsh
+        run: |
+          cargo +1.88.0 fmt --all
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Commit deterministic formatter changes to feature branch only
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/tl-loader/src crates/tl-loader/tests crates/tl-loader/examples
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "style: apply cargo fmt to P1 loader changes"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push origin HEAD:feat/p1-multiloader-adapters-20261118
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+# Follow-up formatter pass after NeoForge @jar parsing.

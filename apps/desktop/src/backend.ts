@@ -13,6 +13,7 @@ export type LaunchRequest = { instance_id: string; profile_id: string; java_path
 export type LaunchProcess = { pid: number; started_at: string; log_path: string; stderr_path: string; latest_log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
 export type JavaSettings = { instance_id: string; xms_mb: number; xmx_mb: number; java_path: string; revision: number };
 export type DetectedJava8 = { path: string; major: number; source: string };
+export type InstalledProfilePreview = { minecraft_version: string; loader_kind: string; loader_version: string; required_java: number | null; install_supported: boolean };
 export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: number };
 export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
@@ -83,6 +84,8 @@ export const operations = {
   }),
   javaMemoryInfo: (c: Capabilities) => call<MemoryInfo>(c, 'settings', 'java_memory_info'),
   detectJava8: (c: Capabilities) => call<DetectedJava8 | null>(c, 'settings', 'java_detect_8'),
+  detectJavaMajor: (c: Capabilities, requiredMajor: number) => call<DetectedJava8 | null>(c, 'settings', 'java_detect_major', { requiredMajor }),
+  inspectInstalledFolder: (c: Capabilities, installedProfilePath: string) => call<InstalledProfilePreview>(c, 'pack_inspection', 'pack_inspect_installed_folder', { installedProfilePath }),
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),

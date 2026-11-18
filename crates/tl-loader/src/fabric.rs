@@ -105,6 +105,9 @@ impl LoaderInstaller for Fabric {
             }
             libraries.push(maven::artifact(base, &library.name, library.sha1)?);
         }
+        let all_hashed = libraries
+            .iter()
+            .all(|artifact| artifact.expected_sha1.is_some());
         Ok(LoaderPlan {
             loader: spec.clone(),
             version_id: profile.id,
@@ -113,10 +116,16 @@ impl LoaderInstaller for Fabric {
             libraries,
             required_java_major: game_java_major,
             installer: None,
-            ready_for_metadata_merge: true,
+            // A Fabric profile without independently authenticated upstream
+            // library checksums is inspect-only. This is not a game READY flag.
+            ready_for_metadata_merge: all_hashed,
             warnings: vec![
-                "Metadata only: tl-game must verify/download libraries, merge arguments and launch."
-                    .into(),
+                if all_hashed {
+                    "Profile hashes present; download and rehash every Maven library, merge Mojang metadata and independently verify natives/assets before publication."
+                } else {
+                    "Missing upstream Fabric Maven SHA-1; inspect-only. Never publish from unsigned local JAR hashes."
+                }
+                .into(),
             ],
         })
     }

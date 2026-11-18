@@ -1,0 +1,125 @@
+name: P1 multi-loader official metadata audit
+on:
+  push:
+    branches: [feat/p1-multiloader-adapters-20261118]
+    paths:
+      - '.github/workflows/p1-multiloader-metadata-audit.yml'
+      - 'crates/tl-loader/src/loader_matrix.rs'
+      - 'crates/tl-loader/src/fabric_runtime.rs'
+      - 'crates/tl-loader/src/installer.rs'
+      - 'crates/tl-loader/src/maven.rs'
+      - 'crates/tl-loader/examples/cross_generation_audit.rs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  official-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit exact cross-generation official release bytes without Java execution
+        shell: python
+        run: |
+          import hashlib, io, json, pathlib, urllib.request, zipfile
+          forge = [
+              ("1.12.2", "14.23.5.2860", "5e8a91f71ef3d1f77de3f8d3261aedcc2f551c9d"),
+              ("1.18.2", "40.2.21", "5507eebfe3ca62545419e7aa8ee7b5dc559f0e26"),
+              ("1.20.1", "47.3.0", "0deb8e547a9e3f098a4c9f082903499703c52f5d"),
+          ]
+          def fetch(url, max_bytes):
+              with urllib.request.urlopen(
+                  urllib.request.Request(url,headers={"User-Agent":"TLaunchCraft-P1-Official-Audit/1"}),
+                  timeout=40
+              ) as response:
+                  blob = response.read(max_bytes+1)
+              assert 0 < len(blob) <= max_bytes, "invalid transfer size"
+              return blob
+          for mc, version, sha in forge:
+              base = f"https://maven.minecraftforge.net/net/minecraftforge/forge/{mc}-{version}"
+              name = f"forge-{mc}-{version}-installer.jar"
+              raw = fetch(f"{base}/{name}", 32*1024*1024)
+              observed = hashlib.sha1(raw).hexdigest()
+              assert observed == sha, (mc,version,observed,sha)
+              with zipfile.ZipFile(io.BytesIO(raw)) as arc:
+                  members = set(arc.namelist())
+                  profile = json.loads(arc.read("install_profile.json"))
+                  has_version = "version.json" in members
+                  derived = json.loads(arc.read("version.json")) if has_version else {}
+                  path = pathlib.Path("target/p1-official-audit") / "forge" / mc / version
+                  path.mkdir(parents=True, exist_ok=True)
+                  (path / "profile.json").write_bytes(arc.read("install_profile.json"))
+                  if has_version:
+                      (path / "version.json").write_bytes(arc.read("version.json"))
+                  print("FORGE_RELEASE",mc,version,"installer_sha1",observed)
+                  print("FORGE_META",json.dumps({
+                    "profile_fields":sorted(profile.keys()),
+                    "profile_minecraft":profile.get("minecraft"),
+                    "profile_version":profile.get("version"),
+                    "install":profile.get("install"),
+                    "profile_libs":len(profile.get("libraries",[])),
+                    "processors":len(profile.get("processors",[])),
+                    "has_version_json":has_version,
+                    "derived_id":derived.get("id"),
+                    "inherits":derived.get("inheritsFrom"),
+                    "main_class":derived.get("mainClass"),
+                  },sort_keys=True)[:4096])
+          print("FORGE_CROSS_GENERATION_PINNED_ARCHIVES_PASS")
+      - name: Inspect official Fabric profile and NeoForge installer metadata only
+        shell: python
+        run: |
+          import hashlib, io, json, pathlib, urllib.request, zipfile
+          def fetch(url,limit):
+              with urllib.request.urlopen(urllib.request.Request(
+                  url,headers={"User-Agent":"TLaunchCraft-P1-Official-Audit/1"}),timeout=35) as response:
+                  blob=response.read(limit+1)
+              assert 0<len(blob)<=limit
+              return blob
+          fabric_url="https://meta.fabricmc.net/v2/versions/loader/1.20.1/0.16.10/profile/json"
+          profile=json.loads(fetch(fabric_url,2*1024*1024))
+          print("FABRIC_PROFILE",json.dumps({
+              "id":profile.get("id"),
+              "inheritsFrom":profile.get("inheritsFrom"),
+              "mainClass":profile.get("mainClass"),
+              "libraries":len(profile.get("libraries",[])),
+              "library_fields":[sorted(x.keys()) for x in profile.get("libraries",[])[:4]],
+          },sort_keys=True))
+          neo_url="https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.80/neoforge-21.1.80-installer.jar"
+          raw=fetch(neo_url,32*1024*1024)
+          print("NEOFORGE_INSTALLER_SHA1",hashlib.sha1(raw).hexdigest(),"size",len(raw))
+          with zipfile.ZipFile(io.BytesIO(raw)) as arc:
+              members=set(arc.namelist())
+              p=json.loads(arc.read("install_profile.json"))
+              version=json.loads(arc.read("version.json")) if "version.json" in members else {}
+              path=pathlib.Path("target/p1-official-audit/neoforge/1.21.1/21.1.80")
+              path.mkdir(parents=True,exist_ok=True)
+              (path/"profile.json").write_bytes(arc.read("install_profile.json"))
+              (path/"version.json").write_bytes(arc.read("version.json"))
+              print("NEOFORGE_COORDINATES",json.dumps([
+                {"jar":x.get("jar"),"classpath":x.get("classpath",[])} for x in p.get("processors",[])
+              ],sort_keys=True)[:6000])
+              print("NEOFORGE_META",json.dumps({
+                "minecraft":p.get("minecraft"),
+                "profile_version":p.get("version"),
+                "processors":len(p.get("processors",[])),
+                "inherits":version.get("inheritsFrom"),
+                "version_id":version.get("id"),
+                "mainClass":version.get("mainClass"),
+              },sort_keys=True))
+          print("FABRIC_NEOFORGE_METADATA_AUDIT_PASS")
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.88.0'
+      - name: Apply Rust loader policy to exact official extracted JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in '1.12.2 14.23.5.2860' '1.18.2 40.2.21' '1.20.1 47.3.0'; do
+            read -r mc version <<< "$spec"
+            root="target/p1-official-audit/forge/$mc/$version"
+            cargo +1.88.0 run --locked -p tl-loader --example cross_generation_audit -- \
+              forge "$mc" "$version" "$root/profile.json" "$root/version.json"
+          done
+          neo="target/p1-official-audit/neoforge/1.21.1/21.1.80"
+          cargo +1.88.0 run --locked -p tl-loader --example cross_generation_audit -- \
+            neoforge 1.21.1 21.1.80 "$neo/profile.json" "$neo/version.json"

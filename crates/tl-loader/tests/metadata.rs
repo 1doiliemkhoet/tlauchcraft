@@ -12,7 +12,7 @@ fn spec(kind: LoaderKind, game: &str, loader: &str) -> LoaderSpec {
     }
 }
 fn fabric_fixture() -> &'static str {
-    r#"{"id":"fabric-loader-0.16.10-1.21.1","inheritsFrom":"1.21.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/"},{"name":"org.ow2.asm:asm:9.7","url":"https://repo.maven.apache.org/maven2/"}]}"#
+    r#"{"id":"fabric-loader-0.16.10-1.21.1","inheritsFrom":"1.21.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/","sha1":"1111111111111111111111111111111111111111"},{"name":"org.ow2.asm:asm:9.7","url":"https://repo.maven.apache.org/maven2/","sha1":"2222222222222222222222222222222222222222"}]}"#
 }
 #[test]
 fn resolves_fabric_plan_without_touching_disk() {
@@ -41,6 +41,21 @@ fn resolves_fabric_plan_without_touching_disk() {
         })
     );
 }
+#[test]
+fn fabric_without_upstream_checksums_is_inspection_only() {
+    let unsigned =
+        fabric_fixture().replace(r#","sha1":"1111111111111111111111111111111111111111""#, "");
+    let plan = Fabric
+        .plan(
+            "1.21.1",
+            &spec(LoaderKind::Fabric, "1.21.1", "0.16.10"),
+            &unsigned,
+            21,
+        )
+        .unwrap();
+    assert!(!plan.ready_for_metadata_merge);
+}
+
 #[test]
 fn rejects_fabric_version_mismatch() {
     assert_eq!(
@@ -109,15 +124,62 @@ fn forge_rejects_mismatched_versions() {
     );
 }
 #[test]
-fn neoforge_does_not_infer_unsafe_game_mapping() {
+fn neoforge_only_plans_explicit_candidate_and_never_publishes() {
     let xml = r#"<metadata><versioning><versions><version>21.1.80</version></versions></versioning></metadata>"#;
-    assert!(matches!(
-        NeoForge.plan(
+    let candidate = NeoForge
+        .plan(
             "1.21.1",
             &spec(LoaderKind::NeoForge, "1.21.1", "21.1.80"),
             xml,
-            21
+            21,
+        )
+        .unwrap();
+    assert_eq!(candidate.required_java_major, 21);
+    assert!(!candidate.ready_for_metadata_merge);
+    assert!(candidate.main_class.is_none());
+    assert_eq!(
+        candidate.installer.unwrap().expected_sha1.as_deref(),
+        Some("191c8211ffd2d8e754359d15e96a0441a66f2eac")
+    );
+    assert!(matches!(
+        NeoForge.plan(
+            "1.20.1",
+            &spec(LoaderKind::NeoForge, "1.20.1", "21.1.80"),
+            xml,
+            21,
         ),
         Err(LoaderError::UnsupportedVersion(_))
     ));
+}
+
+#[test]
+fn cross_generation_forge_plans_have_official_pins_and_java_requirements() {
+    for (mc, forge, major, sha) in [
+        (
+            "1.12.2",
+            "14.23.5.2860",
+            8,
+            "5e8a91f71ef3d1f77de3f8d3261aedcc2f551c9d",
+        ),
+        (
+            "1.18.2",
+            "40.2.21",
+            17,
+            "5507eebfe3ca62545419e7aa8ee7b5dc559f0e26",
+        ),
+        (
+            "1.20.1",
+            "47.3.0",
+            17,
+            "0deb8e547a9e3f098a4c9f082903499703c52f5d",
+        ),
+    ] {
+        let xml = format!("<metadata><versioning><versions><version>{mc}-{forge}</version></versions></versioning></metadata>");
+        let plan = Forge
+            .plan(mc, &spec(LoaderKind::Forge, mc, forge), &xml, 8)
+            .unwrap();
+        assert_eq!(plan.required_java_major, major);
+        assert_eq!(plan.installer.unwrap().expected_sha1.as_deref(), Some(sha));
+        assert!(!plan.ready_for_metadata_merge);
+    }
 }
