@@ -56,18 +56,15 @@ fn verify_installer_entry(
     data: &InstallerEntryEvidence,
     bindings: &ForgeBindings,
 ) -> Result<String, PrepareFailure> {
-    let release = crate::forge_family::approved_forge_release(
-        &bindings.minecraft,
-        &bindings.forge_version,
-    )
-    .map_err(PrepareFailure::Invalid)?;
+    let release =
+        crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
+            .map_err(PrepareFailure::Invalid)?;
     let approved = release.installer_sha1;
     let installer_filename = release.installer_filename();
     if key != "BINPATCH"
         || data.entry != "data/client.lzma"
         || !data.installer_sha1.eq_ignore_ascii_case(approved)
-        || data.installer.file_name().and_then(|s| s.to_str())
-            != Some(installer_filename.as_str())
+        || data.installer.file_name().and_then(|s| s.to_str()) != Some(installer_filename.as_str())
         || !data.installer.is_absolute()
         || !data.extracted.is_absolute()
         || !data.report.is_absolute()
@@ -255,11 +252,8 @@ fn prepare_inner(
     version_json: &Value,
     bindings: &ForgeBindings,
 ) -> Result<Vec<ApprovedProcessor>, PrepareFailure> {
-    if crate::forge_family::approved_forge_release(
-        &bindings.minecraft,
-        &bindings.forge_version,
-    )
-    .is_err()
+    if crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
+        .is_err()
         || bindings.timeout_seconds == 0
         || bindings.timeout_seconds > 900
         || bindings.stage_root.exists()
@@ -334,7 +328,11 @@ fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFail
             jar if crate::forge_family::approved_forge_release(
                 &bindings.minecraft,
                 &bindings.forge_version,
-            ).is_ok_and(|release| jar == release.installertools) => "--output",
+            )
+            .is_ok_and(|release| jar == release.installertools) =>
+            {
+                "--output"
+            }
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
             _ => {
                 return Err(
