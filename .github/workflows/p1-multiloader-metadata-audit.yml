@@ -6,6 +6,9 @@ on:
       - '.github/workflows/p1-multiloader-metadata-audit.yml'
       - 'crates/tl-loader/src/loader_matrix.rs'
       - 'crates/tl-loader/src/fabric_runtime.rs'
+      - 'crates/tl-loader/src/installer.rs'
+      - 'crates/tl-loader/src/maven.rs'
+      - 'crates/tl-loader/examples/cross_generation_audit.rs'
   workflow_dispatch:
 permissions:
   contents: read
