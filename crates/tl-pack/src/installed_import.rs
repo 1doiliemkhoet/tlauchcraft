@@ -76,6 +76,13 @@ fn no_symlink_ancestors(path: &Path) -> Result<(), String> {
 
 type MatchedMod = (u64, u64, bool, String);
 
+/// Bundled JARs are archive overrides, not CurseForge project/file IDs.
+/// The 0/0 receipt identity is reserved for these local-only entries.
+pub(crate) fn bundled_mod_name(relative: &str) -> Option<&str> {
+    let name = relative.strip_prefix("mods/")?;
+    crate::curseforge::safe_mod_file_name(name).then_some(name)
+}
+
 fn local_disk_name(addon: &LocalAddon) -> Result<&str, String> {
     let installed = addon.installed_file.as_ref().ok_or_else(|| {
         format!(
@@ -120,7 +127,6 @@ fn checked_names(local: &LocalProfile, manifest: &PackMetadata) -> Result<Vec<Ma
     if manifest.source != PackSource::CurseforgeZip
         || manifest.loader.kind != "forge"
         || manifest.loader.version.as_deref().is_none_or(str::is_empty)
-        || manifest.files.is_empty()
         || manifest.files.len() > 4096
     {
         return Err("A CurseForge Forge ZIP with mod IDs is required for local import".into());
@@ -329,11 +335,14 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         }));
     }
     progress("local_import.hashing_mods", total_addons, total_addons);
-    if files.is_empty() || files.len() > 4096 {
-        return Err("Installed profile has no supported JAR addons or exceeds limit".into());
+    if files.len() > 4096 {
+        return Err("Installed profile exceeds mod inventory limit".into());
     }
-    // Preflight the actual local JAR directory, including any manually placed
-    // untracked mod. No silent omission and no reliance on CurseForge API.
+    // The selected local profile is explicitly authorized for execution by
+    // the desktop caller. Preserve untracked bundled JARs as local overrides,
+    // without fabricating provider IDs or claiming upstream authentication.
+    let mut bundled = Vec::new();
+    let mut disk_names = HashSet::new();
     for entry in fs::read_dir(&mod_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let kind = entry.file_type().map_err(|e| e.to_string())?;
@@ -345,12 +354,21 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
                 .file_name()
                 .into_string()
                 .map_err(|_| "Invalid installed mod Unicode filename")?;
-            if name.to_ascii_lowercase().ends_with(".jar")
-                && !seen_names.contains(&name.to_ascii_lowercase())
-            {
-                return Err(format!("Untracked JAR in installed profile: {name}"));
+            let key = name.to_ascii_lowercase();
+            if key.ends_with(".jar") {
+                if !safe_mod_file_name(&name) || !disk_names.insert(key.clone()) {
+                    return Err(format!("Unsafe or duplicate installed JAR: {name}"));
+                }
+                if !seen_names.contains(&key) {
+                    let source = entry.path();
+                    let (size, _, _) = observed_hashes(&source)?;
+                    bundled.push((format!("mods/{name}"), source, size));
+                }
             }
         }
+    }
+    if !seen_names.is_subset(&disk_names) || disk_names.is_empty() || disk_names.len() > 4096 {
+        return Err("Installed profile missing declared mods or exceeds inventory limit".into());
     }
     let manifest = serde_json::json!({
         "manifestType": "minecraftModpack",
@@ -389,6 +407,14 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     let mut assets = Vec::<(String, PathBuf, u64)>::new();
     let mut seen_paths = HashSet::new();
     let mut total = 0u64;
+    for (relative, source, size) in bundled {
+        total = total.checked_add(size).ok_or("Pack snapshot size overflow")?;
+        if total > crate::MAX_UNCOMPRESSED || assets.len() >= crate::MAX_FILES - 2 {
+            return Err("Bundled mods exceed archive safety limits".into());
+        }
+        seen_paths.insert(relative.to_ascii_lowercase());
+        assets.push((relative, source, size));
+    }
     progress("local_import.scanning_assets", 0, PACK_ASSET_DIRS.len());
     for (index, folder) in PACK_ASSET_DIRS.iter().enumerate() {
         let dir = root.join(folder);
@@ -598,13 +624,22 @@ fn selection(
     }
     let pack = crate::inspect_archive(archive).map_err(|e| e.to_string())?;
     let local = read_profile_metadata(installed_profile)?;
-    let matching = checked_names(&local, &pack)?;
+    let mut matching = checked_names(&local, &pack)?;
+    for name in pack.overrides.iter().filter_map(|p| bundled_mod_name(p)) {
+        matching.push((0, 0, true, name.to_owned()));
+    }
+    if matching.is_empty() || matching.len() > 4096 {
+        return Err("Local mod inventory empty or oversized".into());
+    }
     let mod_dir = installed_profile.join("mods");
     no_symlink_ancestors(&mod_dir)?;
     if !fs::symlink_metadata(&mod_dir).is_ok_and(|m| m.file_type().is_dir()) {
         return Err("Installed CurseForge mods/ directory missing".into());
     }
     let expected: HashSet<String> = matching.iter().map(|x| x.3.to_ascii_lowercase()).collect();
+    if expected.len() != matching.len() {
+        return Err("Bundled JAR conflicts with declared addon filename".into());
+    }
     let mut seen = HashSet::new();
     for entry in fs::read_dir(mod_dir).map_err(|e| e.to_string())? {
         let e = entry.map_err(|e| e.to_string())?;
@@ -693,17 +728,26 @@ pub fn stage_installed_curseforge(
         }
         let target = target_mods.join(&name);
         no_symlink_ancestors(&target)?;
-        let mut from =
-            File::open(installed_profile.join("mods").join(&name)).map_err(|e| e.to_string())?;
-        let mut to = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)
-            .map_err(|e| format!("Local mod destination is already occupied: {name}: {e}"))?;
-        let copied = std::io::copy(&mut from, &mut to).map_err(|e| e.to_string())?;
-        to.flush().map_err(|e| e.to_string())?;
-        to.sync_all().map_err(|e| e.to_string())?;
-        drop(to);
+        let copied = if project_id == 0 && file_id == 0 {
+            // Already extracted from the hash-bound override archive. Must
+            // match the independently observed source profile bytes below.
+            fs::symlink_metadata(&target)
+                .map_err(|e| e.to_string())?
+                .len()
+        } else {
+            let source = installed_profile.join("mods").join(&name);
+            no_symlink_ancestors(&source)?;
+            let mut from = File::open(source).map_err(|e| e.to_string())?;
+            let mut to = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)
+                .map_err(|e| format!("Local mod destination is already occupied: {name}: {e}"))?;
+            let copied = std::io::copy(&mut from, &mut to).map_err(|e| e.to_string())?;
+            to.flush().map_err(|e| e.to_string())?;
+            to.sync_all().map_err(|e| e.to_string())?;
+            copied
+        };
         if copied != bytes
             || observed_hashes(&target)? != (bytes, local_sha1.clone(), observed_sha256.clone())
             || observed_hashes(&installed_profile.join("mods").join(&name))?
@@ -888,18 +932,41 @@ mod tests {
     }
 
     #[test]
-    fn folder_snapshot_rejects_untracked_local_mod() {
+    fn folder_snapshot_preserves_bundled_mods_without_fake_provider_ids() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("Test");
         fs::create_dir_all(root.join("mods")).unwrap();
-        fs::write(root.join("mods/unknown.jar"), b"unknown").unwrap();
-        fs::write(root.join("minecraftinstance.json"), r#"{"gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":590644,"installedFile":{"id":123,"fileNameOnDisk":"Rustic Waters II 1.16-1.16.zip"}}]}"#).unwrap();
-        assert!(snapshot_installed_folder(
+        fs::write(root.join("mods/example.jar"), b"tracked").unwrap();
+        fs::write(root.join("mods/antiquecities-1.2.1.jar"), b"bundled").unwrap();
+        fs::write(root.join("mods/other.jar"), b"other bundled").unwrap();
+        fs::write(root.join("minecraftinstance.json"), r#"{"gameVersion":"1.16.5","baseModLoader":{"name":"forge-36.2.29"},"installedAddons":[{"addonID":12,"installedFile":{"id":34,"fileNameOnDisk":"example.jar"}}]}"#).unwrap();
+        let archive = temp.path().join("private.zip");
+        let cancelled = AtomicBool::new(false);
+        let metadata = snapshot_installed_folder(&root, &archive, &cancelled).unwrap();
+        assert_eq!(metadata.files.len(), 1);
+        assert!(metadata.overrides.iter().any(|p| p == "mods/antiquecities-1.2.1.jar"));
+        let stage = temp.path().join("local-test.staging");
+        let receipts = stage_installed_curseforge(&archive, &root, &stage, &cancelled).unwrap();
+        assert_eq!(receipts.len(), 3);
+        assert_eq!(receipts.iter().filter(|r| r.project_id == 0 && r.file_id == 0).count(), 2);
+        assert_eq!(
+            fs::read(stage.join("mods/antiquecities-1.2.1.jar")).unwrap(),
+            b"bundled"
+        );
+        fs::write(root.join("mods/antiquecities-1.2.1.jar"), b"changed").unwrap();
+        assert!(stage_installed_curseforge(
+            &archive,
             &root,
-            &temp.path().join("private.zip"),
-            &AtomicBool::new(false)
-        )
-        .is_err());
+            &temp.path().join("changed.staging"),
+            &cancelled
+        ).is_err());
+        fs::write(root.join("mods/unlisted.jar"), b"extra after snapshot").unwrap();
+        assert!(stage_installed_curseforge(
+            &archive,
+            &root,
+            &temp.path().join("extra.staging"),
+            &cancelled
+        ).is_err());
     }
     #[test]
     fn existing_roots_resolve_to_real_absolute_directory() {

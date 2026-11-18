@@ -175,11 +175,14 @@ pub struct JavaDetection {
     pub source: String,
 }
 
-/// Discover local Java 8 installations without a CurseForge key, network
+/// Discover local Java installations without a CurseForge key, network
 /// request, PowerShell, or installer execution. Only verified -version output
 /// (and not a directory name) determines compatibility.
 #[cfg(windows)]
-pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+pub fn detect_java_major(required_major: u32) -> Result<Option<JavaDetection>, String> {
+    if !matches!(required_major, 8 | 17 | 21) {
+        return Err("Supported Java runtime majors: 8, 17, 21".into());
+    }
     use std::{
         collections::HashSet,
         process::Stdio,
@@ -303,7 +306,7 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     if let Some(home) = std::env::var_os("USERPROFILE") {
         let runtime = PathBuf::from(home).join("curseforge").join("minecraft")
             .join("Install").join("runtime");
-        for family in ["jre-legacy", "java-runtime-alpha"] {
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-delta"] {
             for arch in ["windows-x64", "windows-x86"] {
                 add_home(
                     &mut candidates, &mut seen,
@@ -316,7 +319,7 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     // Official Minecraft Launcher jre-legacy (Java 8) runtime layout.
     if let Some(dir) = std::env::var_os("APPDATA") {
         let runtime = PathBuf::from(dir).join(".minecraft").join("runtime");
-        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta"] {
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-delta"] {
             for arch in ["windows-x64", "windows-x86"] {
                 add_home(
                     &mut candidates, &mut seen,
@@ -332,10 +335,10 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     let deadline = Instant::now() + Duration::from_secs(14);
     for (path, source) in candidates {
         if Instant::now() >= deadline { break; }
-        if read_version(&path) == Some(8) {
+        if read_version(&path) == Some(required_major) {
             return Ok(Some(JavaDetection {
                 path: path.to_string_lossy().into_owned(),
-                major: 8,
+                major: required_major,
                 source,
             }));
         }
@@ -344,8 +347,15 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
 }
 
 #[cfg(not(windows))]
-pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+pub fn detect_java_major(required_major: u32) -> Result<Option<JavaDetection>, String> {
+    if !matches!(required_major, 8 | 17 | 21) {
+        return Err("Supported Java runtime majors: 8, 17, 21".into());
+    }
     Ok(None)
+}
+
+pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+    detect_java_major(8)
 }
 
 pub fn java_executable(s:&JavaSettings)->PathBuf{

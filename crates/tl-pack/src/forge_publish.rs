@@ -527,13 +527,29 @@ fn publish_with_mod_evidence(
             (mods.verified, "curseforge-api-sha1/v1".to_owned())
         }
         ModEvidence::Local(local_mods) => {
-            if local_mods.len() != pack.files.len() || local_mods.is_empty() {
-                return Err("local installed profile does not match ZIP manifest count".into());
+            let bundled: std::collections::HashSet<_> = pack
+                .overrides
+                .iter()
+                .filter(|p| crate::installed_import::bundled_mod_name(p).is_some())
+                .map(|p| p.as_str())
+                .collect();
+            if local_mods.len() != pack.files.len() + bundled.len() || local_mods.is_empty() {
+                return Err("local installed profile does not match ZIP manifest and bundled JAR count".into());
             }
             verify_exact_mod_inventory(stage, local_mods)?;
             let mut ids = std::collections::HashSet::new();
             for verified in local_mods {
-                if !ids.insert((verified.project_id, verified.file_id))
+                let identity_matches = if verified.project_id == 0 && verified.file_id == 0 {
+                    verified.required && bundled.contains(verified.relative_path.as_str())
+                } else {
+                    ids.insert((verified.project_id, verified.file_id))
+                        && pack.files.iter().any(|declared| {
+                            declared.project_id == Some(verified.project_id)
+                                && declared.file_id == Some(verified.file_id)
+                                && declared.required == verified.required
+                        })
+                };
+                if !identity_matches
                     || verified.bytes == 0
                     || verified.upstream_sha1.len() != 40
                     || !verified
@@ -545,11 +561,6 @@ fn publish_with_mod_evidence(
                         .observed_sha256
                         .bytes()
                         .all(|v| v.is_ascii_hexdigit())
-                    || !pack.files.iter().any(|declared| {
-                        declared.project_id == Some(verified.project_id)
-                            && declared.file_id == Some(verified.file_id)
-                            && declared.required == verified.required
-                    })
                 {
                     return Err("local inventory identity, count or hash invalid".into());
                 }

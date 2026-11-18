@@ -108,6 +108,14 @@ async fn java_detect_8() -> Result<Option<java_settings::JavaDetection>, String>
         .map_err(|e| format!("Java discovery worker failed: {e}"))?
 }
 
+/// Discover an existing compatible Java runtime without installing anything.
+#[tauri::command]
+async fn java_detect_major(required_major: u32) -> Result<Option<java_settings::JavaDetection>, String> {
+    tauri::async_runtime::spawn_blocking(move || java_settings::detect_java_major(required_major))
+        .await
+        .map_err(|e| format!("Java discovery worker failed: {e}"))?
+}
+
 /// Reports only key presence to the UI. Never returns the value, does not
 /// validate permissions, and never logs or persists the credential.
 #[tauri::command]
@@ -715,6 +723,7 @@ fn main() {
             java_settings_save,
             java_memory_info,
             java_detect_8,
+            java_detect_major,
             game_ops::instance_create_vanilla,
             game_ops::instance_remove,
             game_ops::game_install,
