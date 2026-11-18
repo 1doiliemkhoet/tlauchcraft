@@ -99,6 +99,20 @@ pub fn installer_plan(
     if base != crate::FORGE_MAVEN && base != crate::NEOFORGE_MAVEN {
         return Err(LoaderError::InvalidInput);
     }
+    // A Maven XML catalog only confirms a coordinate. It never establishes
+    // an installer checksum or grants Java execution permission.
+    let expected_sha1 = if spec.kind == LoaderKind::Forge {
+        crate::loader_matrix::reviewed_cross_generation(minecraft_version, loader_version)
+            .ok()
+            .map(|r| r.installer_sha1.to_owned())
+            .or_else(|| {
+                crate::forge_family::approved_forge_release(minecraft_version, loader_version)
+                    .ok()
+                    .map(|r| r.installer_sha1.to_owned())
+            })
+    } else {
+        None
+    };
     Ok(LoaderPlan {
         loader: spec.clone(),
         version_id: format!("{}-{}-{}", match &spec.kind { LoaderKind::Forge => "forge", _ => "neoforge" }, minecraft_version, loader_version),
@@ -106,9 +120,9 @@ pub fn installer_plan(
         main_class: None,
         libraries: vec![],
         required_java_major: java_major,
-        installer: Some(Artifact { url: format!("{base}/{path}"), relative_path: path, expected_sha1: None }),
+        installer: Some(Artifact { url: format!("{base}/{path}"), relative_path: path, expected_sha1 }),
         ready_for_metadata_merge: false,
-        warnings: vec!["Official installer must execute inside a staging environment; verify generated version JSON, processors, libraries and hashes before commit. This plan is NOT an installed loader.".into()],
+        warnings: vec!["Catalog/installer planning only. A separate audited generation-specific executor must verify official metadata, Java, all processor outputs and the published instance before Play.".into()],
     })
 }
 
@@ -133,12 +147,26 @@ impl crate::LoaderInstaller for Forge {
         if !available.contains(&full) {
             return Err(LoaderError::CompatibilityConflict);
         }
+        // Preserve the version family's Java requirement independently of
+        // what a metadata caller claims is installed on the host.
+        let required_java = crate::loader_matrix::reviewed_cross_generation(
+            minecraft_version, spec.version.as_deref().unwrap_or_default()
+        )
+        .ok()
+        .map(|r| r.java_major)
+        .or_else(|| {
+            crate::forge_family::approved_forge_release(
+                minecraft_version, spec.version.as_deref().unwrap_or_default()
+            )
+            .ok().map(|_| 8)
+        })
+        .unwrap_or(game_java_major);
         installer_plan(
             minecraft_version,
             spec,
             crate::FORGE_MAVEN,
             &format!("net.minecraftforge:forge:{full}"),
-            game_java_major,
+            required_java,
         )
     }
 }
@@ -162,12 +190,17 @@ impl crate::LoaderInstaller for NeoForge {
         {
             return Err(LoaderError::CompatibilityConflict);
         }
-        // NeoForge's version-to-Minecraft mapping is not derivable from a bare Maven
-        // version reliably; refuse to assert compatibility without official metadata.
-        Err(LoaderError::UnsupportedVersion(format!(
-            "NeoForge {} exists but Minecraft {} mapping is not verified",
-            spec.version.as_deref().unwrap_or(""),
-            minecraft_version
-        )))
+        // Explicit candidate metadata is still not trusted install evidence.
+        let version = spec.version.as_deref().ok_or(LoaderError::InvalidInput)?;
+        let candidate = crate::loader_matrix::neoforge_candidate(minecraft_version, version)?;
+        let mut plan = installer_plan(
+            minecraft_version, spec, crate::NEOFORGE_MAVEN,
+            &format!("net.neoforged:neoforge:{version}"),
+            candidate.java_major,
+        )?;
+        plan.warnings.push(
+            "NeoForge game mapping remains an unexecuted candidate: verify the official installer hash, profile Minecraft binding and all processor outputs before publication".into(),
+        );
+        Ok(plan)
     }
 }
