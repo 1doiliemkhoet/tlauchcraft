@@ -383,12 +383,10 @@ async fn pack_install_official_forge(
             }
             let loader_version = metadata.loader.version.as_deref()
                 .ok_or("Original pack manifest has no selected Forge version")?;
-            if metadata.game_version != "1.16.5" || loader_version != "36.2.29" {
-                return Err(format!(
-                    "No approved Windows host processor adapter for Minecraft {} / Forge {}; keep this pack staged",
-                    metadata.game_version, loader_version
-                ));
-            }
+            tl_loader::forge_family::approved_forge_release(
+                &metadata.game_version,
+                loader_version,
+            ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
             let base = default_data_dir().map_err(|e| e.to_string())?;
             let root = isolated_data_dir(&base.join("instances")).map_err(|e| e.to_string())?;
             let stage = root.join(format!("{}.staging", key));
@@ -516,12 +514,10 @@ async fn pack_import_installed_curseforge(
             }
             let forge_version = metadata.loader.version.as_deref()
                 .ok_or("Original manifest lacks Forge version")?;
-            if metadata.game_version != "1.16.5" || forge_version != "36.2.29" {
-                return Err(format!(
-                    "Installed mod import supports this manifest, but official Forge processor execution for {} / {} has not been audited yet",
-                    metadata.game_version, forge_version
-                ));
-            }
+            tl_loader::forge_family::approved_forge_release(
+                &metadata.game_version,
+                forge_version,
+            ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
             let mut probe = std::process::Command::new(java);
             probe.arg("-version");
             use std::os::windows::process::CommandExt;
