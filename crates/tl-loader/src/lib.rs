@@ -13,8 +13,8 @@ pub mod forge_graph;
 pub mod forge_playable;
 pub mod forge_provenance;
 pub mod installer;
-pub mod loader_runtime;
 pub mod loader_matrix;
+pub mod loader_runtime;
 pub mod maven;
 pub mod runtime;
 #[cfg(windows)]

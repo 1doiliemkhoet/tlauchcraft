@@ -170,15 +170,18 @@ impl crate::LoaderInstaller for Forge {
         // Preserve the version family's Java requirement independently of
         // what a metadata caller claims is installed on the host.
         let required_java = crate::loader_matrix::reviewed_cross_generation(
-            minecraft_version, spec.version.as_deref().unwrap_or_default()
+            minecraft_version,
+            spec.version.as_deref().unwrap_or_default(),
         )
         .ok()
         .map(|r| r.java_major)
         .or_else(|| {
             crate::forge_family::approved_forge_release(
-                minecraft_version, spec.version.as_deref().unwrap_or_default()
+                minecraft_version,
+                spec.version.as_deref().unwrap_or_default(),
             )
-            .ok().map(|_| 8)
+            .ok()
+            .map(|_| 8)
         })
         .unwrap_or(game_java_major);
         installer_plan(
@@ -214,7 +217,9 @@ impl crate::LoaderInstaller for NeoForge {
         let version = spec.version.as_deref().ok_or(LoaderError::InvalidInput)?;
         let candidate = crate::loader_matrix::neoforge_candidate(minecraft_version, version)?;
         let mut plan = installer_plan(
-            minecraft_version, spec, crate::NEOFORGE_MAVEN,
+            minecraft_version,
+            spec,
+            crate::NEOFORGE_MAVEN,
             &format!("net.neoforged:neoforge:{version}"),
             candidate.java_major,
         )?;

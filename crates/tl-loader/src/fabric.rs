@@ -105,7 +105,9 @@ impl LoaderInstaller for Fabric {
             }
             libraries.push(maven::artifact(base, &library.name, library.sha1)?);
         }
-        let all_hashed = libraries.iter().all(|artifact| artifact.expected_sha1.is_some());
+        let all_hashed = libraries
+            .iter()
+            .all(|artifact| artifact.expected_sha1.is_some());
         Ok(LoaderPlan {
             loader: spec.clone(),
             version_id: profile.id,

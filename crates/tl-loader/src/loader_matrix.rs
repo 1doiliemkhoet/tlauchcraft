@@ -97,9 +97,9 @@ pub fn inspect_reviewed_installer(
     let version: Value = serde_json::from_str(version_json)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let expected_id = format!("{minecraft}-forge-{forge}");
-    let actual_version = version["id"].as_str().ok_or_else(|| {
-        LoaderError::InvalidMetadata("Forge client version JSON lacks id".into())
-    })?;
+    let actual_version = version["id"]
+        .as_str()
+        .ok_or_else(|| LoaderError::InvalidMetadata("Forge client version JSON lacks id".into()))?;
     if !actual_version.ends_with(forge)
         || !actual_version.contains(minecraft)
         || version["inheritsFrom"] != minecraft
@@ -117,7 +117,10 @@ pub fn inspect_reviewed_installer(
             if legacy_mc != Some(minecraft) && !profile["install"].is_object() {
                 return Err(LoaderError::CompatibilityConflict);
             }
-            if profile["processors"].as_array().is_some_and(|p| !p.is_empty()) {
+            if profile["processors"]
+                .as_array()
+                .is_some_and(|p| !p.is_empty())
+            {
                 return Err(LoaderError::InvalidMetadata(
                     "legacy Forge profile unexpectedly declares modern processors".into(),
                 ));
@@ -160,14 +163,12 @@ pub struct NeoForgeCandidate {
     pub java_major: u32,
     pub installer_sha1: &'static str,
 }
-pub const NEOFORGE_CANDIDATES: &[NeoForgeCandidate] = &[
-    NeoForgeCandidate {
-        minecraft: "1.21.1",
-        version: "21.1.80",
-        java_major: 21,
-        installer_sha1: "191c8211ffd2d8e754359d15e96a0441a66f2eac",
-    },
-];
+pub const NEOFORGE_CANDIDATES: &[NeoForgeCandidate] = &[NeoForgeCandidate {
+    minecraft: "1.21.1",
+    version: "21.1.80",
+    java_major: 21,
+    installer_sha1: "191c8211ffd2d8e754359d15e96a0441a66f2eac",
+}];
 pub fn neoforge_candidate(
     minecraft: &str,
     version: &str,
@@ -175,9 +176,11 @@ pub fn neoforge_candidate(
     NEOFORGE_CANDIDATES
         .iter()
         .find(|r| r.minecraft == minecraft && r.version == version)
-        .ok_or_else(|| LoaderError::UnsupportedVersion(format!(
-            "NeoForge {version} / Minecraft {minecraft}: no reviewed candidate"
-        )))
+        .ok_or_else(|| {
+            LoaderError::UnsupportedVersion(format!(
+                "NeoForge {version} / Minecraft {minecraft}: no reviewed candidate"
+            ))
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,43 +260,75 @@ mod tests {
         let profile = r#"{"minecraft":"1.20.1","version":"1.20.1-forge-47.3.0","processors":[{"jar":"net.minecraftforge:installertools:1.4.1","args":["--task","EXTRACT_FILES"],"sides":["client"]}]}"#;
         let version = r#"{"id":"1.20.1-forge-47.3.0","inheritsFrom":"1.20.1","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher"}"#;
         let r = reviewed_cross_generation("1.20.1", "47.3.0").unwrap();
-        let inspected = inspect_reviewed_installer("1.20.1", "47.3.0", r.installer_sha1, profile, version).unwrap();
+        let inspected =
+            inspect_reviewed_installer("1.20.1", "47.3.0", r.installer_sha1, profile, version)
+                .unwrap();
         assert_eq!(inspected.selected_processor_count, 1);
         assert_eq!(inspected.java_major, 17);
         assert!(!inspected.ready_to_execute);
         assert!(!inspected.instance_ready);
-        assert!(inspect_reviewed_installer("1.20.1", "47.3.0", &"0".repeat(40), profile, version).is_err());
-        assert!(inspect_reviewed_installer("1.18.2", "40.2.21", r.installer_sha1, profile, version).is_err());
+        assert!(
+            inspect_reviewed_installer("1.20.1", "47.3.0", &"0".repeat(40), profile, version)
+                .is_err()
+        );
+        assert!(inspect_reviewed_installer(
+            "1.18.2",
+            "40.2.21",
+            r.installer_sha1,
+            profile,
+            version
+        )
+        .is_err());
     }
     #[test]
     fn legacy_profile_is_not_treated_as_modern_processor_graph() {
         let profile = r#"{"minecraft":"1.12.2","install":{"minecraft":"1.12.2"}}"#;
         let version = r#"{"id":"1.12.2-forge-14.23.5.2860","inheritsFrom":"1.12.2","mainClass":"net.minecraft.launchwrapper.Launch"}"#;
         let release = reviewed_cross_generation("1.12.2", "14.23.5.2860").unwrap();
-        let inspected = inspect_reviewed_installer("1.12.2", "14.23.5.2860", release.installer_sha1, profile, version).unwrap();
+        let inspected = inspect_reviewed_installer(
+            "1.12.2",
+            "14.23.5.2860",
+            release.installer_sha1,
+            profile,
+            version,
+        )
+        .unwrap();
         assert_eq!(inspected.selected_processor_count, 0);
         assert!(!inspected.ready_to_execute);
         let malicious = r#"{"minecraft":"1.12.2","install":{},"processors":[{"jar":"x:y:1"}]}"#;
-        assert!(inspect_reviewed_installer("1.12.2", "14.23.5.2860", release.installer_sha1, malicious, version).is_err());
+        assert!(inspect_reviewed_installer(
+            "1.12.2",
+            "14.23.5.2860",
+            release.installer_sha1,
+            malicious,
+            version
+        )
+        .is_err());
     }
     #[test]
     fn neoforge_verified_metadata_still_needs_approved_runtime_execution() {
         let p = r#"{"minecraft":"1.21.1","version":"neoforge-21.1.80","processors":[{"jar":"net.minecraftforge:installertools:2.1.1","sides":["client"],"args":["--task","EXTRACT_FILES"]}]}"#;
         let v = r#"{"id":"neoforge-21.1.80","inheritsFrom":"1.21.1","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher"}"#;
         let release = neoforge_candidate("1.21.1", "21.1.80").unwrap();
-        let inspected = inspect_reviewed_neoforge("1.21.1", "21.1.80", release.installer_sha1, p, v).unwrap();
+        let inspected =
+            inspect_reviewed_neoforge("1.21.1", "21.1.80", release.installer_sha1, p, v).unwrap();
         assert_eq!(inspected.java_major, 21);
         assert_eq!(inspected.selected_processors, 1);
         assert!(!inspected.ready_to_execute);
         assert!(!inspected.instance_ready);
         assert!(inspect_reviewed_neoforge("1.21.1", "21.1.80", &"0".repeat(40), p, v).is_err());
-        assert!(inspect_reviewed_neoforge("1.20.4", "21.1.80", release.installer_sha1, p, v).is_err());
+        assert!(
+            inspect_reviewed_neoforge("1.20.4", "21.1.80", release.installer_sha1, p, v).is_err()
+        );
     }
     #[test]
     fn neoforge_candidates_are_exact_and_not_wildcard_versions() {
         let release = neoforge_candidate("1.21.1", "21.1.80").unwrap();
         assert_eq!(release.java_major, 21);
-        assert_eq!(release.installer_sha1, "191c8211ffd2d8e754359d15e96a0441a66f2eac");
+        assert_eq!(
+            release.installer_sha1,
+            "191c8211ffd2d8e754359d15e96a0441a66f2eac"
+        );
         assert!(neoforge_candidate("1.20.1", "21.1.80").is_err());
         assert!(neoforge_candidate("1.21.1", "21.1.81").is_err());
     }

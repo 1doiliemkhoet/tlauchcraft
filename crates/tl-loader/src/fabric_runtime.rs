@@ -62,15 +62,14 @@ fn rehash_jar(root: &Path, proof: &FabricLibraryProof) -> Result<(), LoaderError
     }
     let path = root.join("libraries").join(&proof.relative_path);
     reject_symlink_components(&path)?;
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let metadata =
+        fs::symlink_metadata(&path).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     if !metadata.file_type().is_file() || metadata.len() != proof.size_bytes {
         return Err(LoaderError::InvalidMetadata(
             "Fabric library size/type differs from independent proof".into(),
         ));
     }
-    let mut source = File::open(&path)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let mut source = File::open(&path).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let mut digest = Sha1::new();
     let mut buffer = [0u8; 65536];
     loop {
@@ -110,8 +109,8 @@ pub fn verify_local_fabric_runtime(
     if parent["id"] != minecraft || parent.get("inheritsFrom").is_some() {
         return Err(LoaderError::CompatibilityConflict);
     }
-    let required_java = tl_game::required_java(parent)
-        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let required_java =
+        tl_game::required_java(parent).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let spec = LoaderSpec {
         kind: LoaderKind::Fabric,
         version: Some(loader_version.to_owned()),
@@ -198,10 +197,17 @@ pub fn verify_local_fabric_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     fn temp_root() -> std::path::PathBuf {
-        let id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("tl-fabric-proof-{}-{id}", std::process::id()));
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("tl-fabric-proof-{}-{id}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path.canonicalize().unwrap()
     }
@@ -217,7 +223,9 @@ mod tests {
         })
     }
     fn profile(sha: &str) -> String {
-        format!(r#"{{"id":"fabric-loader-0.16.10-1.20.1","inheritsFrom":"1.20.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/","sha1":"{sha}"}}]}}"#)
+        format!(
+            r#"{{"id":"fabric-loader-0.16.10-1.20.1","inheritsFrom":"1.20.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/","sha1":"{sha}"}}]}}"#
+        )
     }
     #[test]
     fn hashes_local_library_but_does_not_claim_published_instance() {
@@ -233,13 +241,19 @@ mod tests {
             upstream_sha1: sha,
             size_bytes: 17,
         }];
-        let out = verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).unwrap();
+        let out =
+            verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).unwrap();
         assert_eq!(out.required_java_major, 17);
         assert_eq!(out.verified_libraries.len(), 1);
-        assert_eq!(out.merged_version["mainClass"], "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            out.merged_version["mainClass"],
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
         assert!(!out.instance_ready);
         fs::write(&file, b"another fixture!").unwrap();
-        assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).is_err());
+        assert!(
+            verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &proofs).is_err()
+        );
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]
@@ -247,7 +261,9 @@ mod tests {
         let root = temp_root();
         let profile = profile(&"a".repeat(40));
         assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), &profile, &root, &[]).is_err());
-        assert!(verify_local_fabric_runtime("1.19.2", LOADER, &parent(), &profile, &root, &[]).is_err());
+        assert!(
+            verify_local_fabric_runtime("1.19.2", LOADER, &parent(), &profile, &root, &[]).is_err()
+        );
         assert!(crate::maven::artifact_path_from_relative("../../evil.jar").is_err());
         fs::remove_dir_all(&root).unwrap();
     }
