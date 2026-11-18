@@ -23,15 +23,11 @@ export function canPlayInstance(instance: GameInstance | undefined, profileId: s
     (!status || (!status.installing && status.process_state !== 'running' &&
       status.process_state !== 'crashed')));
 }
-export function validateJavaForm(prefs: JavaSettings | null, mem: MemoryInfo | null): string | undefined {
-  if (!prefs || !mem) return 'Select an instance and load real Windows memory data.';
+export function validateJavaForm(prefs: JavaSettings | null, _mem: MemoryInfo | null): string | undefined {
+  if (!prefs) return 'Select an instance and load Java settings.';
   const {xms_mb: xms, xmx_mb: xmx} = prefs;
   if (!Number.isInteger(xms) || !Number.isInteger(xmx) || xms < 256 || xmx < xms || xmx > 65536)
     return 'RAM must satisfy 256 MB <= Xms <= Xmx <= 65536 MB.';
-  if (xmx > mem.total_mb - mem.reserved_mb)
-    return 'Xmx exceeds physical RAM after the Windows system reserve.';
-  if (xmx > mem.available_mb - 512)
-    return 'Xmx exceeds currently available memory after 512 MB reserve.';
   return undefined;
 }
 

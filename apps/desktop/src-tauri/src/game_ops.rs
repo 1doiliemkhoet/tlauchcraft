@@ -121,6 +121,113 @@ pub fn instance_create_vanilla(req:NewVanillaInstance)->Result<GameInstance,Stri
     store.create_instance(&instance).map_err(|e|e.to_string())?;
     Ok(instance)
 }
+/// Removing an instance always preserves its private data (including saves)
+/// in app-local deleted-instances/<uuid>, allowing manual recovery. The original
+/// CurseForge installation is never used as a deletion target.
+#[derive(Serialize)]
+pub struct RemovedInstance {
+    pub id: String,
+    pub archived_path: Option<String>,
+}
+
+fn archive_instance_directory(i:&GameInstance)->Result<Option<PathBuf>,String> {
+    let base=default_data_dir().map_err(|e|e.to_string())?;
+    archive_instance_directory_under(&base,i)
+}
+
+fn archive_instance_directory_under(base:&Path,i:&GameInstance)->Result<Option<PathBuf>,String> {
+    i.validate().map_err(|e|e.to_string())?;
+    let source=base.join(&i.root_path);
+    if source != base.join("instances").join(i.id.to_string()) {
+        return Err("Instance removal refused unsafe or unexpected root".into());
+    }
+    for part in source.ancestors().take_while(|path|path.starts_with(base)) {
+        if fs::symlink_metadata(part).is_ok_and(|meta|meta.file_type().is_symlink()) {
+            return Err("Refusing symlinked instance or data root".into());
+        }
+    }
+    match fs::symlink_metadata(&source) {
+        Err(error) if error.kind()==std::io::ErrorKind::NotFound=>return Ok(None),
+        Err(error)=>return Err(format!("Unable to inspect instance directory: {error}")),
+        Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink()=>
+            return Err("Instance removal requires a regular private directory".into()),
+        _=>{}
+    }
+    let parent=base.join("deleted-instances");
+    if parent.exists() {
+        let metadata=fs::symlink_metadata(&parent).map_err(|e|e.to_string())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("Unsafe deleted-instances directory".into());
+        }
+    } else {
+        fs::create_dir(&parent).map_err(|e|e.to_string())?;
+    }
+    let target=parent.join(i.id.to_string());
+    if fs::symlink_metadata(&target).is_ok() {
+        return Err("Deleted instance backup already exists; refusing overwrite".into());
+    }
+    fs::rename(&source,&target).map_err(|e|format!("Unable to archive instance: {e}"))?;
+    Ok(Some(target))
+}
+
+#[tauri::command]
+pub async fn instance_remove(
+    state:State<'_,Arc<GameState>>,
+    instance_id:String,
+    confirm_instance_id:String
+)->Result<RemovedInstance,String>{
+    let shared=state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move ||
+        remove_instance_work(shared,&instance_id,&confirm_instance_id)
+    ).await.map_err(|e|e.to_string())?
+}
+
+fn remove_instance_work(
+    state:Arc<GameState>,instance_id:&str,confirm_instance_id:&str
+)->Result<RemovedInstance,String>{
+    let uuid=id(instance_id)?;
+    if confirm_instance_id!=uuid.to_string() {
+        return Err("Confirmation ID must exactly match the selected instance".into());
+    }
+    let instance=find_instance(uuid)?;
+    // A pending install or Forge publish may still own private files.
+    if !matches!(instance.state,InstanceState::Empty|InstanceState::Ready|
+        InstanceState::NeedsAction|InstanceState::Failed|InstanceState::Cancelled) {
+        return Err("Cannot remove an instance while install or publication is pending".into());
+    }
+    let installs=state.installs.lock().map_err(|_|"Install lock poisoned")?;
+    if installs.contains_key(&uuid) {
+        return Err("Cannot remove an instance while its install worker is active".into());
+    }
+    let mut children=state.children.lock().map_err(|_|"Process lock poisoned")?;
+    if let Some(child)=children.get_mut(&uuid) {
+        if child.try_wait().map_err(|e|e.to_string())?.is_none() {
+            return Err("Stop the running Minecraft process before removing its instance".into());
+        }
+        children.remove(&uuid);
+    }
+    let archived=archive_instance_directory(&instance)?;
+    let mut store=db()?;
+    if let Err(error)=store.delete_instance_record(uuid) {
+        if let Some(ref path)=archived {
+            let original=root(&instance)?;
+            if let Err(restore_error)=fs::rename(path,&original) {
+                return Err(format!(
+                    "SQLite removal failed ({error}); recovery archive at {} (restore failed: {restore_error})",
+                    path.display()
+                ));
+            }
+        }
+        return Err(format!("SQLite instance removal failed: {error}"));
+    }
+    drop(children);
+    drop(installs);
+    Ok(RemovedInstance{
+        id:uuid.to_string(),
+        archived_path:archived.map(|p|p.to_string_lossy().into_owned())
+    })
+}
+
 fn game_dir_for(root:&Path)->PathBuf {
     // Vanilla's established world location remains untouched.
     root.join("game")
@@ -711,6 +818,35 @@ mod tests {
         assert_eq!(count_native_dlls(&path).unwrap(),1);
         fs::remove_dir_all(&path).unwrap();
     }
+    #[test]
+    fn removed_instance_is_archived_without_touching_other_worlds() {
+        let base=std::env::temp_dir().join(format!("tl-remove-instance-{}",Uuid::new_v4()));
+        fs::create_dir_all(base.join("instances")).unwrap();
+        let profile=Uuid::new_v4();
+        let first=GameInstance::new(
+            "Rustic Waters II","1.16.5",
+            LoaderSpec{kind:LoaderKind::Forge,version:Some("36.2.29".into())},profile
+        ).unwrap();
+        let second=GameInstance::new(
+            "Rustic Waters II","1.16.5",
+            LoaderSpec{kind:LoaderKind::Forge,version:Some("36.2.29".into())},profile
+        ).unwrap();
+        let world=base.join(&first.root_path).join("saves").join("test-world");
+        let other=base.join(&second.root_path).join("saves").join("untouched");
+        fs::create_dir_all(&world).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        fs::write(world.join("level.dat"),b"world bytes").unwrap();
+        fs::write(other.join("level.dat"),b"other bytes").unwrap();
+
+        let archived=archive_instance_directory_under(&base,&first).unwrap().unwrap();
+        assert_eq!(archived,base.join("deleted-instances").join(first.id.to_string()));
+        assert_eq!(fs::read(archived.join("saves/test-world/level.dat")).unwrap(),b"world bytes");
+        assert!(!base.join(&first.root_path).exists());
+        assert_eq!(fs::read(other.join("level.dat")).unwrap(),b"other bytes");
+        assert!(archive_instance_directory_under(&base,&first).unwrap().is_none());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
     #[test]
     fn rejects_jvm_memory_inversion_before_process_spawn() {
         let config=tl_game::LaunchConfig{

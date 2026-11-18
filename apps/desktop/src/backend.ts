@@ -17,6 +17,7 @@ export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: 
 export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
 export type NewVanillaInstance = { name: string; version: string; profile_id: string };
+export type RemovedInstance = { id: string; archived_path: string | null };
 export type PackMetadata = { name: string; source: 'curseforge_zip' | 'modrinth_mrpack' | 'prism_zip'; game_version: string; loader: { kind: string; version: string | null }; archive_sha256: string; archive_entries: number; uncompressed_bytes: number; warnings: string[]; files: unknown[]; overrides: string[] };
 export type CurseForgeResolvedFile = {
   project_id: number; file_id: number; required: boolean; file_name: string | null;
@@ -68,6 +69,8 @@ export const operations = {
   listProfiles: (c: Capabilities) => call<OfflineProfile[]>(c, 'profiles', 'profile_list'),
   createProfile: (c: Capabilities, username: string) => call<OfflineProfile>(c, 'profiles', 'profile_create', { username }),
   listInstances: (c: Capabilities) => call<GameInstance[]>(c, 'instances', 'instance_list'),
+  removeInstance: (c: Capabilities, instanceId: string, confirmInstanceId: string) =>
+    call<RemovedInstance>(c, 'instances', 'instance_remove', { instanceId, confirmInstanceId }),
   createVanillaInstance: (c: Capabilities, req: NewVanillaInstance) => call<GameInstance>(c, 'game', 'instance_create_vanilla', { req }),
   installVanilla: (c: Capabilities, instanceId: string) => call<string>(c, 'game', 'game_install', { instanceId }),
   gameStatus: (c: Capabilities, instanceId: string) => call<GameStatus>(c, 'game', 'game_status', { instanceId }),

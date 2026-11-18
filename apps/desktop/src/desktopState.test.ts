@@ -73,11 +73,12 @@ describe('Java settings persisted wire state and physical memory',()=>{
     expect(reloaded).toEqual(saved);
     expect(validateJavaForm(reloaded,mem)).toBeUndefined();
   });
-  it('rejects excessive RAM, inverted heap and nonintegral inputs',()=>{
+  it('allows user heap choices regardless of free RAM, but rejects invalid JVM arguments',()=>{
     expect(validateJavaForm({...saved,xms_mb:8192},mem)).toContain('Xms');
-    expect(validateJavaForm({...saved,xmx_mb:16384},mem)).toContain('physical');
-    expect(validateJavaForm({...saved,xmx_mb:10000},mem)).toContain('available');
+    expect(validateJavaForm({...saved,xmx_mb:16384},mem)).toBeUndefined();
+    expect(validateJavaForm({...saved,xmx_mb:10000},mem)).toBeUndefined();
     expect(validateJavaForm({...saved,xms_mb:512.5},mem)).toContain('RAM');
+    expect(validateJavaForm({...saved,xmx_mb:65537},mem)).toContain('RAM');
     expect(validateJavaForm(null,mem)).toContain('Select');
   });
 });

@@ -720,6 +720,7 @@ fn main() {
             java_memory_info,
             java_detect_8,
             game_ops::instance_create_vanilla,
+            game_ops::instance_remove,
             game_ops::game_install,
             game_ops::game_preflight,
             game_ops::game_cancel,
