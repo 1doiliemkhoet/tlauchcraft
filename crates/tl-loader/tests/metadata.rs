@@ -12,7 +12,7 @@ fn spec(kind: LoaderKind, game: &str, loader: &str) -> LoaderSpec {
     }
 }
 fn fabric_fixture() -> &'static str {
-    r#"{"id":"fabric-loader-0.16.10-1.21.1","inheritsFrom":"1.21.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/"},{"name":"org.ow2.asm:asm:9.7","url":"https://repo.maven.apache.org/maven2/"}]}"#
+    r#"{"id":"fabric-loader-0.16.10-1.21.1","inheritsFrom":"1.21.1","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.10","url":"https://maven.fabricmc.net/","sha1":"1111111111111111111111111111111111111111"},{"name":"org.ow2.asm:asm:9.7","url":"https://repo.maven.apache.org/maven2/","sha1":"2222222222222222222222222222222222222222"}]}"#
 }
 #[test]
 fn resolves_fabric_plan_without_touching_disk() {
@@ -41,6 +41,23 @@ fn resolves_fabric_plan_without_touching_disk() {
         })
     );
 }
+#[test]
+fn fabric_without_upstream_checksums_is_inspection_only() {
+    let unsigned = fabric_fixture().replace(
+        r#","sha1":"1111111111111111111111111111111111111111""#,
+        "",
+    );
+    let plan = Fabric
+        .plan(
+            "1.21.1",
+            &spec(LoaderKind::Fabric, "1.21.1", "0.16.10"),
+            &unsigned,
+            21,
+        )
+        .unwrap();
+    assert!(!plan.ready_for_metadata_merge);
+}
+
 #[test]
 fn rejects_fabric_version_mismatch() {
     assert_eq!(
