@@ -285,7 +285,9 @@ fn verified_minecraft_extra(
         || mcp_version.len() > 64
         || !mcp_version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
     {
-        return Err(LoaderError::InvalidMetadata("unsafe official MCP version".into()));
+        return Err(LoaderError::InvalidMetadata(
+            "unsafe official MCP version".into(),
+        ));
     }
     let splitter = request
         .processors
@@ -308,12 +310,16 @@ fn verified_minecraft_extra(
     }
     let source = request.stage_root.join(&output.relative_path);
     if !path_is_within(&request.stage_root, &source)
-        || !report.verified_outputs.iter().any(|verified| verified == &source)
+        || !report
+            .verified_outputs
+            .iter()
+            .any(|verified| verified == &source)
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
-    let metadata = fs::symlink_metadata(&source)
-        .map_err(|e| LoaderError::InvalidMetadata(format!("Minecraft client extra missing: {e}")))?;
+    let metadata = fs::symlink_metadata(&source).map_err(|e| {
+        LoaderError::InvalidMetadata(format!("Minecraft client extra missing: {e}"))
+    })?;
     if !metadata.file_type().is_file() || metadata.len() == 0 {
         return Err(LoaderError::InvalidMetadata(
             "Minecraft client extra JAR is empty, a symlink or not a regular file".into(),
@@ -321,9 +327,7 @@ fn verified_minecraft_extra(
     }
     crate::runtime::verify_sha1(&source, pinned)?;
     let version = format!("{}-{mcp_version}", selected.minecraft_version);
-    let relative_path = format!(
-        "net/minecraft/client/{version}/client-{version}-extra.jar"
-    );
+    let relative_path = format!("net/minecraft/client/{version}/client-{version}-extra.jar");
     Ok(VerifiedForgeLibrary {
         coordinate: format!("net.minecraft:client:{version}:extra"),
         relative_path,
@@ -801,18 +805,27 @@ mod tests {
             java: root.join("java.exe"),
             stage_root: stage,
             processors: vec![
-                processor("net.minecraftforge:installertools:1.2.6",vec![]),
-                processor("net.minecraftforge:jarsplitter:1.1.4",vec![
-                    ExpectedOutput{relative_path:"generated/client-extra.jar".into(),sha1:hash.clone()},
-                    ExpectedOutput{relative_path:"generated/client-slim.jar".into(),sha1:"a".repeat(40)},
-                ]),
+                processor("net.minecraftforge:installertools:1.2.6", vec![]),
+                processor(
+                    "net.minecraftforge:jarsplitter:1.1.4",
+                    vec![
+                        ExpectedOutput {
+                            relative_path: "generated/client-extra.jar".into(),
+                            sha1: hash.clone(),
+                        },
+                        ExpectedOutput {
+                            relative_path: "generated/client-slim.jar".into(),
+                            sha1: "a".repeat(40),
+                        },
+                    ],
+                ),
             ],
             timeout_seconds: 180,
         };
         let report = ProcessorRunReport {
             outcome: ProcessorOutcome::Verified,
             completed: 2,
-            exit_codes: vec![Some(0),Some(0)],
+            exit_codes: vec![Some(0), Some(0)],
             log_paths: vec![],
             verified_outputs: vec![source.clone()],
             intermediate_evidence: vec![],
@@ -824,19 +837,30 @@ mod tests {
             verified.relative_path,
             "net/minecraft/client/1.16.5-20210115.111550/client-1.16.5-20210115.111550-extra.jar"
         );
-        assert_eq!(verified.path,source);
-        assert_eq!(verified.official_sha1,hash);
-        fs::write(&source,b"tampered").unwrap();
-        assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &report).is_err());
-        fs::write(&source,contents).unwrap();
-        let unverified = ProcessorRunReport {verified_outputs:vec![],..report.clone()};
-        assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &unverified).is_err());
+        assert_eq!(verified.path, source);
+        assert_eq!(verified.official_sha1, hash);
+        fs::write(&source, b"tampered").unwrap();
+        assert!(
+            verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &report).is_err()
+        );
+        fs::write(&source, contents).unwrap();
+        let unverified = ProcessorRunReport {
+            verified_outputs: vec![],
+            ..report.clone()
+        };
+        assert!(
+            verified_minecraft_extra(&selected("36.2.29"), &profile, &request, &unverified)
+                .is_err()
+        );
         let mut wrong = request.clone();
         wrong.processors[1].outputs[0].sha1 = "0".repeat(40);
         assert!(verified_minecraft_extra(&selected("36.2.29"), &profile, &wrong, &report).is_err());
         let mut wrong_version = profile.clone();
         wrong_version["data"]["MCP_VERSION"]["client"] = json!("'../../escape'");
-        assert!(verified_minecraft_extra(&selected("36.2.29"), &wrong_version, &request, &report).is_err());
+        assert!(
+            verified_minecraft_extra(&selected("36.2.29"), &wrong_version, &request, &report)
+                .is_err()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
