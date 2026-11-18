@@ -699,7 +699,12 @@ fn is_mutable_user_config(relative: &str) -> bool {
     (in_config && ext_allowed)
         || matches!(
             path.as_str(),
-            "options.txt" | "optionsof.txt" | "servers.dat"
+            "options.txt"
+                | "optionsof.txt"
+                | "servers.dat"
+                // Spawn Balance Utility rewrites this entity inventory report
+                // during gameplay. Do not exempt arbitrary .rpt files.
+                | "config/spawnbalanceutility/allmobentities.rpt"
         )
 }
 
@@ -712,6 +717,22 @@ fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String>
         return Err("user configuration file missing or unsafe".into());
     }
     Ok(())
+}
+
+/// The receipt remains unchanged and original ZIP hashes are still mandatory
+/// at publication. Only recognized runtime-mutable data may change on Play.
+fn reverify_override_for_play(root: &Path, file: &VerifiedOverride) -> Result<(), String> {
+    if is_mutable_user_config(&file.relative_path) {
+        verify_mutable_config_path(root, &file.relative_path)
+    } else {
+        check_file(
+            root,
+            &file.relative_path,
+            file.bytes,
+            None,
+            Some(&file.sha256),
+        )
+    }
 }
 
 fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Result<(), String> {
@@ -842,17 +863,7 @@ pub fn reverify_published_forge(
         )?;
     }
     for file in &record.verified_overrides {
-        if is_mutable_user_config(&file.relative_path) {
-            verify_mutable_config_path(root, &file.relative_path)?;
-        } else {
-            check_file(
-                root,
-                &file.relative_path,
-                file.bytes,
-                None,
-                Some(&file.sha256),
-            )?;
-        }
+        reverify_override_for_play(root, file)?;
     }
     verify_natives(root, &record.natives_relative_path)?;
     if record.native_dlls != collect_verified_natives(root)? {
@@ -883,6 +894,49 @@ mod tests {
         fs::write(dir.join("config/modsettings.toml"), b"changed by Minecraft").unwrap();
         assert!(verify_mutable_config_path(&dir, "config/modsettings.toml").is_ok());
         assert!(verify_mutable_config_path(&dir, "../other").is_err());
+    }
+
+    #[test]
+    fn spawn_balance_report_can_change_after_play_but_other_artifacts_cannot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let report = "config/spawnbalanceutility/AllMobEntities.rpt";
+        let original = b"original";
+        let changed = b"regenerated report with more entities";
+        let sha256 = format!("{:x}", Sha256::digest(original));
+        let receipt = |relative: &str| VerifiedOverride {
+            relative_path: relative.to_owned(),
+            sha256: sha256.clone(),
+            bytes: original.len() as u64,
+        };
+        for relative in [
+            report,
+            "config/other/AllMobEntities.rpt",
+            "config/spawnbalanceutility/other.rpt",
+            "config/spawnbalanceutility/AllMobEntities.rpt.jar",
+            "kubejs/startup_scripts/init.js",
+            "mods/immutable.jar",
+        ] {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, original).unwrap();
+            let evidence = receipt(relative);
+            check_file(&root, relative, evidence.bytes, None, Some(&sha256)).unwrap();
+            fs::write(&path, changed).unwrap();
+            assert!(check_file(&root, relative, evidence.bytes, None, Some(&sha256)).is_err());
+            assert_eq!(
+                reverify_override_for_play(&root, &evidence).is_ok(),
+                relative == report
+            );
+        }
+        assert!(is_mutable_user_config(
+            "CONFIG/SPAWNBALANCEUTILITY/ALLMOBENTITIES.RPT"
+        ));
+        let path = root.join(report);
+        fs::remove_file(&path).unwrap();
+        assert!(reverify_override_for_play(&root, &receipt(report)).is_err());
+        fs::create_dir(&path).unwrap();
+        assert!(reverify_override_for_play(&root, &receipt(report)).is_err());
     }
 
     #[test]
