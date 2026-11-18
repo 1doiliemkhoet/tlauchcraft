@@ -37,3 +37,5 @@ jobs:
             git push origin HEAD:feat/p1-multiloader-adapters-20261118
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+# Follow-up formatter pass after NeoForge @jar parsing.
