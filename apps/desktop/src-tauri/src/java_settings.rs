@@ -54,7 +54,7 @@ fn memory_info() -> Result<MemoryInfo, String> {
         }
         let total = status.total_phys / (1024 * 1024);
         let available = status.avail_phys / (1024 * 1024);
-        if total < 1024 || available > total || available < 768 {
+        if total < 1024 || available > total {
             return Err("Insufficient or invalid available system RAM".into());
         }
         Ok(MemoryInfo {total_mb:total,available_mb:available,reserved_mb:1024})
@@ -92,10 +92,10 @@ fn has_instance(id:Uuid)->Result<(),String>{
     Ok(())
 }
 fn defaults(id:&str,mem:&MemoryInfo)->JavaSettings {
-    let ceiling=mem.total_mb.saturating_sub(mem.reserved_mb)
-        .min(mem.available_mb.saturating_sub(512))
-        .min(4096).max(256);
-    let xmx=ceiling.min(2048) as u32;
+    // 8 GiB maximum heap on normal gaming machines; keep the initial heap
+    // small so HotSpot can grow it on demand. Smaller physical-RAM machines
+    // get a conservative initial default, but users may override Xmx.
+    let xmx=8192_u64.min(mem.total_mb.saturating_sub(1024).max(256)) as u32;
     JavaSettings{instance_id:id.into(),xms_mb:xmx.min(512),xmx_mb:xmx,java_path:String::new(),revision:0}
 }
 pub fn read(id:&str)->Result<JavaSettings,String>{
@@ -109,14 +109,8 @@ pub fn read(id:&str)->Result<JavaSettings,String>{
     Ok(defaults(id,&memory_info()?))
 }
 pub fn system_memory()->Result<MemoryInfo,String>{memory_info()}
-pub fn validate(xms:u32,xmx:u32,java:&str,mem:&MemoryInfo)->Result<(),String>{
+pub fn validate(xms:u32,xmx:u32,java:&str,_mem:&MemoryInfo)->Result<(),String>{
     if xms<256 || xmx<xms || xmx>65536 {return Err("Invalid memory: require 256 MB <= Xms <= Xmx <= 65536 MB".into())}
-    if (xmx as u64)>mem.total_mb.saturating_sub(mem.reserved_mb) {
-        return Err(format!("Xmx exceeds physical RAM after {} MB system reserve",mem.reserved_mb));
-    }
-    if (xmx as u64)>mem.available_mb.saturating_sub(512) {
-        return Err("Xmx exceeds currently available RAM after 512 MB safety margin".into());
-    }
     if java.len()>1024 || java.contains('\0') || java.chars().any(|c|c.is_control()){
         return Err("Invalid Java executable path".into());
     }
@@ -360,11 +354,12 @@ pub fn java_executable(s:&JavaSettings)->PathBuf{
 #[cfg(test)]
 mod tests {
  use super::*;
- #[test]fn rejects_inverted_and_oversubscribed_ram(){
-   let m=MemoryInfo{total_mb:8192,available_mb:4096,reserved_mb:1024};
+ #[test]fn rejects_inverted_ram_but_does_not_gate_on_currently_free_memory(){
+   let m=MemoryInfo{total_mb:8192,available_mb:1024,reserved_mb:1024};
    assert!(validate(4096,2048,"",&m).is_err());
-   assert!(validate(512,4096,"",&m).is_err());
-   assert!(validate(512,2048,"",&m).is_ok());
+   assert!(validate(512,8192,"",&m).is_ok());
+   assert!(validate(512,16384,"",&m).is_ok());
+   assert!(validate(512,65537,"",&m).is_err());
  }
  #[test]fn sqlite_settings_survive_connection_restart_and_enforce_cas(){
    let file=std::env::temp_dir().join(format!("tl-g8-jvm-settings-{}.sqlite3",Uuid::new_v4()));
@@ -395,10 +390,15 @@ mod tests {
    }
    let _=std::fs::remove_file(file);
  }
- #[test]fn defaults_are_safe_for_small_available_ram(){
-   let m=MemoryInfo{total_mb:8192,available_mb:2500,reserved_mb:1024};
-   let d=defaults("example",&m);
-   assert_eq!(d.xmx_mb,1988);
-   assert!(d.xms_mb<=d.xmx_mb);
+ #[test]fn defaults_are_eight_gib_and_do_not_change_when_free_ram_drops(){
+   let full=MemoryInfo{total_mb:32768,available_mb:24000,reserved_mb:1024};
+   let low=MemoryInfo{total_mb:32768,available_mb:600,reserved_mb:1024};
+   for m in [&full,&low] {
+      let d=defaults("example",m);
+      assert_eq!((d.xms_mb,d.xmx_mb),(512,8192));
+      assert!(validate(d.xms_mb,d.xmx_mb,"",m).is_ok());
+   }
+   let smaller=MemoryInfo{total_mb:8192,available_mb:1000,reserved_mb:1024};
+   assert_eq!(defaults("example",&smaller).xmx_mb,7168);
  }
 }
