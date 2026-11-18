@@ -65,7 +65,7 @@ jobs:
       - name: Inspect official Fabric profile and NeoForge installer metadata only
         shell: python
         run: |
-          import hashlib, io, json, urllib.request, zipfile
+          import hashlib, io, json, pathlib, urllib.request, zipfile
           def fetch(url,limit):
               with urllib.request.urlopen(urllib.request.Request(
                   url,headers={"User-Agent":"TLaunchCraft-P1-Official-Audit/1"}),timeout=35) as response:
