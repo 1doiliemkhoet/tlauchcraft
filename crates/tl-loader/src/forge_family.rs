@@ -88,8 +88,24 @@ impl ApprovedForgeRelease {
         let canonical_derived =
             serde_json::to_vec(derived).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
         let derived_hash = format!("{:x}", Sha1::digest(&canonical_derived));
-        if profile_hash != self.profile_sha1
-            || derived_hash != self.derived_canonical_sha1
+        // Preserve the originally shipped, semantically pinned 36.2.29
+        // fixtures. They may have different whitespace from the ZIP member,
+        // but represent the exact verified official JSON trees. New releases
+        // additionally pin the raw profile and canonical derived fingerprints.
+        let metadata_matches = if self.forge == "36.2.29" {
+            let baseline_profile: Value = serde_json::from_str(include_str!(
+                "../tests/fixtures/forge_36229_official_profile.json"
+            ))
+            .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+            let baseline_version: Value = serde_json::from_str(include_str!(
+                "../tests/fixtures/forge_36229_official_version.json"
+            ))
+            .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+            profile == baseline_profile && derived == &baseline_version
+        } else {
+            profile_hash == self.profile_sha1 && derived_hash == self.derived_canonical_sha1
+        };
+        if !metadata_matches
             || profile["libraries"].as_array().map(Vec::len) != Some(self.profile_libraries)
             || derived["libraries"].as_array().map(Vec::len) != Some(26)
             || profile["data"]["PATCHED_SHA"]["client"]
