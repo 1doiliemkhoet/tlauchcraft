@@ -11,7 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::Read,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 const MAX_FABRIC_JAR: u64 = 128 * 1024 * 1024;
@@ -164,7 +164,7 @@ pub fn verify_local_fabric_runtime(
                 "url": artifact.url,
             }
         });
-        verified.push((*proof).clone());
+        verified.push((**proof).clone());
     }
     let merged = tl_game::inherit(parent, &profile)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
@@ -187,7 +187,13 @@ pub fn verify_local_fabric_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    fn temp_root() -> std::path::PathBuf {
+        let id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("tl-fabric-proof-{}-{id}", std::process::id()));
+        fs::create_dir_all(&path).unwrap();
+        path.canonicalize().unwrap()
+    }
     const MC: &str = "1.20.1";
     const LOADER: &str = "0.16.10";
     fn parent() -> Value {
@@ -204,8 +210,7 @@ mod tests {
     }
     #[test]
     fn hashes_local_library_but_does_not_claim_published_instance() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
+        let root = temp_root();
         let relative = "net/fabricmc/fabric-loader/0.16.10/fabric-loader-0.16.10.jar";
         let file = root.join("libraries").join(relative);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -223,6 +228,7 @@ mod tests {
         assert!(!out.instance_ready);
         fs::write(&file, b"another fixture!").unwrap();
         assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), profile(), &root, &proofs).is_err());
+        fs::remove_dir_all(&root).unwrap();
     }
     #[test]
     fn rejects_missing_proof_wrong_version_and_traversal() {
@@ -231,5 +237,6 @@ mod tests {
         assert!(verify_local_fabric_runtime(MC, LOADER, &parent(), profile(), &root, &[]).is_err());
         assert!(verify_local_fabric_runtime("1.19.2", LOADER, &parent(), profile(), &root, &[]).is_err());
         assert!(crate::maven::artifact_path_from_relative("../../evil.jar").is_err());
+        fs::remove_dir_all(&root).unwrap();
     }
 }
