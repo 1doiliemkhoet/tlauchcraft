@@ -160,6 +160,34 @@ mod tests {
         assert!(forge_1165_client_blueprint(&bad, &version(), "36.2.34").is_err());
     }
     #[test]
+    fn forge_36229_overrides_legacy_parent_log4j_without_classpath_duplicates() {
+        let derived: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/forge_36229_official_version.json"
+        ))
+        .unwrap();
+        let parent = json!({
+            "id":"1.16.5",
+            "libraries":[
+                {"name":"org.apache.logging.log4j:log4j-api:2.8.1"},
+                {"name":"org.apache.logging.log4j:log4j-core:2.8.1"},
+                {"name":"com.example:preserved:1.0"}
+            ]
+        });
+        let merged = merge_forge_1165_version(&parent, &derived, "36.2.29").unwrap();
+        let libs = merged["libraries"].as_array().unwrap();
+        for artifact in ["log4j-api", "log4j-core"] {
+            let names = libs
+                .iter()
+                .filter_map(|item| item["name"].as_str())
+                .filter(|name| name.starts_with(&format!("org.apache.logging.log4j:{artifact}:")))
+                .collect::<Vec<_>>();
+            assert_eq!(names, vec![format!("org.apache.logging.log4j:{artifact}:2.15.0")]);
+        }
+        assert!(libs.iter().any(|item| item["name"] == "com.example:preserved:1.0"));
+        assert_eq!(merged["mainClass"], "cpw.mods.modlauncher.Launcher");
+    }
+
+    #[test]
     fn merges_only_exact_minecraft_inheritance() {
         let parent = json!({"id":"1.16.5","libraries":[{"name":"base"}]});
         let merged = merge_forge_1165_version(&parent, &version(), "36.2.34").unwrap();
