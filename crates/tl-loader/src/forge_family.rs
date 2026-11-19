@@ -139,9 +139,73 @@ impl ApprovedForgeRelease {
     }
 }
 
+
+/// Reviewed Forge 47.4.0 metadata identity (CI run 44444507662).
+/// This is metadata evidence only, not permission to install or execute.
+/// Keep it separate from the Java 8 four-step runtime allowlist.
+pub const FORGE_1201_INSTALLER_SHA1: &str = "b73203963ea70aee0c38dc58de1f6d16a766605b";
+pub const FORGE_1201_PROFILE_SHA1: &str = "4d39915a30ca8e8da5e05cc794f9139fe035e723";
+pub const FORGE_1201_VERSION_SHA1: &str = "280a9c77703ba10a3c16b5a918423eace78bb0bd";
+pub const FORGE_1201_JAVA_MAJOR: u32 = 17;
+
+/// Validate the complete metadata pair from the checksum-verified archive,
+/// including the modern client graph, without granting runtime approval.
+pub fn audit_forge_1201_metadata(profile_json: &str, derived: &Value) -> Result<(), LoaderError> {
+    let profile: Value = serde_json::from_str(profile_json)
+        .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    let canonical =
+        serde_json::to_vec(derived).map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
+    if format!("{:x}", Sha1::digest(profile_json.as_bytes())) != FORGE_1201_PROFILE_SHA1
+        || format!("{:x}", Sha1::digest(&canonical)) != FORGE_1201_VERSION_SHA1
+        || profile["minecraft"] != "1.20.1"
+        || derived["id"] != "1.20.1-forge-47.4.0"
+        || derived["inheritsFrom"] != "1.20.1"
+        || derived["mainClass"] != "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        || profile["libraries"].as_array().map(Vec::len) != Some(36)
+        || derived["libraries"].as_array().map(Vec::len) != Some(29)
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "Forge 47.4.0 metadata differs from audited release".into(),
+        ));
+    }
+    let processors = profile["processors"].as_array().ok_or_else(|| {
+        LoaderError::InvalidMetadata("Forge 47.4.0 processor graph missing".into())
+    })?;
+    let mut steps = Vec::new();
+    for step in processors {
+        if let Some(sides) = step.get("sides") {
+            let sides = sides.as_array().ok_or(LoaderError::InvalidInput)?;
+            if !sides.iter().any(|side| side == "client") {
+                continue;
+            }
+        }
+        steps.push(step["jar"].as_str().ok_or(LoaderError::InvalidInput)?);
+    }
+    if steps
+        != [
+            "net.minecraftforge:installertools:1.4.1",
+            "net.minecraftforge:installertools:1.4.1",
+            "net.minecraftforge:installertools:1.4.1",
+            "net.minecraftforge:jarsplitter:1.1.4",
+            "net.minecraftforge:ForgeAutoRenamingTool:0.1.22:all",
+            "net.minecraftforge:binarypatcher:1.1.1",
+        ]
+    {
+        return Err(LoaderError::InvalidMetadata(
+            "Forge 47.4.0 processor chain mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn modern_audit_does_not_authorize_legacy_runner() {
+        assert!(approved_forge_release("1.20.1", "47.4.0").is_err());
+        assert!(audit_forge_1201_metadata("{}", &serde_json::json!({})).is_err());
+    }
     #[test]
     fn only_individually_pinned_versions_are_permitted() {
         for version in ["36.2.29", "36.2.34", "36.2.42"] {
