@@ -514,6 +514,7 @@ fn publish_with_mod_evidence(
         return Err("Forge runtime version differs from original modpack".into());
     }
     verify_tree_symlinks(stage)?;
+    let overrides = verify_original_overrides(stage, source_archive, pack)?;
     let (installed_mods, mod_provenance) = match mod_evidence {
         ModEvidence::Provider(resolved) => {
             let mods = audit_curseforge_staging(stage, pack, resolved)?;
@@ -530,7 +531,7 @@ fn publish_with_mod_evidence(
             if local_mods.len() != pack.files.len() || local_mods.is_empty() {
                 return Err("local installed profile does not match ZIP manifest count".into());
             }
-            verify_exact_mod_inventory(stage, local_mods)?;
+            verify_exact_mod_inventory_with_overrides(stage, local_mods, &overrides)?;
             let mut ids = std::collections::HashSet::new();
             for verified in local_mods {
                 if !ids.insert((verified.project_id, verified.file_id))
@@ -622,7 +623,6 @@ fn publish_with_mod_evidence(
         &runtime.java8_launch_version,
         &pack.game_version,
     )?;
-    let overrides = verify_original_overrides(stage, source_archive, pack)?;
     verify_natives(stage, "natives")?;
     let native_dlls = collect_verified_natives(stage)?;
     let version = runtime.java8_launch_version;
@@ -718,7 +718,16 @@ fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(test)]
 fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Result<(), String> {
+    verify_exact_mod_inventory_with_overrides(root, mods, &[])
+}
+
+fn verify_exact_mod_inventory_with_overrides(
+    root: &Path,
+    mods: &[VerifiedModReceipt],
+    overrides: &[VerifiedOverride],
+) -> Result<(), String> {
     let mods_dir = root.join("mods");
     reject_symlinks(&mods_dir)?;
     let mut expected = std::collections::HashSet::new();
@@ -734,6 +743,19 @@ fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Resul
             .to_ascii_lowercase();
         if !filename.ends_with(".jar") || !expected.insert(filename) {
             return Err("invalid or duplicate Forge mod inventory entry".into());
+        }
+    }
+    for item in overrides {
+        if item.relative_path == crate::lan_compat::RELATIVE_PATH {
+            let filename = Path::new(&item.relative_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or("invalid LAN add-on path")?
+                .to_ascii_lowercase();
+            if !expected.insert(filename) {
+                return Err("LAN add-on collides with existing mod".into());
+            }
+            check_file(root, &item.relative_path, item.bytes, None, Some(&item.sha256))?;
         }
     }
     if expected.is_empty() {
@@ -835,7 +857,11 @@ pub fn reverify_published_forge(
             None,
         )?;
     }
-    verify_exact_mod_inventory(root, &record.installed_mods)?;
+    verify_exact_mod_inventory_with_overrides(
+        root,
+        &record.installed_mods,
+        &record.verified_overrides,
+    )?;
     for file in &record.installed_mods {
         check_file(
             root,

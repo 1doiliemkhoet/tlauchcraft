@@ -227,6 +227,24 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     installed_profile: &Path,
     private_snapshot: &Path,
     cancelled: &AtomicBool,
+    progress: F,
+) -> Result<PackMetadata, String> {
+    snapshot_installed_folder_with_lan_addon(
+        installed_profile,
+        private_snapshot,
+        cancelled,
+        false,
+        progress,
+    )
+}
+
+/// Optional add-on is inserted into the private source snapshot only. It is
+/// subsequently verified as an archive override by the Forge publisher.
+pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, usize)>(
+    installed_profile: &Path,
+    private_snapshot: &Path,
+    cancelled: &AtomicBool,
+    lan_properties: bool,
     mut progress: F,
 ) -> Result<PackMetadata, String> {
     let root = fs::canonicalize(installed_profile)
@@ -352,6 +370,20 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
             }
         }
     }
+    let lan_addon = if lan_properties {
+        if !crate::lan_compat::supports(game, loader_kind, loader_version) {
+            return Err("LAN Properties opt-in currently supports Forge 1.20.1/47.4.0 only".into());
+        }
+        if seen_names.iter().any(|name| crate::lan_compat::possible_conflict(name)) {
+            return Err("Possible existing LAN mod; import without adding a duplicate".into());
+        }
+        progress("local_import.verifying_lan_addon", 0, 1);
+        let bytes = crate::lan_compat::download(cancelled)?;
+        progress("local_import.verifying_lan_addon", 1, 1);
+        Some(bytes)
+    } else {
+        None
+    };
     let manifest = serde_json::json!({
         "manifestType": "minecraftModpack",
         "manifestVersion": 1,
@@ -435,6 +467,12 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         writer
             .write_all(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
+        if let Some(bytes) = &lan_addon {
+            writer
+                .start_file(format!("overrides/{}", crate::lan_compat::RELATIVE_PATH), opts)
+                .map_err(|e| e.to_string())?;
+            writer.write_all(bytes).map_err(|e| e.to_string())?;
+        }
         let total_assets = assets.len();
         progress("local_import.copying_assets", 0, total_assets);
         for (index, (relative, source, original_size)) in assets.into_iter().enumerate() {
