@@ -252,7 +252,9 @@ impl VerifiedProcessorExecution {
             report.error = Some(error.to_string());
             return Err(error);
         }
-        if report.completed != release.processor_count() || report.exit_codes.iter().any(|x| *x != Some(0)) {
+        if report.completed != release.processor_count()
+            || report.exit_codes.iter().any(|x| *x != Some(0))
+        {
             return Err(LoaderError::NeedsInstallerExecution);
         }
         report.outcome = ProcessorOutcome::Verified;
@@ -382,10 +384,9 @@ fn execute(
     for processor in &request.processors {
         validate_processor(processor)?;
     }
-    // Verify Java 8 using Chat 2's existing runtime probe, never silently use PATH Java.
-    let java_major = tl_game::probe_java(&request.java, required_java).map_err(|e| {
-        LoaderError::InvalidMetadata(format!("Java {required_java} required: {e}"))
-    })?;
+    // Verify the family-specific Java major; never silently use PATH Java.
+    let java_major = tl_game::probe_java(&request.java, required_java)
+        .map_err(|e| LoaderError::InvalidMetadata(format!("Java {required_java} required: {e}")))?;
     if java_major != required_java {
         return Err(LoaderError::JavaIncompatible {
             required: required_java,
@@ -612,7 +613,10 @@ pub(crate) fn validate_processor(processor: &ApprovedProcessor) -> Result<(), Lo
 
 /// Trust gate shared with the Forge graph resolver. Validates origin *and* bytes.
 pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<(), LoaderError> {
-    let origin_ok = if matches!(file.coordinate.as_str(), "net.minecraft:client:1.16.5" | "net.minecraft:client:1.20.1") {
+    let origin_ok = if matches!(
+        file.coordinate.as_str(),
+        "net.minecraft:client:1.16.5" | "net.minecraft:client:1.20.1"
+    ) {
         // Mojang object storage names the object by its expected digest.
         [
             "https://piston-data.mojang.com",

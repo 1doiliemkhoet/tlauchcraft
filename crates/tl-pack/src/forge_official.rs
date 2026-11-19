@@ -461,7 +461,10 @@ pub fn prepare_official_windows_1165(
             .as_str()
             .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
             .ok_or("missing verified Mojang client mappings SHA-1")?;
-        data.insert("MOJMAPS_SHA".into(), BoundValue::Literal(mappings_sha.into()));
+        data.insert(
+            "MOJMAPS_SHA".into(),
+            BoundValue::Literal(mappings_sha.into()),
+        );
     }
     let bindings = ForgeBindings {
         minecraft: release.minecraft.into(),

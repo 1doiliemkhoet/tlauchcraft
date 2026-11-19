@@ -20,10 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(blueprint.steps[1].outputs["{MOJMAPS}"], "{MOJMAPS_SHA}");
         assert_eq!(blueprint.steps[5].outputs["{PATCHED}"], "{PATCHED_SHA}");
         assert!(!blueprint.verified_installation);
-        let provenance = tl_loader::forge_provenance::audit_official_forge_metadata(
-            &profile_text,
-            &derived,
-        )?;
+        let provenance =
+            tl_loader::forge_provenance::audit_official_forge_metadata(&profile_text, &derived)?;
         assert_eq!(provenance.profile_libraries.len(), 36);
         assert_eq!(provenance.derived_libraries.len(), 29);
         assert!(!provenance.installed);

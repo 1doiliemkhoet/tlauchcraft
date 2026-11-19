@@ -225,8 +225,7 @@ fn verified_patched_client(
     } else {
         "net.minecraftforge:binarypatcher:1.0.12"
     };
-    if final_processor.executable.coordinate != expected_tool
-        || final_processor.outputs.len() != 1
+    if final_processor.executable.coordinate != expected_tool || final_processor.outputs.len() != 1
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
@@ -298,7 +297,11 @@ fn verified_minecraft_extra(
     }
     let splitter = request
         .processors
-        .get(if selected.minecraft_version == "1.20.1" { 3 } else { 1 })
+        .get(if selected.minecraft_version == "1.20.1" {
+            3
+        } else {
+            1
+        })
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
         || splitter.outputs.len() != 2
@@ -361,7 +364,11 @@ fn verified_minecraft_slim(
     let mcp_version = official_mcp_version(profile)?;
     let splitter = request
         .processors
-        .get(if selected.minecraft_version == "1.20.1" { 3 } else { 1 })
+        .get(if selected.minecraft_version == "1.20.1" {
+            3
+        } else {
+            1
+        })
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
         || splitter.outputs.len() != 2
@@ -437,7 +444,10 @@ fn verified_minecraft_srg(
     let matches = report
         .intermediate_evidence
         .iter()
-        .filter(|item| item.producer_index == producer_index && item.relative_path == "generated/client-srg.jar")
+        .filter(|item| {
+            item.producer_index == producer_index
+                && item.relative_path == "generated/client-srg.jar"
+        })
         .collect::<Vec<_>>();
     if matches.len() != 1 {
         return Err(LoaderError::NeedsInstallerExecution);

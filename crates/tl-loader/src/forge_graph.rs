@@ -436,8 +436,15 @@ fn prepare_step(
     for (i, arg) in step.args.iter().enumerate() {
         if matches!(
             arg.as_str(),
-            "--input" | "--in-jar" | "--srg-in" | "--srg" | "--clean" | "--apply"
-                | "--left" | "--right" | "--names"
+            "--input"
+                | "--in-jar"
+                | "--srg-in"
+                | "--srg"
+                | "--clean"
+                | "--apply"
+                | "--left"
+                | "--right"
+                | "--names"
         ) {
             if let Some(raw_input) = step.args.get(i + 1) {
                 if let Some(token) = raw_input

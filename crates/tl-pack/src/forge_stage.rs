@@ -173,11 +173,11 @@ pub fn assemble_forge_stage(
     if forge.instance_ready
         || forge.game_launched
         || !forge.execution_verified
-        || tl_loader::forge_family::reviewed_forge_release(
+        || !tl_loader::forge_family::reviewed_forge_release(
             &forge.minecraft_version,
             &forge.forge_version,
         )
-        .map_or(true, |release| forge.processor_count != release.processor_count())
+        .is_ok_and(|release| forge.processor_count == release.processor_count())
         || forge.minecraft_version != mojang_parent["id"]
         || forge.java8_launch_version["inheritsFrom"] != forge.minecraft_version
         || forge.java8_launch_version["id"] != forge.derived_version_id

@@ -8,7 +8,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = env::args().collect::<Vec<_>>();
     if args.len() != 4 || args[3] != "--approve-official-processors" {
-        return Err("usage: forge_1201_windows_smoke <fresh-root> <Java17.exe> --approve-official-processors".into());
+        return Err(
+            "usage: forge_1201_windows_smoke <root> <java.exe> --approve-official-processors".into(),
+        );
     }
     let root = PathBuf::from(&args[1]);
     let java = PathBuf::from(&args[2]);
