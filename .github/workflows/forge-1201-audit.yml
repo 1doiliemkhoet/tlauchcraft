@@ -4,14 +4,17 @@ on:
     branches: [feat/p0-forge-1201-skyfactory5]
     paths:
       - '.github/workflows/forge-1201-audit.yml'
+      - 'crates/tl-loader/src/forge_family.rs'
+      - 'crates/tl-loader/examples/forge_family_audit.rs'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - name: Verify official Forge 47.4.0 and capture metadata without executing Java
         shell: python
         run: |
@@ -56,6 +59,11 @@ jobs:
           }
           (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
           print(json.dumps(report, indent=2, ensure_ascii=False))
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust regression and exact official metadata audit
+        run: |
+          cargo test --locked -p tl-loader forge_family::tests
+          cargo run --locked -p tl-loader --example forge_family_audit -- 1.20.1 47.4.0 forge-1201-evidence/install_profile.json forge-1201-evidence/version.json
       - uses: actions/upload-artifact@v4
         with:
           name: forge-1201-47.4.0-metadata
