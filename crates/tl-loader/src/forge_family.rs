@@ -139,7 +139,6 @@ impl ApprovedForgeRelease {
     }
 }
 
-
 /// Reviewed Forge 47.4.0 metadata identity (CI run 44444507662).
 /// This is metadata evidence only, not permission to install or execute.
 /// Keep it separate from the Java 8 four-step runtime allowlist.
