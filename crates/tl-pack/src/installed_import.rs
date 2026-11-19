@@ -1,4 +1,5 @@
-//! Import an ALREADY installed CurseForge app profile without API or network.
+//! Import an ALREADY installed CurseForge app profile without a CurseForge API key.
+//! Only an explicitly selected LAN add-on may require a separate download.
 //! Only links manifest IDs with the local CurseForge minecraftinstance.json.
 //! Local SHA-1/SHA-256 snapshots prove copy integrity, NOT upstream authenticity.
 //! Never reads or copies saves; never alters the source profile.
@@ -374,7 +375,10 @@ pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, us
         if !crate::lan_compat::supports(game, loader_kind, loader_version) {
             return Err("LAN Properties opt-in currently supports Forge 1.20.1/47.4.0 only".into());
         }
-        if seen_names.iter().any(|name| crate::lan_compat::possible_conflict(name)) {
+        if seen_names
+            .iter()
+            .any(|name| crate::lan_compat::possible_conflict(name))
+        {
             return Err("Possible existing LAN mod; import without adding a duplicate".into());
         }
         progress("local_import.verifying_lan_addon", 0, 1);
@@ -469,7 +473,10 @@ pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, us
             .map_err(|e| e.to_string())?;
         if let Some(bytes) = &lan_addon {
             writer
-                .start_file(format!("overrides/{}", crate::lan_compat::RELATIVE_PATH), opts)
+                .start_file(
+                    format!("overrides/{}", crate::lan_compat::RELATIVE_PATH),
+                    opts,
+                )
                 .map_err(|e| e.to_string())?;
             writer.write_all(bytes).map_err(|e| e.to_string())?;
         }

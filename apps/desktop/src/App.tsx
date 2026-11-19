@@ -151,6 +151,7 @@ export default function App() {
     setPackManualImports([]);
     setForgeHostConsent(false);
     setInstalledCurseForgeFolder(null);
+    setLanProperties(false);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
   };
   const resolvePackFiles = () => {
@@ -425,7 +426,10 @@ export default function App() {
         <div className="form-row">
           <button disabled={busy} onClick={() => void (async () => {
             const path = await open({ directory: true, multiple: false });
-            if (typeof path === 'string') setInstalledCurseForgeFolder(path);
+            if (typeof path === 'string') {
+              setInstalledCurseForgeFolder(path);
+              setLanProperties(false);
+            }
           })().catch(e => setError(backendError(e)))}>Chọn thư mục modpack đã cài</button>
           {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
         </div>

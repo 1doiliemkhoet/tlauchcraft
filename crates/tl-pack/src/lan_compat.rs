@@ -35,7 +35,7 @@ pub fn possible_conflict(filename: &str) -> bool {
         "offlinelan",
     ]
     .iter()
-    .any(|name| normalized.contains(name))
+    .any(|name| normalized.contains(*name))
 }
 
 #[derive(Deserialize)]
@@ -115,11 +115,7 @@ fn verify_bytes(file: &ReleaseFile, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn bounded_read(
-    input: impl Read,
-    max: u64,
-    cancelled: &AtomicBool,
-) -> Result<Vec<u8>, String> {
+fn bounded_read(input: impl Read, max: u64, cancelled: &AtomicBool) -> Result<Vec<u8>, String> {
     let mut input = input.take(max + 1);
     let mut bytes = Vec::new();
     let mut buffer = [0; 16 * 1024];
@@ -199,9 +195,7 @@ mod tests {
                 filename: FILENAME.into(),
                 primary: true,
                 size: 1,
-                url: format!(
-                    "https://cdn.modrinth.com/data/{PROJECT}/versions/{VERSION}/{FILENAME}"
-                ),
+                url: format!("https://cdn.modrinth.com/data/{PROJECT}/versions/{VERSION}/{FILENAME}"),
                 hashes: Hashes {
                     sha1: "a".repeat(40),
                     sha512: "b".repeat(128),

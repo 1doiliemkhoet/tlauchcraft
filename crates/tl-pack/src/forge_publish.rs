@@ -1060,6 +1060,44 @@ mod tests {
     }
 
     #[test]
+    fn lan_addon_requires_exact_verified_override_and_rejects_tampering() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("mods")).unwrap();
+        fs::write(root.join("mods/Main.jar"), b"main").unwrap();
+        let original = VerifiedModReceipt {
+            project_id: 1,
+            file_id: 2,
+            required: true,
+            relative_path: "mods/Main.jar".into(),
+            bytes: 4,
+            upstream_sha1: "a".repeat(40),
+            observed_sha256: "b".repeat(64),
+        };
+        let path = root.join(crate::lan_compat::RELATIVE_PATH);
+        fs::write(&path, b"lan").unwrap();
+        let addon = VerifiedOverride {
+            relative_path: crate::lan_compat::RELATIVE_PATH.into(),
+            sha256: format!("{:x}", Sha256::digest(b"lan")),
+            bytes: 3,
+        };
+        assert!(verify_exact_mod_inventory(root, std::slice::from_ref(&original)).is_err());
+        assert!(verify_exact_mod_inventory_with_overrides(
+            root,
+            std::slice::from_ref(&original),
+            std::slice::from_ref(&addon),
+        )
+        .is_ok());
+        fs::write(&path, b"bad").unwrap();
+        assert!(verify_exact_mod_inventory_with_overrides(
+            root,
+            &[original],
+            &[addon],
+        )
+        .is_err());
+    }
+
+    #[test]
     fn forge_receipt_digest_rejects_self_consistent_mutable_json_changes() {
         let trusted = br#"{"mainClass":"trusted","hash":"abcd"}"#;
         let digest = format!("{:x}", Sha256::digest(trusted));
