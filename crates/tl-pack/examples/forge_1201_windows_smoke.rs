@@ -9,7 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = env::args().collect::<Vec<_>>();
     if args.len() != 4 || args[3] != "--approve-official-processors" {
         return Err(
-            "usage: forge_1201_windows_smoke <root> <java.exe> --approve-official-processors".into(),
+            "usage: forge_1201_windows_smoke <root> <java.exe> --approve-official-processors"
+                .into(),
         );
     }
     let root = PathBuf::from(&args[1]);
@@ -64,7 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let identity = VanillaIdentity::from_offline_username("SmokePlayer")?;
     let launch = build_vanilla_launch(&runtime.java8_launch_version, &paths, &identity, 512, 2048)?;
-    assert_eq!(launch.main_class, "cpw.mods.bootstraplauncher.BootstrapLauncher");
+    assert_eq!(
+        launch.main_class,
+        "cpw.mods.bootstraplauncher.BootstrapLauncher"
+    );
     let modules = launch
         .jvm_args
         .windows(2)
