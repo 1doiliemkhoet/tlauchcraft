@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/p0-final-playable-bridge
+      - feat/lan-properties-option-skyfactory5
   pull_request:
     branches:
       - integration/p0-playable-single-run

@@ -1,6 +1,8 @@
 name: G8 Windows NSIS installer validation
 
 on:
+  push:
+    branches: [feat/lan-properties-option-skyfactory5]
   pull_request:
     branches: [develop]
     paths:
