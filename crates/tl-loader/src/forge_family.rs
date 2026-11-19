@@ -129,14 +129,12 @@ impl ApprovedForgeRelease {
             // Forge 47 declares the final digest in data, not outputs.
             // Mojang mappings are downloaded by an official processor and
             // independently pinned to the verified Mojang parent metadata.
-            plan.steps[1].outputs.insert(
-                "{MOJMAPS}".into(),
-                "{MOJMAPS_SHA}".into(),
-            );
-            plan.steps[5].outputs.insert(
-                "{PATCHED}".into(),
-                "{PATCHED_SHA}".into(),
-            );
+            plan.steps[1]
+                .outputs
+                .insert("{MOJMAPS}".into(), "{MOJMAPS_SHA}".into());
+            plan.steps[5]
+                .outputs
+                .insert("{PATCHED}".into(), "{PATCHED_SHA}".into());
             Ok(plan)
         } else {
             forge_1165_client_blueprint(profile, derived, self.forge)
@@ -238,7 +236,10 @@ pub fn audit_forge_1201_metadata(profile_json: &str, derived: &Value) -> Result<
         || format!("{:x}", Sha1::digest(&canonical)) != FORGE_1201_VERSION_SHA1
         || profile["minecraft"] != "1.20.1"
         || profile["version"] != "1.20.1-forge-47.4.0"
-        || profile["data"]["PATCHED_SHA"]["client"].as_str().map(|s| s.trim_matches(\'\'\' )) != Some(FORGE_1201_RELEASE.patched_sha1)
+        || profile["data"]["PATCHED_SHA"]["client"]
+            .as_str()
+            .map(|s| s.trim_matches('\''))
+            != Some(FORGE_1201_RELEASE.patched_sha1)
         || derived["id"] != "1.20.1-forge-47.4.0"
         || derived["inheritsFrom"] != "1.20.1"
         || derived["mainClass"] != "cpw.mods.bootstraplauncher.BootstrapLauncher"
