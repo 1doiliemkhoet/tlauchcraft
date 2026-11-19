@@ -48,18 +48,34 @@ pub fn forge_1165_client_blueprint(
     derived_version: &Value,
     requested_forge: &str,
 ) -> Result<ForgeClientBlueprint, LoaderError> {
+    client_blueprint(
+        install_profile,
+        derived_version,
+        "1.16.5",
+        requested_forge,
+        "cpw.mods.modlauncher.Launcher",
+    )
+}
+
+pub(crate) fn client_blueprint(
+    install_profile: &str,
+    derived_version: &Value,
+    minecraft: &str,
+    requested_forge: &str,
+    main_class: &str,
+) -> Result<ForgeClientBlueprint, LoaderError> {
+    crate::validate_component(minecraft)?;
     crate::validate_component(requested_forge)?;
     let p: Profile = serde_json::from_str(install_profile)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
-    if p.minecraft != "1.16.5" || p.processors.is_empty() || p.processors.len() > 64 {
+    if p.minecraft != minecraft || p.processors.is_empty() || p.processors.len() > 64 {
         return Err(LoaderError::CompatibilityConflict);
     }
-    let expected = format!("1.16.5-forge-{requested_forge}");
+    let expected = format!("{minecraft}-forge-{requested_forge}");
     if p.version != expected
         || derived_version.get("id").and_then(Value::as_str) != Some(expected.as_str())
-        || derived_version.get("inheritsFrom").and_then(Value::as_str) != Some("1.16.5")
-        || derived_version.get("mainClass").and_then(Value::as_str)
-            != Some("cpw.mods.modlauncher.Launcher")
+        || derived_version.get("inheritsFrom").and_then(Value::as_str) != Some(minecraft)
+        || derived_version.get("mainClass").and_then(Value::as_str) != Some(main_class)
     {
         return Err(LoaderError::CompatibilityConflict);
     }
@@ -106,7 +122,7 @@ pub fn forge_1165_client_blueprint(
         return Err(LoaderError::InvalidMetadata("no client processors".into()));
     }
     Ok(ForgeClientBlueprint {
-        minecraft: "1.16.5".into(),
+        minecraft: minecraft.into(),
         forge_version: requested_forge.into(),
         version_id: expected,
         steps,

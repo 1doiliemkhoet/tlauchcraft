@@ -192,7 +192,7 @@ impl VerifiedProcessorExecution {
         explicit_user_consent: bool,
         cancel: &AtomicBool,
     ) -> Result<Self, LoaderError> {
-        let release = crate::forge_family::approved_forge_release(
+        let release = crate::forge_family::reviewed_forge_release(
             &selection.minecraft_version,
             &selection.forge_version,
         )?;
@@ -220,7 +220,7 @@ impl VerifiedProcessorExecution {
             return Err(LoaderError::NeedsInstallerExecution);
         }
         let request = plan.request.ok_or(LoaderError::NeedsInstallerExecution)?;
-        if request.processors.len() != 4 {
+        if request.processors.len() != release.processor_count() {
             return Err(LoaderError::NeedsInstallerExecution);
         }
         let mut report = run_verified_processors(&request);
@@ -252,7 +252,7 @@ impl VerifiedProcessorExecution {
             report.error = Some(error.to_string());
             return Err(error);
         }
-        if report.completed != 4 || report.exit_codes.iter().any(|x| *x != Some(0)) {
+        if report.completed != release.processor_count() || report.exit_codes.iter().any(|x| *x != Some(0)) {
             return Err(LoaderError::NeedsInstallerExecution);
         }
         report.outcome = ProcessorOutcome::Verified;
@@ -357,11 +357,15 @@ fn execute(
     cancel: &AtomicBool,
     windows_guarded: bool,
 ) -> Result<(), LoaderError> {
-    if request.minecraft_version != "1.16.5" {
-        return Err(LoaderError::UnsupportedVersion(
-            "runtime processor allowlist currently scoped to Forge 1.16.5".into(),
-        ));
-    }
+    let required_java = match request.minecraft_version.as_str() {
+        "1.16.5" => 8,
+        "1.20.1" if windows_guarded && request.processors.len() == 6 => 17,
+        _ => {
+            return Err(LoaderError::UnsupportedVersion(
+                "runtime requires a reviewed Forge family and guarded execution".into(),
+            ))
+        }
+    };
     if request.timeout_seconds == 0
         || request.timeout_seconds > 900
         || request.processors.is_empty()
@@ -379,11 +383,12 @@ fn execute(
         validate_processor(processor)?;
     }
     // Verify Java 8 using Chat 2's existing runtime probe, never silently use PATH Java.
-    let java_major = tl_game::probe_java(&request.java, 8)
-        .map_err(|e| LoaderError::InvalidMetadata(format!("Java 8 required: {e}")))?;
-    if java_major != 8 {
+    let java_major = tl_game::probe_java(&request.java, required_java).map_err(|e| {
+        LoaderError::InvalidMetadata(format!("Java {required_java} required: {e}"))
+    })?;
+    if java_major != required_java {
         return Err(LoaderError::JavaIncompatible {
-            required: 8,
+            required: required_java,
             actual: java_major,
         });
     }
@@ -399,6 +404,22 @@ fn execute(
             return Err(LoaderError::InvalidMetadata(
                 "processor execution cancelled".into(),
             ));
+        }
+        // Create only validated private output parents; never overwrite
+        // inputs or outputs left by an earlier processor.
+        for relative in processor
+            .outputs
+            .iter()
+            .map(|o| o.relative_path.as_str())
+            .chain(processor.intermediate_outputs.iter().map(String::as_str))
+        {
+            let target = request.stage_root.join(relative);
+            reject_symlink_ancestors(&target)?;
+            if target.exists() {
+                return Err(LoaderError::InvalidInput);
+            }
+            fs::create_dir_all(target.parent().ok_or(LoaderError::InvalidInput)?)
+                .map_err(|e| LoaderError::InvalidMetadata(format!("output parent: {e}")))?;
         }
         let stdout = request
             .stage_root
@@ -591,7 +612,7 @@ pub(crate) fn validate_processor(processor: &ApprovedProcessor) -> Result<(), Lo
 
 /// Trust gate shared with the Forge graph resolver. Validates origin *and* bytes.
 pub(crate) fn validate_verified_artifact(file: &VerifiedProcessorJar) -> Result<(), LoaderError> {
-    let origin_ok = if file.coordinate == "net.minecraft:client:1.16.5" {
+    let origin_ok = if matches!(file.coordinate.as_str(), "net.minecraft:client:1.16.5" | "net.minecraft:client:1.20.1") {
         // Mojang object storage names the object by its expected digest.
         [
             "https://piston-data.mojang.com",

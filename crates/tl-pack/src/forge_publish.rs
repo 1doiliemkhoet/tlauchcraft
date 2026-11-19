@@ -585,7 +585,11 @@ fn publish_with_mod_evidence(
         || runtime.required_java_major == 0
         || runtime.instance_ready
         || runtime.game_launched
-        || runtime.processor_count != 4
+        || tl_loader::forge_family::reviewed_forge_release(
+            &runtime.minecraft_version,
+            &runtime.forge_version,
+        )
+        .map_or(true, |release| runtime.processor_count != release.processor_count())
     {
         return Err("Forge processors not accepted by trusted runtime".into());
     }

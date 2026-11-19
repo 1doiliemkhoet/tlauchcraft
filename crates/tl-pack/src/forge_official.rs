@@ -28,8 +28,14 @@ const MAX_LIB: u64 = 256 * 1024 * 1024;
 /// Desktop-facing version gate. The Desktop crate intentionally consumes
 /// tl-pack rather than depending directly on tl-loader.
 pub fn ensure_supported_forge_release(minecraft: &str, forge: &str) -> Result<(), String> {
-    tl_loader::forge_family::approved_forge_release(minecraft, forge)
+    tl_loader::forge_family::reviewed_forge_release(minecraft, forge)
         .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+pub fn required_forge_java_major(minecraft: &str, forge: &str) -> Result<u32, String> {
+    tl_loader::forge_family::reviewed_forge_release(minecraft, forge)
+        .map(|release| release.java_major())
         .map_err(|e| e.to_string())
 }
 
@@ -289,7 +295,7 @@ pub fn prepare_official_windows_1165(
     cancelled: &AtomicBool,
 ) -> Result<PreparedOfficialForge, String> {
     let release =
-        tl_loader::forge_family::approved_forge_release(selected_minecraft, selected_forge)
+        tl_loader::forge_family::reviewed_forge_release(selected_minecraft, selected_forge)
             .map_err(|e| e.to_string())?;
     if !explicitly_approved_host_execution
         || operation_id.len() < 8
@@ -443,6 +449,20 @@ pub fn prepare_official_windows_1165(
     ] {
         data.insert(key.into(), BoundValue::Staged(rel.into()));
     }
+    if release.minecraft == "1.20.1" {
+        for (key, relative) in [
+            ("MOJMAPS", "generated/mojmaps.txt"),
+            ("MERGED_MAPPINGS", "generated/merged-mappings.txt"),
+        ] {
+            data.insert(key.into(), BoundValue::Staged(relative.into()));
+        }
+        data.insert("SIDE".into(), BoundValue::Literal("client".into()));
+        let mappings_sha = version["downloads"]["client_mappings"]["sha1"]
+            .as_str()
+            .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or("missing verified Mojang client mappings SHA-1")?;
+        data.insert("MOJMAPS_SHA".into(), BoundValue::Literal(mappings_sha.into()));
+    }
     let bindings = ForgeBindings {
         minecraft: release.minecraft.into(),
         forge_version: release.forge.into(),
@@ -512,7 +532,7 @@ pub fn prepare_official_windows_1165(
         java: VerifiedForgeJava {
             executable: java_path.to_owned(),
             sha1: java_sha,
-            major: 8,
+            major: release.java_major(),
         },
         maven,
         generated,

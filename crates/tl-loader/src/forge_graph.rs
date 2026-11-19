@@ -2,7 +2,7 @@
 //! The verified official installer provides the profile. All external files must be
 //! pinned by the caller and preflight verified before assembling a process request.
 use crate::{
-    forge_1165::{forge_1165_client_blueprint, ForgeClientStep},
+    forge_1165::ForgeClientStep,
     runtime::{ApprovedProcessor, ExpectedOutput, ProcessorRunRequest, VerifiedProcessorJar},
     LoaderError,
 };
@@ -57,7 +57,7 @@ fn verify_installer_entry(
     bindings: &ForgeBindings,
 ) -> Result<String, PrepareFailure> {
     let release =
-        crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
+        crate::forge_family::reviewed_forge_release(&bindings.minecraft, &bindings.forge_version)
             .map_err(PrepareFailure::Invalid)?;
     let approved = release.installer_sha1;
     let installer_filename = release.installer_filename();
@@ -252,17 +252,16 @@ fn prepare_inner(
     version_json: &Value,
     bindings: &ForgeBindings,
 ) -> Result<Vec<ApprovedProcessor>, PrepareFailure> {
-    if crate::forge_family::approved_forge_release(&bindings.minecraft, &bindings.forge_version)
-        .is_err()
-        || bindings.timeout_seconds == 0
+    let release =
+        crate::forge_family::reviewed_forge_release(&bindings.minecraft, &bindings.forge_version)?;
+    if bindings.timeout_seconds == 0
         || bindings.timeout_seconds > 900
         || bindings.stage_root.exists()
         || !bindings.stage_root.is_absolute()
     {
         return Err(LoaderError::InvalidInput.into());
     }
-    let blueprint =
-        forge_1165_client_blueprint(profile_json, version_json, &bindings.forge_version)?;
+    let blueprint = release.client_blueprint(profile_json, version_json)?;
     let profile: DataProfile = serde_json::from_str(profile_json)
         .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?;
     let mut producers = BTreeMap::<String, usize>::new();
@@ -326,7 +325,9 @@ fn step_output_tokens(step: &ForgeClientStep) -> Result<Vec<String>, PrepareFail
     if step.outputs.is_empty() {
         let flag = match step.jar.as_str() {
             "net.minecraftforge:installertools:1.2.6"
-            | "net.minecraftforge:installertools:1.3.0" => "--output",
+            | "net.minecraftforge:installertools:1.3.0"
+            | "net.minecraftforge:installertools:1.4.1"
+            | "net.minecraftforge:ForgeAutoRenamingTool:0.1.22:all" => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
             _ => {
                 return Err(
@@ -390,7 +391,10 @@ fn prepare_step(
     let mut intermediate_outputs = Vec::new();
     if step.outputs.is_empty() {
         let output_flag = match step.jar.as_str() {
-            "net.minecraftforge:installertools:1.2.6" => "--output",
+            "net.minecraftforge:installertools:1.2.6"
+            | "net.minecraftforge:installertools:1.3.0"
+            | "net.minecraftforge:installertools:1.4.1"
+            | "net.minecraftforge:ForgeAutoRenamingTool:0.1.22:all" => "--output",
             "net.md-5:SpecialSource:1.8.5" => "--out-jar",
             _ => {
                 return Err(LoaderError::InvalidMetadata(
@@ -433,6 +437,7 @@ fn prepare_step(
         if matches!(
             arg.as_str(),
             "--input" | "--in-jar" | "--srg-in" | "--srg" | "--clean" | "--apply"
+                | "--left" | "--right" | "--names"
         ) {
             if let Some(raw_input) = step.args.get(i + 1) {
                 if let Some(token) = raw_input
