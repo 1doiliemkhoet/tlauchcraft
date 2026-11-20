@@ -298,12 +298,15 @@ fn collect_verified_natives(root: &Path) -> Result<Vec<VerifiedOverride>, String
     let mut files = Vec::new();
     for entry in fs::read_dir(&dir).map_err(|_| "native DLL directory missing")? {
         let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name().to_string_lossy().to_string();
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "invalid Unicode in native DLL filename")?;
         if !entry.file_type().map_err(|e| e.to_string())?.is_file()
             || !name.to_ascii_lowercase().ends_with(".dll")
             || crate::safe_path(&name).is_err()
         {
-            return Err("unexpected native DLL directory entry".into());
+            return Err(format!("unexpected native DLL directory entry: {name}"));
         }
         let (bytes, _, sha256) = file_hashes(&entry.path())?;
         if bytes == 0 {
@@ -330,6 +333,91 @@ fn collect_verified_natives(root: &Path) -> Result<Vec<VerifiedOverride>, String
         return Err("native DLL filename collision".into());
     }
     Ok(files)
+}
+
+/// JNA extracts a Windows DLL using File.createTempFile("jna", ".dll")
+/// and may leave a zero-byte .x deletion marker when Windows locks the DLL.
+/// Only this narrowly named runtime residue may be removed from an old
+/// instance. It is never counted as verified or allowed into a new receipt.
+fn legacy_jna_residue(name: &str) -> Option<bool> {
+    let lower = name.to_ascii_lowercase();
+    let (base, marker) = match lower.strip_suffix(".x") {
+        Some(base) => (base, true),
+        None => (lower.as_str(), false),
+    };
+    let digits = base.strip_prefix("jna")?.strip_suffix(".dll")?;
+    if (1..=20).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit()) {
+        Some(marker)
+    } else {
+        None
+    }
+}
+
+/// Check the anchored DLLs first, then inspect the entire directory before
+/// removing any old JNA leftovers. Unknown files, directories, links and
+/// nonempty deletion markers still fail closed. Never modify receipt bytes.
+fn reverify_native_inventory(root: &Path, expected: &[VerifiedOverride]) -> Result<(), String> {
+    if expected.is_empty() {
+        return Err("native DLL inventory empty".into());
+    }
+    let dir = root.join("natives");
+    reject_symlinks(&dir)?;
+    let mut trusted = std::collections::HashSet::new();
+    for file in expected {
+        let relative = crate::safe_path(&file.relative_path).map_err(|e| e.to_string())?;
+        if relative.parent() != Some(Path::new("natives"))
+            || !file.relative_path.to_ascii_lowercase().ends_with(".dll")
+            || file.bytes == 0
+            || !trusted.insert(file.relative_path.to_ascii_lowercase())
+        {
+            return Err("invalid native DLL receipt entry".into());
+        }
+        check_file(
+            root,
+            &file.relative_path,
+            file.bytes,
+            None,
+            Some(&file.sha256),
+        )?;
+    }
+
+    let mut leftovers = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|_| "native DLL directory missing")? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| "invalid Unicode in native DLL filename")?;
+        let info = fs::symlink_metadata(entry.path()).map_err(|e| e.to_string())?;
+        if !info.file_type().is_file() || crate::safe_path(&name).is_err() {
+            return Err(format!("unexpected native DLL directory entry: {name}"));
+        }
+        if trusted.contains(&format!("natives/{}", name.to_ascii_lowercase())) {
+            continue;
+        }
+        let marker = legacy_jna_residue(&name)
+            .ok_or_else(|| format!("unexpected native DLL directory entry: {name}"))?;
+        if marker && info.len() != 0 {
+            return Err(format!("unexpected nonempty JNA deletion marker: {name}"));
+        }
+        leftovers.push((marker, entry.path()));
+    }
+    // Remove DLLs first: if Windows still has one locked, retain its marker
+    // and report the failure instead of starting another game.
+    leftovers.sort_by_key(|(marker, _)| *marker);
+    for (_, path) in leftovers {
+        reject_symlinks(&path)?;
+        fs::remove_file(&path).map_err(|e| {
+            format!(
+                "Cannot clean stale JNA native {}; close Minecraft and retry: {e}",
+                path.display()
+            )
+        })?;
+    }
+    if expected != collect_verified_natives(root)? {
+        return Err("extracted native DLL bytes or inventory changed".into());
+    }
+    Ok(())
 }
 
 /// Recheck overrides against the original ZIP bytes, not a JSON/boolean
@@ -874,21 +962,89 @@ pub fn reverify_published_forge(
     for file in &record.verified_overrides {
         reverify_published_override(root, file)?;
     }
-    verify_natives(root, &record.natives_relative_path)?;
-    if record.native_dlls != collect_verified_natives(root)? {
-        return Err("extracted native DLL bytes or inventory changed".into());
+    if record.natives_relative_path != "natives" {
+        return Err("unexpected Forge native directory in receipt".into());
     }
     let count = tl_game::vanilla_evidence::validate_install_files(&record.version, root)
         .map_err(|e| e.to_string())?;
     if count != record.minecraft_verified_files {
         return Err("Forge Minecraft file inventory changed".into());
     }
+    reverify_native_inventory(root, &record.native_dlls)?;
     Ok(record)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_jna_cleanup_preserves_verified_dlls_and_blocks_other_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = root.join("natives");
+        fs::create_dir(&dir).unwrap();
+        let verified = dir.join("lwjgl.dll");
+        fs::write(&verified, b"verified native").unwrap();
+        let expected = collect_verified_natives(root).unwrap();
+        let jna = dir.join("jna12779020526950434989.dll");
+        let marker = dir.join("jna12779020526950434989.dll.x");
+        fs::write(&jna, b"temporary native").unwrap();
+        fs::write(&marker, b"").unwrap();
+        assert!(collect_verified_natives(root).is_err());
+
+        // Inspect all extras before deleting anything.
+        let unknown = dir.join("foreign.dll");
+        fs::write(&unknown, b"unknown").unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_err());
+        assert!(jna.exists() && marker.exists() && unknown.exists());
+        fs::remove_file(unknown).unwrap();
+
+        fs::write(&marker, b"not a deletion marker").unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_err());
+        assert!(jna.exists() && marker.exists());
+        fs::write(&marker, b"").unwrap();
+
+        fs::write(&verified, b"tampered").unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_err());
+        assert!(jna.exists() && marker.exists());
+        fs::write(&verified, b"verified native").unwrap();
+
+        // Windows leftovers with or without the marker can be recovered.
+        let orphan_marker = dir.join("jna42.dll.x");
+        let unmarked_dll = dir.join("jna43.dll");
+        fs::write(&orphan_marker, b"").unwrap();
+        fs::write(&unmarked_dll, b"temporary").unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_ok());
+        assert!(!jna.exists() && !marker.exists());
+        assert!(!orphan_marker.exists() && !unmarked_dll.exists());
+        assert_eq!(collect_verified_natives(root).unwrap(), expected);
+        assert!(reverify_native_inventory(root, &expected).is_ok());
+
+        fs::create_dir(dir.join("jna1.dll")).unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_err());
+        fs::remove_dir(dir.join("jna1.dll")).unwrap();
+        fs::remove_file(verified).unwrap();
+        assert!(reverify_native_inventory(root, &expected).is_err());
+    }
+
+    #[test]
+    fn jna_residue_name_is_narrow() {
+        assert_eq!(legacy_jna_residue("jna123.dll"), Some(false));
+        assert_eq!(legacy_jna_residue("jna123.dll.x"), Some(true));
+        for name in [
+            "jna.dll",
+            "jnidispatch.dll",
+            "jnaevil.dll",
+            "jna123.dll.exe",
+            "jna123.dll.x.dll",
+            "jna123456789012345678901.dll",
+            ".lwjgl.test",
+            "other.dll.x",
+        ] {
+            assert_eq!(legacy_jna_residue(name), None, "{name}");
+        }
+    }
 
     #[test]
     fn published_config_remains_user_editable_but_scripts_and_mods_do_not() {

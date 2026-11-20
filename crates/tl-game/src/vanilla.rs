@@ -634,7 +634,9 @@ pub fn build_vanilla_launch(
             skip = true;
             continue;
         }
-        if argument.starts_with("-Djava.library.path=") {
+        if argument.starts_with("-Djava.library.path=")
+            || crate::is_runtime_native_workdir_argument(&argument)
+        {
             continue;
         }
         filtered.push(argument);
