@@ -50,9 +50,8 @@ impl Candidate {
 
 pub fn pinned_override(path: &str, sha256: &str) -> bool {
     ["1.16.5", "1.20.1"].iter().any(|version| {
-        candidate(version, "forge").is_some_and(|spec| {
-            path == spec.relative_path() && sha256 == spec.sha256
-        })
+        candidate(version, "forge")
+            .is_some_and(|spec| path == spec.relative_path() && sha256 == spec.sha256)
     })
 }
 
@@ -62,7 +61,7 @@ pub fn possible_conflict(filename: &str) -> bool {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
-    ["customskinloader", "tlskin","skinloader","offline skins","offlineskins"]
+    ["customskinloader", "tlskin", "skinloader", "offlineskins"]
         .iter()
         .any(|part| name.contains(part))
 }
@@ -215,6 +214,16 @@ mod tests {
         );
         assert!(candidate("1.21.1", "forge").is_none());
         assert!(candidate("1.20.1", "vanilla").is_none());
+    }
+
+    #[test]
+    fn requires_audited_name_and_digest() {
+        let spec = candidate("1.20.1", "forge").unwrap();
+        assert!(pinned_override(&spec.relative_path(), spec.sha256));
+        assert!(!pinned_override(&spec.relative_path(), &"0".repeat(64)));
+        assert!(!pinned_override("mods/other.jar", spec.sha256));
+        assert!(possible_conflict("CustomSkinLoader_Fake.jar"));
+        assert!(!possible_conflict("jei.jar"));
     }
 
     #[test]

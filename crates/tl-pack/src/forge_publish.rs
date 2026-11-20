@@ -478,6 +478,12 @@ fn verify_original_overrides(
             source_hash.update(&buf[..n]);
         }
         let expected = format!("{:x}", source_hash.finalize());
+        if crate::skin_compat::pinned_override(relative, &expected)
+            && !crate::skin_compat::candidate(&manifest.game_version, &manifest.loader.kind)
+                .is_some_and(|spec| relative == &spec.relative_path() && expected == spec.sha256)
+        {
+            return Err("CustomSkinLoader binary does not match the pack version".into());
+        }
         check_file(root, relative, entry.size(), None, Some(&expected))?;
         verified.push(VerifiedOverride {
             relative_path: relative.clone(),

@@ -500,7 +500,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     Ok(LaunchPreflight{
         instance_id,java_path:paths.java.to_string_lossy().into_owned(),
         required_java:required,xms_mb:prefs.xms_mb,xmx_mb:prefs.xmx_mb,
-        skin_provider_status: if provider.is_some() { "ProviderReadyUnverified".into() } else { "PreviewOnly".into() }
+        skin_provider_status: if provider.is_some() { "ProviderInstalledUnverified".into() } else { "PreviewOnly".into() }
     })
 }
 

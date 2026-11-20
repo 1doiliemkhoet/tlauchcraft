@@ -70,6 +70,14 @@ describe('folder-only installed CurseForge import', () => {
       customSkin: false
     });
   });
+  it('passes independent Custom Skin and LAN consent', async () => {
+    mockedInvoke.mockResolvedValue({id: 'skin-instance', state: 'ready'});
+    await operations.importInstalledFolder(withFeature('pack_inspection'), 'C:/SkyFactory5', 'skin-folder-1234', 'profile', '', true, true, true);
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_folder', {
+      installedProfilePath: 'C:/SkyFactory5', operationId: 'skin-folder-1234', profileId: 'profile',
+      javaPath: '', hostExecutionConsent: true, lanProperties: true, customSkin: true
+    });
+  });
   it('cannot run on a backend without modpack import support', async () => {
     await expect(operations.importInstalledFolder(
       EMPTY_CAPABILITIES, 'C:/CurseForge/Instances/Rustic', 'local-123456',

@@ -282,3 +282,59 @@ fn unmanaged_target_file_is_never_overwritten() {
         b"user-owned"
     );
 }
+
+#[test]
+fn forge_local_config_classic_slim_and_external_conflicts() {
+    use tl_skin::provider::configure_forge_local;
+    let dir = tempfile::tempdir().unwrap();
+    configure_forge_local(dir.path(), &Model::Classic).unwrap();
+    let path = dir.path().join("CustomSkinLoader/CustomSkinLoader.json");
+    let read = || serde_json::from_slice::<serde_json::Value>(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(read()["loadlist"][0]["model"], "default");
+    assert_eq!(read()["loadlist"][0]["type"], "Legacy");
+    assert_eq!(
+        read()["loadlist"][0]["skin"],
+        "LocalSkin/skins/{USERNAME}.png"
+    );
+    assert_eq!(read()["loadlist"].as_array().unwrap().len(), 1);
+    configure_forge_local(dir.path(), &Model::Slim).unwrap();
+    assert_eq!(read()["loadlist"][0]["model"], "slim");
+    let mut changed = read();
+    changed["loadlist"][0]["skin"] = serde_json::json!("https://example.org/{USERNAME}.png");
+    fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
+    assert!(configure_forge_local(dir.path(), &Model::Classic).is_err());
+    assert_eq!(read(), changed);
+}
+
+#[test]
+fn forge_slim_provider_stages_a_selected_texture() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut library = SkinLibrary::open(dir.path().join("library")).unwrap();
+    let mut profile = OfflineProfile::new("ForgeSkin").unwrap();
+    let skin = library.import_png("Slim", &png(), Model::Slim).unwrap();
+    library
+        .assign_foundation_profile(&mut profile, skin.id, Model::Slim)
+        .unwrap();
+    for (version, loader) in [("1.16.5", "36.2.29"), ("1.20.1", "47.4.0")] {
+        let instance = GameInstance::new(
+            "Forge",
+            version,
+            LoaderSpec {
+                kind: LoaderKind::Forge,
+                version: Some(loader.into()),
+            },
+            profile.id,
+        )
+        .unwrap();
+        let game_dir = dir.path().join(version);
+        let hash = mod_jar(&game_dir);
+        let report = CustomSkinLoaderLocal
+            .stage(
+                &library,
+                &ctx(&profile, &instance, &game_dir, true, Some(&hash)),
+            )
+            .unwrap();
+        assert_eq!(report.status, Visibility::ProviderReadyUnverified);
+        assert_eq!(report.model, Some(Model::Slim));
+    }
+}

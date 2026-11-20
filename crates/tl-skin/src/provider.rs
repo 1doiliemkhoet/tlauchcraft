@@ -235,8 +235,8 @@ impl SkinProvider for CustomSkinLoaderLocal {
         let Some(selection) = library.selection(ctx.profile.id, Some(ctx.instance.id)) else {
             return fail(ProviderReason::SelectionMissing);
         };
-        // Classic/Slim are stored independently. This path doesn't prove Slim arms:
-        // CSL's local legacy source has no verified per-file model contract here.
+        // Forge's explicit local-only Legacy config selects default/slim for the
+        // active profile; Fabric keeps the original conservative Classic gate.
         if fabric && selection.model == Model::Slim {
             return fail(ProviderReason::SlimModelNotConfirmed);
         }
@@ -374,15 +374,23 @@ pub fn configure_forge_local(game_dir: &Path, model: &Model) -> crate::Result<()
         || !no_symlink_ancestors(&marker)
         || (extras.exists() && fs::read_dir(&extras)?.next().is_some())
     {
-        return Err(SkinError::InvalidInput("unsafe or conflicting skin configuration".into()));
+        return Err(SkinError::InvalidInput(
+            "unsafe or conflicting skin configuration".into(),
+        ));
     }
     let model = match model {
         Model::Classic => "default",
         Model::Slim => "slim",
     };
     let mut value = if config.exists() {
-        if !marker.is_file() || fs::metadata(&config)?.len() > 64 * 1024 {
-            return Err(SkinError::InvalidInput("unmanaged skin configuration".into()));
+        if !marker.is_file()
+            || fs::metadata(&marker)?.len() != 20
+            || fs::read(&marker)? != b"tlauchcraft-local/v1"
+            || fs::metadata(&config)?.len() > 64 * 1024
+        {
+            return Err(SkinError::InvalidInput(
+                "unmanaged skin configuration".into(),
+            ));
         }
         let value: Value = serde_json::from_slice(&fs::read(&config)?)?;
         let sources = value["loadlist"].as_array().ok_or_else(|| {
@@ -395,7 +403,9 @@ pub fn configure_forge_local(game_dir: &Path, model: &Model) -> crate::Result<()
             || !sources[0]["cape"].is_null()
             || !sources[0]["elytra"].is_null()
         {
-            return Err(SkinError::InvalidInput("managed skin source was changed".into()));
+            return Err(SkinError::InvalidInput(
+                "managed skin source was changed".into(),
+            ));
         }
         value
     } else {
@@ -412,7 +422,11 @@ pub fn configure_forge_local(game_dir: &Path, model: &Model) -> crate::Result<()
     value["forceLoadAllTextures"] = json!(false);
     value["enableLocalProfileCache"] = json!(false);
     value["cacheExpiry"] = json!(30);
-    if !marker.exists() {
+    if marker.exists() {
+        if fs::metadata(&marker)?.len() != 20 || fs::read(&marker)? != b"tlauchcraft-local/v1" {
+            return Err(SkinError::InvalidInput("invalid skin config marker".into()));
+        }
+    } else {
         write_new(&marker, b"tlauchcraft-local/v1")?;
     }
     if config.exists() && fs::read(&config)? == serde_json::to_vec_pretty(&value)? {
