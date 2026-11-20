@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
+export type SkinModel = 'classic' | 'slim';
+export type SkinRecord = { id: string; name: string; sha256: string; model: SkinModel; legacy: boolean };
 export type Feature = 'profiles' | 'instances' | 'versions' | 'modpacks' | 'pack_inspection' | 'skins' | 'lan' | 'game' | 'settings' | 'downloads';
 export type Capabilities = { schema_version: number; features: Record<Feature, boolean>; provider: string };
 // Matched to tl-core serde serialization. UUID and DateTime<Utc> serialize as strings.
@@ -14,7 +16,7 @@ export type LaunchProcess = { pid: number; started_at: string; log_path: string;
 export type JavaSettings = { instance_id: string; xms_mb: number; xmx_mb: number; java_path: string; revision: number };
 export type DetectedJava8 = { path: string; major: number; source: string };
 export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: number };
-export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
+export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number; skin_provider_status?: string };
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
 export type NewVanillaInstance = { name: string; version: string; profile_id: string };
 export type RemovedInstance = { id: string; archived_path: string | null };
@@ -90,8 +92,8 @@ export const operations = {
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
   stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
   stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
-  importInstalledFolder: (c: Capabilities, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean, lanProperties = false) =>
-    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_folder', { installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent, lanProperties }),
+  importInstalledFolder: (c: Capabilities, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean, lanProperties = false, customSkin = false) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_folder', { installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent, lanProperties, customSkin }),
   importInstalledCurseForge: (c: Capabilities, archivePath: string, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
     call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_curseforge', { archivePath, installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent }),
   installOfficialForge: (c: Capabilities, archivePath: string, operationId: string, displayName: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
@@ -100,7 +102,10 @@ export const operations = {
   cancelPackStage: (c: Capabilities, operationId: string) => call<void>(c, 'pack_inspection', 'pack_cancel', { operationId }),
   launch: (c: Capabilities, request: LaunchRequest) => call<LaunchProcess>(c, 'game', 'game_launch', { request }),
   cancel: (c: Capabilities, operationId: string) => call<void>(c, 'downloads', 'operation_cancel', { operationId }),
-  listSkins: (c: Capabilities) => call<unknown[]>(c, 'skins', 'skin_list'),
+  listSkins: (c: Capabilities) => call<SkinRecord[]>(c, 'skins', 'skin_list'),
+  importSkin: (c: Capabilities, path: string, name: string, model: SkinModel) => call<SkinRecord>(c, 'skins', 'skin_import', {path,name,model}),
+  previewSkin: (c: Capabilities, skinId: string) => call<number[]>(c, 'skins', 'skin_preview', {skinId}),
+  selectSkin: (c: Capabilities, profileId: string, skinId: string, model: SkinModel, instanceId: string | null = null) => call<void>(c, 'skins', 'skin_select', {profileId,skinId,model,instanceId}),
   lanStatus: (c: Capabilities) => call<unknown>(c, 'lan', 'lan_status'),
 };
 export const EVENT_NAMES = ['profile-changed','instance-changed','download-progress','download-verified','pack-inspect','pack-needs_action','pack-ready','loader-installed','java-resolved','game-started','game-exited','lan-server_started','lan-peer_joined','skin-selected','skin-local_verified','skin-peer_verified'] as const;

@@ -246,6 +246,24 @@ pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, us
     private_snapshot: &Path,
     cancelled: &AtomicBool,
     lan_properties: bool,
+    progress: F,
+) -> Result<PackMetadata, String> {
+    snapshot_installed_folder_with_addons(
+        installed_profile,
+        private_snapshot,
+        cancelled,
+        lan_properties,
+        false,
+        progress,
+    )
+}
+
+pub fn snapshot_installed_folder_with_addons<F: FnMut(&'static str, usize, usize)>(
+    installed_profile: &Path,
+    private_snapshot: &Path,
+    cancelled: &AtomicBool,
+    lan_properties: bool,
+    custom_skin: bool,
     mut progress: F,
 ) -> Result<PackMetadata, String> {
     let root = fs::canonicalize(installed_profile)
@@ -388,6 +406,22 @@ pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, us
     } else {
         None
     };
+    let skin_addon = if custom_skin {
+        let spec = crate::skin_compat::candidate(game, loader_kind)
+            .ok_or("Custom Skin currently supports Forge 1.16.5 and 1.20.1")?;
+        if seen_names
+            .iter()
+            .any(|name| crate::skin_compat::possible_conflict(name))
+        {
+            return Err("Possible existing skin provider; refusing duplicate skin mods".into());
+        }
+        progress("local_import.verifying_skin_addon", 0, 1);
+        let bytes = crate::skin_compat::download(game, loader_kind, cancelled)?;
+        progress("local_import.verifying_skin_addon", 1, 1);
+        Some((spec, bytes))
+    } else {
+        None
+    };
     let manifest = serde_json::json!({
         "manifestType": "minecraftModpack",
         "manifestVersion": 1,
@@ -479,6 +513,12 @@ pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, us
                     format!("overrides/{}", crate::lan_compat::RELATIVE_PATH),
                     opts,
                 )
+                .map_err(|e| e.to_string())?;
+            writer.write_all(bytes).map_err(|e| e.to_string())?;
+        }
+        if let Some((spec, bytes)) = &skin_addon {
+            writer
+                .start_file(format!("overrides/{}", spec.relative_path()), opts)
                 .map_err(|e| e.to_string())?;
             writer.write_all(bytes).map_err(|e| e.to_string())?;
         }

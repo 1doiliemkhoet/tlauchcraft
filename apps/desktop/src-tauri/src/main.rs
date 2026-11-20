@@ -14,6 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 mod java_settings;
 mod game_ops;
+mod skin_ops;
 
 #[derive(Serialize)]
 struct Capabilities {
@@ -28,7 +29,7 @@ fn desktop_capabilities() -> Capabilities {
     let features = ["profiles", "instances", "versions", "modpacks", "pack_inspection", "skins", "lan",
         "game", "settings", "downloads"]
         .into_iter()
-        .map(|feature| (feature, feature == "profiles" || feature == "instances" || feature == "pack_inspection" || feature == "settings" || feature == "game"))
+        .map(|feature| (feature, feature == "profiles" || feature == "instances" || feature == "pack_inspection" || feature == "settings" || feature == "game" || feature == "skins"))
         .collect();
     Capabilities { schema_version: CONTRACT_VERSION, provider: "tl-core + tl-storage", features }
 }
@@ -577,6 +578,7 @@ async fn pack_import_installed_folder(
     java_path: String,
     host_execution_consent: bool,
     lan_properties: Option<bool>,
+    custom_skin: Option<bool>,
 ) -> Result<GameInstance, String> {
     if !host_execution_consent {
         return Err("Explicit approval required to run local modded Forge Java".into());
@@ -611,8 +613,8 @@ async fn pack_import_installed_folder(
     let progress_app = app.clone();
     let progress_id = operation_id.clone();
     let built = tauri::async_runtime::spawn_blocking(move || {
-        tl_pack::installed_import::snapshot_installed_folder_with_lan_addon(
-            &installed_root, &snapshot_target, &token, lan_properties.unwrap_or(false),
+        tl_pack::installed_import::snapshot_installed_folder_with_addons(
+            &installed_root, &snapshot_target, &token, lan_properties.unwrap_or(false), custom_skin.unwrap_or(false),
             |stage, completed, total| {
                 let mut details = BTreeMap::new();
                 details.insert("completed_files".into(), completed.to_string());
@@ -681,6 +683,10 @@ fn main() {
             desktop_capabilities,
             profile_list,
             profile_create,
+            skin_ops::skin_list,
+            skin_ops::skin_import,
+            skin_ops::skin_select,
+            skin_ops::skin_preview,
             instance_list,
             pack_inspect,
             pack_api_key_configured,

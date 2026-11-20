@@ -1,0 +1,36 @@
+name: G7 Skin candidate audit (Windows)
+on:
+  pull_request:
+    branches: [integration/p0-playable-single-run]
+    paths:
+      - 'crates/tl-pack/src/skin_compat.rs'
+      - 'crates/tl-pack/examples/skin_candidate_audit.rs'
+      - '.github/workflows/g7-skin-candidate-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: g7-skin-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+      - uses: Swatinem/rust-cache@v2
+      - name: Download and hash official candidates without executing
+        shell: pwsh
+        run: |
+          cargo run --locked -p tl-pack --example skin_candidate_audit 2>&1 | Tee-Object -FilePath skin-candidate-audit.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g7-skin-audit-${{ github.run_id }}
+          path: skin-candidate-audit.txt
+          if-no-files-found: warn

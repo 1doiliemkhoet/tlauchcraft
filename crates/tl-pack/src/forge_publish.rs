@@ -478,6 +478,12 @@ fn verify_original_overrides(
             source_hash.update(&buf[..n]);
         }
         let expected = format!("{:x}", source_hash.finalize());
+        if crate::skin_compat::pinned_override(relative, &expected)
+            && !crate::skin_compat::candidate(&manifest.game_version, &manifest.loader.kind)
+                .is_some_and(|spec| relative == &spec.relative_path() && expected == spec.sha256)
+        {
+            return Err("CustomSkinLoader binary does not match the pack version".into());
+        }
         check_file(root, relative, entry.size(), None, Some(&expected))?;
         verified.push(VerifiedOverride {
             relative_path: relative.clone(),
@@ -862,14 +868,16 @@ fn verify_exact_mod_inventory_with_overrides(
         }
     }
     for item in overrides {
-        if item.relative_path == crate::lan_compat::RELATIVE_PATH {
+        if item.relative_path == crate::lan_compat::RELATIVE_PATH
+            || crate::skin_compat::pinned_override(&item.relative_path, &item.sha256)
+        {
             let filename = Path::new(&item.relative_path)
                 .file_name()
                 .and_then(|s| s.to_str())
                 .ok_or("invalid LAN add-on path")?
                 .to_ascii_lowercase();
             if !expected.insert(filename) {
-                return Err("LAN add-on collides with existing mod".into());
+                return Err("Verified add-on collides with existing mod".into());
             }
             check_file(
                 root,

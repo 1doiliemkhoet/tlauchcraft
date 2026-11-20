@@ -1,5 +1,6 @@
 //! Local-only skin assets. This crate does NOT install a Minecraft skin provider.
 //! In-game and peer visibility require independent, explicit real-world verification.
+pub mod provider;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{

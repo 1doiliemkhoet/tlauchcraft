@@ -429,9 +429,9 @@ fn installed_metadata(dir:&Path)->Result<(Value,PathBuf),String>{
 /// Never trust an instance READY flag alone: re-hash the published Forge
 /// modpack, every official library/client/asset, overrides and natives at
 /// preflight AND immediately before launching Java.
-fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf),String>{
+fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf,Option<tl_pack::skin_compat::Candidate>),String>{
     match &i.loader.kind {
-        LoaderKind::Vanilla=>installed_metadata(dir),
+        LoaderKind::Vanilla=>installed_metadata(dir).map(|(v,n)|(v,n,None)),
         LoaderKind::Forge=>{
             let trusted = db()?.get_forge_receipt_anchor(i.id)
                 .map_err(|e|e.to_string())?
@@ -442,7 +442,10 @@ fn installed_launch_metadata(i:&GameInstance,dir:&Path)->Result<(Value,PathBuf),
                 return Err("Published Forge version does not match SQLite instance".into())
             }
             let natives=dir.join(&record.natives_relative_path);
-            Ok((record.version,natives))
+            let provider=tl_pack::skin_compat::candidate(&record.minecraft_version,"forge")
+                .filter(|spec| record.verified_overrides.iter().any(|entry|
+                    entry.relative_path==spec.relative_path() && entry.sha256==spec.sha256));
+            Ok((record.version,natives,provider))
         },
         _=>Err("Unsupported loader for Desktop Play".into())
     }
@@ -454,7 +457,8 @@ pub struct LaunchPreflight {
     pub java_path:String,
     pub required_java:u32,
     pub xms_mb:u32,
-    pub xmx_mb:u32
+    pub xmx_mb:u32,
+    pub skin_provider_status:String,
 }
 /// No process is created here. Checking readiness never claims G3.
 #[tauri::command]
@@ -477,7 +481,7 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
     };
     validate_game_identity_binding(&i,&profile,&req)?;
     let dir=root(&i)?;
-    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    let (version,natives,provider)=installed_launch_metadata(&i,&dir)?;
     if !valid_installed_version(&i,&version){
         return Err("Installed version metadata mismatch".into())
     }
@@ -495,7 +499,8 @@ fn preflight_work(instance_id:String,profile_id:String)->Result<LaunchPreflight,
         .map_err(|e|e.to_string())?;
     Ok(LaunchPreflight{
         instance_id,java_path:paths.java.to_string_lossy().into_owned(),
-        required_java:required,xms_mb:prefs.xms_mb,xmx_mb:prefs.xmx_mb
+        required_java:required,xms_mb:prefs.xms_mb,xmx_mb:prefs.xmx_mb,
+        skin_provider_status: if provider.is_some() { "ProviderInstalledUnverified".into() } else { "PreviewOnly".into() }
     })
 }
 
@@ -528,7 +533,7 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
     if request.extra_jvm_args.as_ref().is_some_and(|extra|!extra.is_empty()){
        return Err("Custom JVM args are not permitted by the Desktop bridge".into())
     }
-    let (version,natives)=installed_launch_metadata(&i,&dir)?;
+    let (version,natives,provider)=installed_launch_metadata(&i,&dir)?;
     if !valid_installed_version(&i,&version){
         return Err("Installed version does not match instance".into())
     }
@@ -543,6 +548,14 @@ fn launch_work(app:AppHandle,state:Arc<GameState>,request:tl_core::LaunchRequest
             return Err("Minecraft is already running for this instance".into())
         }
         children.remove(&i.id);
+    }
+    if let Some(spec)=provider {
+        let status=crate::skin_ops::prepare(&profile,&i,&paths.game_dir,spec)?;
+        let _=app.emit("skin-selected",json!({
+            "contract_version":1,"operation_id":i.id.to_string(),
+            "instance_id":i.id.to_string(),"timestamp":chrono::Utc::now().to_rfc3339(),
+            "phase":"skin_prepared","message_key":status,"details":{},"percent":null
+        }));
     }
     let log_dir=dir.join("logs");
     fs::create_dir_all(&log_dir).map_err(|e|e.to_string())?;

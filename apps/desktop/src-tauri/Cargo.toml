@@ -19,6 +19,7 @@ tl-core = { path = "../../../crates/tl-core" }
 tl-storage = { path = "../../../crates/tl-storage" }
 tl-pack = { path = "../../../crates/tl-pack" }
 tl-game = { path = "../../../crates/tl-game" }
+tl-skin = { path = "../../../crates/tl-skin" }
 serde_json = "=1.0.140"
 rusqlite = { version = "=0.34.0", features = ["bundled"] }
 uuid = { version = "=1.16.0", features = ["v4", "serde"] }
