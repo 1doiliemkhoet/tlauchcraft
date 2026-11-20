@@ -376,7 +376,7 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         "openloader",
         "global_data_packs",
         "global_packs",
-        "thingpacks", // Data-driven custom blocks/items consumed by Data & Thing.
+        "thingpacks",        // Data-driven custom blocks/items consumed by Data & Thing.
         "journeymap/config", // Pack defaults only; exclude player maps/waypoints.
         "datapacks",
         "assets",
