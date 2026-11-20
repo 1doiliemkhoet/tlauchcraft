@@ -15,6 +15,7 @@ pub mod manual_import;
 pub mod modrinth;
 pub mod normalized;
 pub mod publisher;
+pub mod skin_compat;
 pub mod staged_receipt;
 pub mod transaction;
 pub mod validation;
