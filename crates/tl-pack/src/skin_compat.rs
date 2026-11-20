@@ -137,11 +137,7 @@ fn bounded_read(input: impl Read, max: u64, cancelled: &AtomicBool) -> Result<Ve
     Ok(bytes)
 }
 
-pub fn download(
-    minecraft: &str,
-    loader: &str,
-    cancelled: &AtomicBool,
-) -> Result<Vec<u8>, String> {
+pub fn download(minecraft: &str, loader: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, String> {
     let spec = candidate(minecraft, loader).ok_or("unsupported skin provider candidate")?;
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -178,8 +174,14 @@ mod tests {
 
     #[test]
     fn selects_only_reviewed_candidate_versions() {
-        assert_eq!(candidate("1.16.5", "forge").unwrap().version_id, "wLkp5dpJ");
-        assert_eq!(candidate("1.20.1", "forge").unwrap().version_id, "CcAsu9W3");
+        assert_eq!(
+            candidate("1.16.5", "forge").unwrap().version_id,
+            "wLkp5dpJ"
+        );
+        assert_eq!(
+            candidate("1.20.1", "forge").unwrap().version_id,
+            "CcAsu9W3"
+        );
         assert!(candidate("1.21.1", "forge").is_none());
         assert!(candidate("1.20.1", "vanilla").is_none());
     }
