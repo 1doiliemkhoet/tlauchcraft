@@ -376,6 +376,8 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         "openloader",
         "global_data_packs",
         "global_packs",
+        "thingpacks", // Data-driven custom blocks/items consumed by Data & Thing.
+        "journeymap/config", // Pack defaults only; exclude player maps/waypoints.
         "datapacks",
         "assets",
         "resources",
@@ -842,6 +844,22 @@ mod tests {
         fs::create_dir_all(root.join("mods")).unwrap();
         fs::create_dir_all(root.join("config")).unwrap();
         fs::create_dir_all(root.join("saves/world")).unwrap();
+        fs::create_dir_all(root.join("thingpacks/sf5_things/things/sf5_things/block")).unwrap();
+        fs::create_dir_all(root.join("global_packs/required_data/sf5_worldgen/data")).unwrap();
+        fs::create_dir_all(root.join("journeymap/config/5.10")).unwrap();
+        fs::create_dir_all(root.join("journeymap/data/sp/world")).unwrap();
+        let thing = "thingpacks/sf5_things/things/sf5_things/block/block_of_white_dye.json";
+        let worldgen = "global_packs/required_data/sf5_worldgen/data/fixture.json";
+        let map_config = "journeymap/config/5.10/journeymap.core.config";
+        let map_data = "journeymap/data/sp/world/private.txt";
+        for (path, bytes) in [
+            (thing, b"custom block".as_slice()),
+            (worldgen, b"worldgen reference".as_slice()),
+            (map_config, b"map defaults".as_slice()),
+            (map_data, b"private map".as_slice()),
+        ] {
+            fs::write(root.join(path), bytes).unwrap();
+        }
         fs::write(root.join("mods/example.jar"), b"demo jar bytes").unwrap();
         fs::write(root.join("config/pack.toml"), b"key=1").unwrap();
         fs::write(root.join("saves/world/level.dat"), b"private world").unwrap();
@@ -869,10 +887,15 @@ mod tests {
         assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
         assert_eq!(planned.files.len(), 1);
         assert!(planned.overrides.iter().any(|x| x == "config/pack.toml"));
+        for path in [thing, worldgen, map_config] {
+            assert!(planned.overrides.iter().any(|x| x == path), "{path}");
+        }
+        assert!(!planned.overrides.iter().any(|x| x == map_data));
         let zip = zip::ZipArchive::new(File::open(&archive).unwrap()).unwrap();
-        assert!(!zip
-            .file_names()
-            .any(|s| s.contains("saves") || s.contains("mods/") || s.contains(".jar")));
+        assert!(!zip.file_names().any(|s| s.contains("saves")
+            || s.contains("mods/")
+            || s.contains(".jar")
+            || s.contains("journeymap/data/")));
         let stage = temp.path().join("local-run-12345.staging");
         let imported = stage_installed_curseforge(&archive, &root, &stage, &cancel).unwrap();
         assert_eq!(imported.len(), 1);
@@ -881,6 +904,13 @@ mod tests {
             b"demo jar bytes"
         );
         assert_eq!(fs::read(stage.join("config/pack.toml")).unwrap(), b"key=1");
+        for path in [thing, worldgen, map_config] {
+            assert_eq!(
+                fs::read(stage.join(path)).unwrap(),
+                fs::read(root.join(path)).unwrap()
+            );
+        }
+        assert!(!stage.join(map_data).exists());
         assert_eq!(
             fs::read(root.join("saves/world/level.dat")).unwrap(),
             b"private world"

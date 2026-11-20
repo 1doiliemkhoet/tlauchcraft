@@ -779,7 +779,9 @@ fn publish_with_mod_evidence(
 /// data-format allowlist, not an exception for arbitrary files or code.
 fn is_mutable_user_config(relative: &str) -> bool {
     let path = relative.to_ascii_lowercase();
-    let in_config = path.starts_with("config/") || path.starts_with("defaultconfigs/");
+    let in_config = path.starts_with("config/")
+        || path.starts_with("defaultconfigs/")
+        || path.starts_with("journeymap/config/");
     let ext_allowed = [
         ".toml",
         ".cfg",
@@ -1060,6 +1062,7 @@ mod tests {
             "config/extractinator.jsonc",
             "config/defaultoptions/extra/journeymap/config/5.10/journeymap.core.config",
             "config/jei/jei-client.ini",
+            "journeymap/config/5.10/journeymap.core.config",
             "config/canary.properties",
             "config/defaultoptions/options.txt",
             "defaultconfigs/example.JSON5",
@@ -1099,6 +1102,9 @@ mod tests {
             "config/unsafe.dll",
             "config/unknown.bin",
             "resourcepacks/example.json",
+            "thingpacks/sf5_things/things/sf5_things/block/block_of_white_dye.json",
+            "global_packs/required_data/sf5_worldgen/data/fixture.json",
+            "journeymap/data/private.config",
         ] {
             assert!(!is_mutable_user_config(relative), "{relative}");
             let path = dir.join(relative);
