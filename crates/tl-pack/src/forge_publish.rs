@@ -686,6 +686,9 @@ fn publish_with_mod_evidence(
 /// Modpacks may rewrite ordinary user configuration during gameplay.
 /// Configs are hashed against the original ZIP before READY, while later
 /// launches permit normal user edits (never changes to mods/JARs/scripts).
+/// SkyFactory 5's tracked config/defaultconfigs tree also uses JSONC,
+/// JourneyMap .config files and JEI .ini files. Keep this a directory-scoped
+/// data-format allowlist, not an exception for arbitrary files or code.
 fn is_mutable_user_config(relative: &str) -> bool {
     let path = relative.to_ascii_lowercase();
     let in_config = path.starts_with("config/") || path.starts_with("defaultconfigs/");
@@ -694,6 +697,12 @@ fn is_mutable_user_config(relative: &str) -> bool {
         ".cfg",
         ".json",
         ".json5",
+        ".jsonc",
+        ".config",
+        ".conf",
+        ".ini",
+        ".hjson",
+        ".snbt",
         ".properties",
         ".txt",
         ".yaml",
@@ -718,6 +727,21 @@ fn verify_mutable_config_path(root: &Path, relative: &str) -> Result<(), String>
         return Err("user configuration file missing or unsafe".into());
     }
     Ok(())
+}
+
+/// Apply the same receipt policy on every launch, including older installs.
+fn reverify_published_override(root: &Path, file: &VerifiedOverride) -> Result<(), String> {
+    if is_mutable_user_config(&file.relative_path) {
+        verify_mutable_config_path(root, &file.relative_path)
+    } else {
+        check_file(
+            root,
+            &file.relative_path,
+            file.bytes,
+            None,
+            Some(&file.sha256),
+        )
+    }
 }
 
 fn verify_exact_mod_inventory(root: &Path, mods: &[VerifiedModReceipt]) -> Result<(), String> {
@@ -848,17 +872,7 @@ pub fn reverify_published_forge(
         )?;
     }
     for file in &record.verified_overrides {
-        if is_mutable_user_config(&file.relative_path) {
-            verify_mutable_config_path(root, &file.relative_path)?;
-        } else {
-            check_file(
-                root,
-                &file.relative_path,
-                file.bytes,
-                None,
-                Some(&file.sha256),
-            )?;
-        }
+        reverify_published_override(root, file)?;
     }
     verify_natives(root, &record.natives_relative_path)?;
     if record.native_dlls != collect_verified_natives(root)? {
@@ -878,25 +892,71 @@ mod tests {
 
     #[test]
     fn published_config_remains_user_editable_but_scripts_and_mods_do_not() {
-        assert!(is_mutable_user_config("config/modsettings.toml"));
-        assert!(is_mutable_user_config("config/collective.json5"));
-        assert!(is_mutable_user_config("defaultconfigs/example.JSON5"));
-        assert!(is_mutable_user_config("config/spawnbalanceutility/AllMobEntities.rpt"));
-        assert!(!is_mutable_user_config("mods/example.json5"));
-        assert!(!is_mutable_user_config("kubejs/startup_scripts/example.json5"));
-        assert!(!is_mutable_user_config("config/collective.json5.jar"));
-        assert!(!is_mutable_user_config("config/unsafe.js"));
-        assert!(is_mutable_user_config("options.txt"));
-        assert!(!is_mutable_user_config("mods/mod.jar"));
-        assert!(!is_mutable_user_config("kubejs/startup_scripts/init.js"));
-        assert!(!is_mutable_user_config("config/unsafe.jar"));
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().canonicalize().unwrap();
-        fs::create_dir(dir.join("config")).unwrap();
-        fs::write(dir.join("config/modsettings.toml"), b"changed by Minecraft").unwrap();
-        assert!(verify_mutable_config_path(&dir, "config/modsettings.toml").is_ok());
-        fs::write(dir.join("config/collective.json5"), b"{ updated: true }").unwrap();
-        assert!(verify_mutable_config_path(&dir, "config/collective.json5").is_ok());
+        // All nine extensions in DarkPacks/SkyFactory-5's tracked config tree,
+        // plus supported conventional configuration and runtime report formats.
+        for relative in [
+            "config/modsettings.toml",
+            "config/apotheosis/adventure.cfg",
+            "config/ae2/client.json",
+            "config/collective.json5",
+            "config/extractinator.jsonc",
+            "config/defaultoptions/extra/journeymap/config/5.10/journeymap.core.config",
+            "config/jei/jei-client.ini",
+            "config/canary.properties",
+            "config/defaultoptions/options.txt",
+            "defaultconfigs/example.JSON5",
+            "config/settings.conf",
+            "config/settings.hjson",
+            "config/settings.snbt",
+            "config/settings.yaml",
+            "config/settings.yml",
+            "config/spawnbalanceutility/AllMobEntities.rpt",
+            "options.txt",
+            "optionsof.txt",
+            "servers.dat",
+        ] {
+            assert!(is_mutable_user_config(relative), "{relative}");
+            let path = dir.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"original").unwrap();
+            let receipt = VerifiedOverride {
+                relative_path: relative.into(),
+                bytes: 8,
+                sha256: format!("{:x}", Sha256::digest(b"original")),
+            };
+            fs::write(&path, b"changed by Minecraft").unwrap();
+            assert!(reverify_published_override(&dir, &receipt).is_ok());
+        }
+
+        for relative in [
+            "mods/mod.jar",
+            "mods/example.json5",
+            "kubejs/startup_scripts/init.js",
+            "kubejs/startup_scripts/example.json5",
+            "scripts/recipes.zs",
+            "config/unsafe.jar",
+            "config/collective.json5.jar",
+            "config/unsafe.js",
+            "config/unsafe.exe",
+            "config/unsafe.dll",
+            "config/unknown.bin",
+            "resourcepacks/example.json",
+        ] {
+            assert!(!is_mutable_user_config(relative), "{relative}");
+            let path = dir.join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"original").unwrap();
+            let receipt = VerifiedOverride {
+                relative_path: relative.into(),
+                bytes: 8,
+                sha256: format!("{:x}", Sha256::digest(b"original")),
+            };
+            assert!(reverify_published_override(&dir, &receipt).is_ok());
+            fs::write(&path, b"tampered").unwrap();
+            assert!(reverify_published_override(&dir, &receipt).is_err());
+        }
         fs::create_dir(dir.join("config/directory.json5")).unwrap();
         assert!(verify_mutable_config_path(&dir, "config/directory.json5").is_err());
         assert!(verify_mutable_config_path(&dir, "config/missing.json5").is_err());
