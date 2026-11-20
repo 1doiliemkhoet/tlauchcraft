@@ -1,5 +1,23 @@
 //! Standalone modpack archive inspector. No external downloads or executable hooks.
 //! This crate does not assert that an imported instance is runnable.
+pub mod artifact_audit;
+pub mod curseforge;
+pub mod fingerprint;
+#[cfg(windows)]
+pub mod forge_official;
+pub mod forge_publish;
+pub mod forge_stage;
+pub mod install;
+pub mod installed_import;
+pub mod instance_manifest;
+pub mod lan_compat;
+pub mod manual_import;
+pub mod modrinth;
+pub mod normalized;
+pub mod publisher;
+pub mod staged_receipt;
+pub mod transaction;
+pub mod validation;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -261,9 +279,13 @@ fn from_cf<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>) -> Result<ParsedPac
         },
     };
     let mut ids = HashSet::new();
+    let mut projects = HashSet::new();
     let mut files = Vec::new();
     for file in doc.files {
-        if file.project_id == 0 || file.file_id == 0 || !ids.insert((file.project_id, file.file_id))
+        if file.project_id == 0
+            || file.file_id == 0
+            || !ids.insert((file.project_id, file.file_id))
+            || !projects.insert(file.project_id)
         {
             return Err(PackError::Metadata(
                 "invalid or duplicate CurseForge project/file ID".into(),

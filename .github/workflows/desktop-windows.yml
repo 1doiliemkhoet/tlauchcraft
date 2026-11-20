@@ -50,6 +50,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
       - name: Require committed dependency locks
         if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
@@ -72,6 +74,11 @@ jobs:
         if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh
         run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.desktop_source == 'true'
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: desktop-verify
       - name: Tauri Rust compile and tests (locked, Windows MSVC)
         if: steps.scope.outputs.desktop_source == 'true'
         shell: pwsh

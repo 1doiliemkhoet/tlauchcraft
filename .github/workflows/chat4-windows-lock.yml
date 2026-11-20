@@ -1,0 +1,42 @@
+name: Chat 4 Windows Cargo Lock Refresh
+on:
+  push:
+    branches: [feat/tl-04-curseforge-install]
+    paths: [.github/workflows/chat4-windows-lock.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chat4-windows-lock-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-lock:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Windows stable Rust
+        shell: pwsh
+        run: rustup toolchain install stable --profile minimal
+      - name: Generate Desktop Cargo.lock using real Windows Cargo
+        shell: pwsh
+        run: |
+          cargo +stable metadata --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable metadata --format-version 1 --manifest-path Cargo.toml | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $path = "apps/desktop/src-tauri/Cargo.lock"
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $path))
+          $b64 = [Convert]::ToBase64String($bytes)
+          $chunk = 4000
+          Write-Output "CHAT4_LOCK_BEGIN_$($b64.Length)"
+          for ($i = 0; $i -lt $b64.Length; $i += $chunk) {
+            Write-Output ("CHAT4_LOCK_" + $i.ToString("D6") + "=" + $b64.Substring($i, [Math]::Min($chunk, $b64.Length - $i)))
+          }
+          Write-Output "CHAT4_LOCK_END"
+      - name: Upload refreshed lockfile for provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat4-windows-tauri-lock
+          path: apps/desktop/src-tauri/Cargo.lock
+          if-no-files-found: error

@@ -54,7 +54,7 @@ fn memory_info() -> Result<MemoryInfo, String> {
         }
         let total = status.total_phys / (1024 * 1024);
         let available = status.avail_phys / (1024 * 1024);
-        if total < 1024 || available > total || available < 768 {
+        if total < 1024 || available > total {
             return Err("Insufficient or invalid available system RAM".into());
         }
         Ok(MemoryInfo {total_mb:total,available_mb:available,reserved_mb:1024})
@@ -92,10 +92,10 @@ fn has_instance(id:Uuid)->Result<(),String>{
     Ok(())
 }
 fn defaults(id:&str,mem:&MemoryInfo)->JavaSettings {
-    let ceiling=mem.total_mb.saturating_sub(mem.reserved_mb)
-        .min(mem.available_mb.saturating_sub(512))
-        .min(4096).max(256);
-    let xmx=ceiling.min(2048) as u32;
+    // 8 GiB maximum heap on normal gaming machines; keep the initial heap
+    // small so HotSpot can grow it on demand. Smaller physical-RAM machines
+    // get a conservative initial default, but users may override Xmx.
+    let xmx=8192_u64.min(mem.total_mb.saturating_sub(1024).max(256)) as u32;
     JavaSettings{instance_id:id.into(),xms_mb:xmx.min(512),xmx_mb:xmx,java_path:String::new(),revision:0}
 }
 pub fn read(id:&str)->Result<JavaSettings,String>{
@@ -109,14 +109,8 @@ pub fn read(id:&str)->Result<JavaSettings,String>{
     Ok(defaults(id,&memory_info()?))
 }
 pub fn system_memory()->Result<MemoryInfo,String>{memory_info()}
-pub fn validate(xms:u32,xmx:u32,java:&str,mem:&MemoryInfo)->Result<(),String>{
+pub fn validate(xms:u32,xmx:u32,java:&str,_mem:&MemoryInfo)->Result<(),String>{
     if xms<256 || xmx<xms || xmx>65536 {return Err("Invalid memory: require 256 MB <= Xms <= Xmx <= 65536 MB".into())}
-    if (xmx as u64)>mem.total_mb.saturating_sub(mem.reserved_mb) {
-        return Err(format!("Xmx exceeds physical RAM after {} MB system reserve",mem.reserved_mb));
-    }
-    if (xmx as u64)>mem.available_mb.saturating_sub(512) {
-        return Err("Xmx exceeds currently available RAM after 512 MB safety margin".into());
-    }
     if java.len()>1024 || java.contains('\0') || java.chars().any(|c|c.is_control()){
         return Err("Invalid Java executable path".into());
     }
@@ -173,17 +167,229 @@ fn persist_settings(db:&mut Connection,id:&str,xms:u32,xmx:u32,java_path:&str,ex
     Ok(new_revision)
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+pub struct JavaDetection {
+    pub path: String,
+    pub major: u32,
+    pub source: String,
+}
+
+/// Discover local Java 8 installations without a CurseForge key, network
+/// request, PowerShell, or installer execution. Only verified -version output
+/// (and not a directory name) determines compatibility.
+#[cfg(windows)]
+pub fn detect_java(required: u32) -> Result<Option<JavaDetection>, String> {
+    if !matches!(required, 8 | 17 | 21) {
+        return Err("Unsupported Java major for discovery".into());
+    }
+    use std::{
+        collections::HashSet,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+
+    fn add_candidate(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        path: PathBuf,
+        source: &str,
+    ) {
+        if found.len() >= 160 || !path.is_absolute() || !path.is_file() {
+            return;
+        }
+        let key = path.to_string_lossy().to_ascii_lowercase();
+        if seen.insert(key) {
+            found.push((path, source.to_owned()));
+        }
+    }
+
+    fn add_home(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        home: &Path,
+        source: &str,
+    ) {
+        add_candidate(found, seen, home.join("bin").join("java.exe"), source);
+        add_candidate(found, seen, home.join("jre").join("bin").join("java.exe"), source);
+        add_candidate(found, seen, home.join("java.exe"), source);
+    }
+
+    fn scan_vendor(
+        found: &mut Vec<(PathBuf, String)>,
+        seen: &mut HashSet<String>,
+        dir: &Path,
+        label: &str,
+        levels: u32,
+    ) {
+        if found.len() >= 160 || levels == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return; };
+        for item in entries.take(64).flatten() {
+            if found.len() >= 160 { break; }
+            if !item.file_type().is_ok_and(|kind| kind.is_dir()) { continue; }
+            let child = item.path();
+            add_home(found, seen, &child, label);
+            if levels > 1 { scan_vendor(found, seen, &child, label, levels - 1); }
+        }
+    }
+
+    fn read_version(path: &Path) -> Option<u32> {
+        use std::os::windows::process::CommandExt;
+        let mut child = Command::new(path)
+            .arg("-version")
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+        let begin = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    let output = child.wait_with_output().ok()?;
+                    if !output.status.success() { return None; }
+                    let lines = format!(
+                        "{}{}", String::from_utf8_lossy(&output.stderr),
+                        String::from_utf8_lossy(&output.stdout)
+                    );
+                    return tl_game::parse_java_major(&lines).ok();
+                }
+                Ok(None) if begin.elapsed() < Duration::from_millis(1500) => {
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+    }
+
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    for key in ["JAVA_HOME", "JRE_HOME", "JDK_HOME"] {
+        if let Some(home) = std::env::var_os(key) {
+            add_home(&mut candidates, &mut seen, &PathBuf::from(home), key);
+        }
+    }
+    if let Some(value) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&value).take(100) {
+            add_candidate(&mut candidates, &mut seen, dir.join("java.exe"), "PATH");
+        }
+    }
+    for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(dir) = std::env::var_os(key) {
+            let base = PathBuf::from(dir);
+            for vendor in [
+                "Java", "Eclipse Adoptium", "Adoptium", "Microsoft",
+                "Amazon Corretto", "Zulu", "BellSoft", "Liberica", "OpenJDK",
+                "Semeru", "IBM",
+            ] {
+                scan_vendor(
+                    &mut candidates, &mut seen, &base.join(vendor),
+                    "Installed Java", 2,
+                );
+            }
+        }
+    }
+    if let Some(dir) = std::env::var_os("LOCALAPPDATA") {
+        let base = PathBuf::from(dir).join("Programs");
+        for vendor in ["Java", "Eclipse Adoptium", "Adoptium", "Microsoft", "Zulu"] {
+            scan_vendor(&mut candidates, &mut seen, &base.join(vendor), "User Java", 2);
+        }
+    }
+    // CurseForge App may manage a separate Minecraft installation and legacy JRE.
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let runtime = PathBuf::from(home).join("curseforge").join("minecraft")
+            .join("Install").join("runtime");
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-gamma-snapshot", "java-runtime-delta"] {
+            for arch in ["windows-x64", "windows-x86"] {
+                add_home(
+                    &mut candidates, &mut seen,
+                    &runtime.join(family).join(arch).join(family),
+                    "CurseForge-managed Minecraft runtime",
+                );
+            }
+        }
+    }
+    // Official Minecraft Launcher jre-legacy (Java 8) runtime layout.
+    if let Some(dir) = std::env::var_os("APPDATA") {
+        let runtime = PathBuf::from(dir).join(".minecraft").join("runtime");
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-gamma-snapshot", "java-runtime-delta"] {
+            for arch in ["windows-x64", "windows-x86"] {
+                add_home(
+                    &mut candidates, &mut seen,
+                    &runtime.join(family).join(arch).join(family),
+                    "Minecraft Launcher runtime",
+                );
+            }
+        }
+    }
+    // Probing an arbitrary Java executable means starting a local process.
+    // Only discover from the user's system environment or standard runtime
+    // folders; never search inside or execute JARs from an imported modpack.
+    let deadline = Instant::now() + Duration::from_secs(14);
+    for (path, source) in candidates {
+        if Instant::now() >= deadline { break; }
+        if read_version(&path) == Some(required) {
+            return Ok(Some(JavaDetection {
+                path: path.to_string_lossy().into_owned(),
+                major: required,
+                source,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(not(windows))]
+pub fn detect_java(_required: u32) -> Result<Option<JavaDetection>, String> {
+    Ok(None)
+}
+
+pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+    detect_java(8)
+}
+
+#[cfg(windows)]
+pub fn select_forge_java(path: &str, required: u32) -> Result<String, String> {
+    let selected = if path.is_empty() {
+        detect_java(required)?.ok_or_else(|| format!(
+            "Java {required} not found. Install it or select the corresponding java.exe."
+        ))?.path
+    } else {
+        path.to_owned()
+    };
+    let file = Path::new(&selected);
+    if !file.is_absolute() || !file.is_file()
+        || !file.extension().and_then(|x| x.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    {
+        return Err("Java must be an existing absolute Windows .exe".into());
+    }
+    let actual = tl_game::probe_java(file, required).map_err(|e| e.to_string())?;
+    if actual != required {
+        return Err(format!("Forge requires Java {required}, selected Java {actual}"));
+    }
+    Ok(selected)
+}
+
 pub fn java_executable(s:&JavaSettings)->PathBuf{
     if s.java_path.is_empty(){PathBuf::from("java.exe")}else{PathBuf::from(&s.java_path)}
 }
 #[cfg(test)]
 mod tests {
  use super::*;
- #[test]fn rejects_inverted_and_oversubscribed_ram(){
-   let m=MemoryInfo{total_mb:8192,available_mb:4096,reserved_mb:1024};
+ #[test]fn rejects_inverted_ram_but_does_not_gate_on_currently_free_memory(){
+   let m=MemoryInfo{total_mb:8192,available_mb:1024,reserved_mb:1024};
    assert!(validate(4096,2048,"",&m).is_err());
-   assert!(validate(512,4096,"",&m).is_err());
-   assert!(validate(512,2048,"",&m).is_ok());
+   assert!(validate(512,8192,"",&m).is_ok());
+   assert!(validate(512,16384,"",&m).is_ok());
+   assert!(validate(512,65537,"",&m).is_err());
  }
  #[test]fn sqlite_settings_survive_connection_restart_and_enforce_cas(){
    let file=std::env::temp_dir().join(format!("tl-g8-jvm-settings-{}.sqlite3",Uuid::new_v4()));
@@ -214,10 +420,15 @@ mod tests {
    }
    let _=std::fs::remove_file(file);
  }
- #[test]fn defaults_are_safe_for_small_available_ram(){
-   let m=MemoryInfo{total_mb:8192,available_mb:2500,reserved_mb:1024};
-   let d=defaults("example",&m);
-   assert_eq!(d.xmx_mb,1988);
-   assert!(d.xms_mb<=d.xmx_mb);
+ #[test]fn defaults_are_eight_gib_and_do_not_change_when_free_ram_drops(){
+   let full=MemoryInfo{total_mb:32768,available_mb:24000,reserved_mb:1024};
+   let low=MemoryInfo{total_mb:32768,available_mb:600,reserved_mb:1024};
+   for m in [&full,&low] {
+      let d=defaults("example",m);
+      assert_eq!((d.xms_mb,d.xmx_mb),(512,8192));
+      assert!(validate(d.xms_mb,d.xmx_mb,"",m).is_ok());
+   }
+   let smaller=MemoryInfo{total_mb:8192,available_mb:1000,reserved_mb:1024};
+   assert_eq!(defaults("example",&smaller).xmx_mb,7168);
  }
 }

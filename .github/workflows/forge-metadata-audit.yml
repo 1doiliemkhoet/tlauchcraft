@@ -1,0 +1,78 @@
+name: Inspect verified Forge installer metadata
+on:
+  pull_request:
+    branches: [integration/p0-playable-single-run]
+    paths:
+      - '.github/workflows/forge-metadata-audit.yml'
+      - 'crates/tl-pack/src/forge_official.rs'
+      - 'crates/tl-loader/tests/fixtures/forge_36229_official_*.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: forge-metadata-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download pinned official Forge installer and compare both metadata documents
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, pathlib, urllib.request, zipfile
+          base = "net/minecraftforge/forge/1.16.5-36.2.29/forge-1.16.5-36.2.29-installer.jar"
+          sources = [
+              "https://maven.minecraftforge.net/" + base,
+              "https://files.minecraftforge.net/maven/" + base,
+              "https://mirror.sjtu.edu.cn/bmclapi/" + base,
+              "https://mirror.lzu.edu.cn/bmclapi/" + base,
+              "https://mirrors.nju.edu.cn/bmclapi/releases/" + base,
+              "https://bmclapi2.bangbang93.com/maven/" + base,
+          ]
+          expected = "7d247279cf06eed6ffcf609f36d11e34c70350f3"
+          installer = None
+          for source in sources:
+              try:
+                  request = urllib.request.Request(source, headers={"User-Agent":"Mozilla/5.0 ForgeVerification/1.0"})
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      data = response.read(18 * 1024 * 1024)
+                  sha = hashlib.sha1(data).hexdigest()
+                  print("CANDIDATE", source, "BYTES", len(data), "SHA1", sha)
+                  if sha == expected:
+                      installer = data
+                      break
+                  print("INVALID_MIRROR_CHECKSUM - rejecting")
+              except Exception as error:
+                  print("MIRROR_UNAVAILABLE", source, type(error).__name__, str(error)[:160])
+          assert installer is not None, "No verified SHA1-matching Forge installer could be retrieved"
+          print("OFFICIAL_SHA1", expected)
+          with zipfile.ZipFile(io.BytesIO(installer)) as jar:
+              official = {name: json.loads(jar.read(name)) for name in ("install_profile.json", "version.json")}
+          fixtures = {
+              "install_profile.json": json.loads(pathlib.Path("crates/tl-loader/tests/fixtures/forge_36229_official_profile.json").read_text()),
+              "version.json": json.loads(pathlib.Path("crates/tl-loader/tests/fixtures/forge_36229_official_version.json").read_text()),
+          }
+          def diff(a, b, path, results):
+              if type(a) != type(b):
+                  results.append((path, "TYPE", type(a).__name__, type(b).__name__))
+              elif isinstance(a, dict):
+                  for k in sorted(set(a) | set(b)):
+                      if k not in a or k not in b:
+                          results.append((f"{path}.{k}", "MISSING", k in a, k in b))
+                      else:
+                          diff(a[k], b[k], f"{path}.{k}", results)
+              elif isinstance(a, list):
+                  if len(a) != len(b): results.append((path, "LENGTH", len(a), len(b)))
+                  for i, (v, w) in enumerate(zip(a, b)): diff(v, w, f"{path}[{i}]", results)
+              elif a != b: results.append((path, "VALUE", str(a)[:180], str(b)[:180]))
+          for name, data in official.items():
+              changes=[]
+              diff(data, fixtures[name], name, changes)
+              print("COMPARE", name, "official_keys", list(data), "pinned_keys", list(fixtures[name]), "mismatches", len(changes))
+              for row in changes[:20]: print("DIFFERENCE", json.dumps(row, ensure_ascii=False))
+              assert not changes, f"Downloaded SHA1-verified Forge {name} does not match complete committed fixture"
+              print("PINNED_METADATA_VERIFIED", name)
+          PY

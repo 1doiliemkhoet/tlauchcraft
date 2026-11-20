@@ -1302,6 +1302,13 @@ dependencies = [
 [[package]]
 name = "tl-lan"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tl-core",
+]
 
 [[package]]
 name = "tl-loader"
@@ -1310,6 +1317,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "sha1",
  "thiserror",
  "tl-core",
  "tl-game",
@@ -1320,11 +1328,15 @@ name = "tl-pack"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "tempfile",
  "thiserror",
+ "tl-game",
+ "tl-loader",
  "zip",
 ]
 

@@ -10,13 +10,29 @@ export type InstanceState = 'empty' | 'inspecting' | 'planned' | 'downloading' |
 export type GameInstance = { id: string; display_name: string; root_path: string; minecraft_version: string; profile_id: string; state: InstanceState; loader: { kind: LoaderKind; version: string | null } };
 export type ProgressEvent = { contract_version: number; operation_id: string; instance_id: string | null; timestamp: string; phase: string; message_key: string; details: Record<string, unknown>; percent: number | null };
 export type LaunchRequest = { instance_id: string; profile_id: string; java_path?: string | null; min_ram_mb?: number | null; max_ram_mb?: number | null; extra_jvm_args?: string[] | null };
-export type LaunchProcess = { pid: number; started_at: string; log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
+export type LaunchProcess = { pid: number; started_at: string; log_path: string; stderr_path: string; latest_log_path: string; termination_state: 'running' | 'exited' | 'crashed' };
 export type JavaSettings = { instance_id: string; xms_mb: number; xmx_mb: number; java_path: string; revision: number };
+export type DetectedJava8 = { path: string; major: number; source: string };
 export type MemoryInfo = { total_mb: number; available_mb: number; reserved_mb: number };
 export type LaunchPreflight = { instance_id: string; java_path: string; required_java: number; xms_mb: number; xmx_mb: number };
 export type GameStatus = { instance_id: string; install_state: InstanceState; installing: boolean; pid: number | null; process_state: string; last_error: string | null };
 export type NewVanillaInstance = { name: string; version: string; profile_id: string };
+export type RemovedInstance = { id: string; archived_path: string | null };
 export type PackMetadata = { name: string; source: 'curseforge_zip' | 'modrinth_mrpack' | 'prism_zip'; game_version: string; loader: { kind: string; version: string | null }; archive_sha256: string; archive_entries: number; uncompressed_bytes: number; warnings: string[]; files: unknown[]; overrides: string[] };
+export type CurseForgeResolvedFile = {
+  project_id: number; file_id: number; required: boolean; file_name: string | null;
+  download_url: string | null; sha1: string | null; expected_size: number | null;
+  availability: 'available' | 'needs_manual_download' | 'permission_denied' | 'not_found' | 'invalid_metadata' | 'network_failure';
+  reason: string;
+};
+export type CurseForgeResolveReport = {
+  files: CurseForgeResolvedFile[]; resolved_count: number; needs_action_count: number; ready: false;
+};
+export type CurseForgeStageReport = {
+  status: 'needs_action' | 'failed' | 'cancelled';
+  installed: { project_id: number; file_id: number; relative_path: string; actual_sha256: string; bytes: number }[];
+  blocked: string[]; failures: string[]; staging_path: string; ready: false;
+};
 export const FEATURE_NAMES: Feature[] = ['profiles', 'instances', 'versions', 'modpacks', 'pack_inspection', 'skins', 'lan', 'game', 'settings', 'downloads'];
 export const EMPTY_CAPABILITIES: Capabilities = { schema_version: 1, provider: 'unavailable', features: Object.fromEntries(FEATURE_NAMES.map(f => [f, false])) as Record<Feature, boolean> };
 
@@ -41,10 +57,20 @@ export async function call<T>(caps: Capabilities, feature: Feature, command: str
   // Missing backend command MUST reject, not return a mock success.
   return invoke<T>(command, args);
 }
+export type StagedPackReceipt = {
+  source: string; minecraft_version: string; loader_kind: string; loader_version: string;
+  archive_sha256: string; required_total: number; optional_total: number;
+  verified: { project_id: number; file_id: number; required: boolean; relative_path: string; bytes: number; upstream_sha1: string; observed_sha256: string }[];
+  blocked_required: string[]; blocked_optional: string[]; failures: string[];
+  complete_mod_inventory: boolean; forge_runtime_verified: false; instance_ready: false;
+};
+export type InstalledPackMod = { project_id: number; file_id: number; relative_path: string; actual_sha256: string; bytes: number };
 export const operations = {
   listProfiles: (c: Capabilities) => call<OfflineProfile[]>(c, 'profiles', 'profile_list'),
   createProfile: (c: Capabilities, username: string) => call<OfflineProfile>(c, 'profiles', 'profile_create', { username }),
   listInstances: (c: Capabilities) => call<GameInstance[]>(c, 'instances', 'instance_list'),
+  removeInstance: (c: Capabilities, instanceId: string, confirmInstanceId: string) =>
+    call<RemovedInstance>(c, 'instances', 'instance_remove', { instanceId, confirmInstanceId }),
   createVanillaInstance: (c: Capabilities, req: NewVanillaInstance) => call<GameInstance>(c, 'game', 'instance_create_vanilla', { req }),
   installVanilla: (c: Capabilities, instanceId: string) => call<string>(c, 'game', 'game_install', { instanceId }),
   gameStatus: (c: Capabilities, instanceId: string) => call<GameStatus>(c, 'game', 'game_status', { instanceId }),
@@ -56,15 +82,28 @@ export const operations = {
     instanceId: value.instance_id, xmsMb: value.xms_mb, xmxMb: value.xmx_mb, javaPath: value.java_path, expectedRevision: value.revision
   }),
   javaMemoryInfo: (c: Capabilities) => call<MemoryInfo>(c, 'settings', 'java_memory_info'),
+  detectJava8: (c: Capabilities) => call<DetectedJava8 | null>(c, 'settings', 'java_detect_8'),
   listVersions: (c: Capabilities) => call<string[]>(c, 'versions', 'version_list'),
   inspectPack: (c: Capabilities, archivePath: string) => call<PackMetadata>(c, 'pack_inspection', 'pack_inspect', { archivePath }),
   importPack: (c: Capabilities, archivePath: string) => call<unknown>(c, 'modpacks', 'pack_import', { archivePath }),
+  curseForgeKeyConfigured: (c: Capabilities) => call<boolean>(c, 'pack_inspection', 'pack_api_key_configured'),
+  resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
+  stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
+  stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
+  importInstalledFolder: (c: Capabilities, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean, lanProperties = false) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_folder', { installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent, lanProperties }),
+  importInstalledCurseForge: (c: Capabilities, archivePath: string, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_curseforge', { archivePath, installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent }),
+  installOfficialForge: (c: Capabilities, archivePath: string, operationId: string, displayName: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_install_official_forge', { archivePath, operationId, displayName, profileId, javaPath, hostExecutionConsent }),
+  importRestrictedPackMod: (c: Capabilities, archivePath: string, operationId: string, projectId: number, fileId: number, localPath: string) => call<InstalledPackMod>(c, 'pack_inspection', 'pack_import_restricted', { archivePath, operationId, projectId, fileId, localPath }),
+  cancelPackStage: (c: Capabilities, operationId: string) => call<void>(c, 'pack_inspection', 'pack_cancel', { operationId }),
   launch: (c: Capabilities, request: LaunchRequest) => call<LaunchProcess>(c, 'game', 'game_launch', { request }),
   cancel: (c: Capabilities, operationId: string) => call<void>(c, 'downloads', 'operation_cancel', { operationId }),
   listSkins: (c: Capabilities) => call<unknown[]>(c, 'skins', 'skin_list'),
   lanStatus: (c: Capabilities) => call<unknown>(c, 'lan', 'lan_status'),
 };
-export const EVENT_NAMES = ['profile.changed','instance.changed','download.progress','download.verified','pack.inspect','pack.needs_action','pack.ready','loader.installed','java.resolved','game.started','game.exited','lan.server_started','lan.peer_joined','skin.selected','skin.local_verified','skin.peer_verified'] as const;
+export const EVENT_NAMES = ['profile-changed','instance-changed','download-progress','download-verified','pack-inspect','pack-needs_action','pack-ready','loader-installed','java-resolved','game-started','game-exited','lan-server_started','lan-peer_joined','skin-selected','skin-local_verified','skin-peer_verified'] as const;
 export async function subscribeProgress(handler: (event: ProgressEvent) => void): Promise<() => void> {
   // Subscribe concurrently: sequential registrations made the initial "resolving" event
   // easy to miss. All listeners are installed before the UI negotiates/starts work.

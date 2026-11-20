@@ -25,6 +25,92 @@ describe('capability negotiation', () => {
     expect(mockedInvoke).toHaveBeenCalledWith('desktop_capabilities');
   });
 });
+describe('CurseForge API key preflight', () => {
+  it('returns only a boolean; the frontend never receives the secret', async () => {
+    mockedInvoke.mockResolvedValue(true);
+    await expect(operations.curseForgeKeyConfigured(withFeature('pack_inspection'))).resolves.toBe(true);
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_api_key_configured', undefined);
+  });
+  it('refuses to query when the backend capability is unavailable', async () => {
+    await expect(operations.curseForgeKeyConfigured(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
+describe('folder-only installed CurseForge import', () => {
+  it('accepts a local installed folder without ZIP or API key', async () => {
+    mockedInvoke.mockResolvedValue({id: 'forged-instance', state: 'ready'});
+    await operations.importInstalledFolder(
+      withFeature('pack_inspection'),
+      'C:/Users/admin/curseforge/minecraft/Instances/Rustic Waters II',
+      'local-folder-123456', 'offline-id', 'C:/Java8/bin/java.exe', true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_folder', {
+      installedProfilePath: 'C:/Users/admin/curseforge/minecraft/Instances/Rustic Waters II',
+      operationId: 'local-folder-123456',
+      profileId: 'offline-id',
+      javaPath: 'C:/Java8/bin/java.exe',
+      hostExecutionConsent: true,
+      lanProperties: false
+    });
+  });
+  it('passes explicit LAN Properties opt-in', async () => {
+    mockedInvoke.mockResolvedValue({id: 'new-instance', state: 'ready'});
+    await operations.importInstalledFolder(
+      withFeature('pack_inspection'), 'C:/SkyFactory5', 'local-folder-987654',
+      'offline-id', 'C:/Java17/bin/java.exe', true, true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_folder', {
+      installedProfilePath: 'C:/SkyFactory5',
+      operationId: 'local-folder-987654',
+      profileId: 'offline-id',
+      javaPath: 'C:/Java17/bin/java.exe',
+      hostExecutionConsent: true,
+      lanProperties: true
+    });
+  });
+  it('cannot run on a backend without modpack import support', async () => {
+    await expect(operations.importInstalledFolder(
+      EMPTY_CAPABILITIES, 'C:/CurseForge/Instances/Rustic', 'local-123456',
+      'offline-id', 'C:/Java8/bin/java.exe', true
+    )).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
+describe('installed CurseForge profile import', () => {
+  it('calls native no-API import with source folder and explicit consent', async () => {
+    mockedInvoke.mockResolvedValue({id: 'new-forge-instance', state: 'ready'});
+    await operations.importInstalledCurseForge(
+      withFeature('pack_inspection'), 'C:/Rustic.zip',
+      'C:/curseforge/minecraft/Instances/Rustic Waters II',
+      'local-run-12345', 'offline-profile-id', 'C:/Java8/bin/javaw.exe', true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_curseforge', {
+      archivePath: 'C:/Rustic.zip',
+      installedProfilePath: 'C:/curseforge/minecraft/Instances/Rustic Waters II',
+      operationId: 'local-run-12345',
+      profileId: 'offline-profile-id',
+      javaPath: 'C:/Java8/bin/javaw.exe',
+      hostExecutionConsent: true
+    });
+  });
+});
+describe('Windows Java 8 runtime discovery transport', () => {
+  it('asks backend for a verified local Java 8 runtime, never a guessed path', async () => {
+    const found = {path: 'C:/Program Files/Java/jre1.8.0_441/bin/java.exe', major: 8, source: 'Installed Java'};
+    mockedInvoke.mockResolvedValue(found);
+    await expect(operations.detectJava8(withFeature('settings'))).resolves.toEqual(found);
+    expect(mockedInvoke).toHaveBeenCalledWith('java_detect_8', undefined);
+  });
+  it('returns null if no Java 8 was detected', async () => {
+    mockedInvoke.mockResolvedValue(null);
+    await expect(operations.detectJava8(withFeature('settings'))).resolves.toBeNull();
+  });
+  it('does not probe Java from an unavailable backend', async () => {
+    await expect(operations.detectJava8(EMPTY_CAPABILITIES)).rejects.toThrow(BackendUnavailable);
+    expect(mockedInvoke).not.toHaveBeenCalled();
+  });
+});
+
 describe('typed backend transport', () => {
   it('rejects disabled operations without invoking Rust', async () => {
     expect(() => requireFeature(EMPTY_CAPABILITIES, 'game')).toThrow(BackendUnavailable);
@@ -78,6 +164,14 @@ describe('real Vanilla and Java settings command contracts', () => {
       req: { name: 'Vanilla', version: '1.21.1', profile_id: 'profile-uuid' }
     });
   });
+  it('requires the exact selected UUID when removing an instance', async () => {
+    const removed = { id: 'aaa-bbb', archived_path: 'C:/TLaunchCraft/deleted-instances/aaa-bbb' };
+    mockedInvoke.mockResolvedValue(removed);
+    await expect(operations.removeInstance(withFeature('instances'), 'aaa-bbb', 'aaa-bbb')).resolves.toEqual(removed);
+    expect(mockedInvoke).toHaveBeenCalledWith('instance_remove', {
+      instanceId: 'aaa-bbb', confirmInstanceId: 'aaa-bbb'
+    });
+  });
   it('sends persisted per-instance RAM and CAS revision without fake success', async () => {
     const value = {instance_id:'uuid',xms_mb:512,xmx_mb:4096,java_path:'C:/Java/bin/java.exe',revision:4};
     mockedInvoke.mockResolvedValue({...value,revision:5});
@@ -102,6 +196,16 @@ describe('real Vanilla and Java settings command contracts', () => {
     expect(mockedInvoke).toHaveBeenNthCalledWith(2,'game_status',{instanceId:'uuid'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(3,'game_preflight',{instanceId:'uuid',profileId:'profile'});
     expect(mockedInvoke).toHaveBeenNthCalledWith(4,'game_launch',{request:{instance_id:'uuid',profile_id:'profile'}});
+  });
+});
+
+describe('Tauri event names are valid for Windows runtime', () => {
+  it('uses only supported Tauri event characters and matches native emit names', () => {
+    expect(EVENT_NAMES.every(name => /^[a-zA-Z0-9_:/-]+$/.test(name))).toBe(true);
+    expect(new Set(EVENT_NAMES).size).toBe(EVENT_NAMES.length);
+    expect(EVENT_NAMES).toContain('download-progress');
+    expect(EVENT_NAMES).toContain('game-started');
+    expect(EVENT_NAMES).toContain('game-exited');
   });
 });
 

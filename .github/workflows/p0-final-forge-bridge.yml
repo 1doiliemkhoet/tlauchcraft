@@ -1,0 +1,84 @@
+name: P0 Forge Bridge Windows
+
+on:
+  push:
+    branches:
+      - feat/p0-final-playable-bridge
+  pull_request:
+    branches:
+      - integration/p0-playable-single-run
+    paths:
+      - 'crates/**'
+      - 'apps/desktop/**'
+      - 'Cargo.lock'
+      - '.github/workflows/p0-final-forge-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-forge-bridge-${{ github.event.pull_request.number || github.ref }}
+  # Latest push/PR wins; explicit manual reruns are not canceled.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  rust:
+    name: Windows Rustfmt, locked Clippy and workspace tests
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check locked dependency graph
+        run: cargo metadata --locked --format-version 1 --no-deps
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check lints (all workspace targets)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run locked workspace tests
+        run: cargo test --locked --workspace --all-targets
+
+  desktop:
+    name: Windows Desktop and Tauri checks
+    # Independent of the Rust job: run in parallel to shorten critical path.
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      - name: Frontend unit tests
+        working-directory: apps/desktop
+        run: npm test
+      - name: Frontend typecheck and build
+        working-directory: apps/desktop
+        run: npm run build
+      - name: Tauri locked metadata and compile
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo +1.90.0 metadata --locked --format-version 1 --no-deps
+          cargo +1.90.0 check --locked
+      - name: Tauri Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo +1.90.0 test --locked
+      # NSIS is built separately (with --ci and installer smoke) by
+      # p0-final-playable.yml on the exact same commit. Do not duplicate a
+      # heavyweight release linker on this compile/test job.

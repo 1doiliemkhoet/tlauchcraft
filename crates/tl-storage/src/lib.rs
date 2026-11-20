@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tl_core::{CoreError, GameInstance, OfflineProfile};
+use tl_core::{CoreError, GameInstance, InstanceState, LoaderKind, OfflineProfile};
 use uuid::Uuid;
 type Result<T> = std::result::Result<T, CoreError>;
 
@@ -96,6 +96,51 @@ impl SqliteStore {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(db_err)
     }
+
+    /// Save a create-once receipt digest outside the mutable Minecraft game directory.
+    /// The VERIFYING intent must already exist. Neither the frontend nor a JSON
+    /// marker can replace an existing anchor (including crash recovery).
+    pub fn insert_forge_receipt_anchor(&mut self, id: Uuid, sha256: &str) -> Result<()> {
+        if sha256.len() != 64 || !sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(CoreError::InvalidInput);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_err)?;
+        let payload: String = tx
+            .query_row(
+                "SELECT payload FROM instances WHERE id=?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_err)?
+            .ok_or(CoreError::NotFound)?;
+        let instance: GameInstance = decode(payload)?;
+        if instance.loader.kind != LoaderKind::Forge || instance.state != InstanceState::Verifying {
+            return Err(CoreError::CompatibilityConflict);
+        }
+        tx.execute(
+            "INSERT INTO forge_receipt_anchors(instance_id,sha256) VALUES (?1,?2)",
+            params![id.to_string(), sha256.to_ascii_lowercase()],
+        )
+        .map_err(db_err)?;
+        tx.commit().map_err(db_err)
+    }
+
+    /// None is never an implicit approval: callers MUST fail closed.
+    pub fn get_forge_receipt_anchor(&self, id: Uuid) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT sha256 FROM forge_receipt_anchors WHERE instance_id=?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_err)
+    }
+
     /// Creates a SQLite-consistent backup and atomically publishes it without clobbering.
     /// Temporary files are cleaned up on failure; directories are never created implicitly.
     pub fn backup_to(&self, target: &Path) -> Result<()> {
@@ -260,32 +305,44 @@ fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(db_err)?;
-    if version > 2 {
+    if version > 3 {
         return Err(CoreError::UnsupportedVersion);
     }
-    if version == 2 {
+    if version == 3 {
         return Ok(());
-    }
-    if version == 1 {
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_err)?;
-        tx.execute_batch("ALTER TABLE profiles ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;\nALTER TABLE instances ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;\nPRAGMA user_version = 2;").map_err(db_err)?;
-        return tx.commit().map_err(db_err);
     }
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db_err)?;
+    if version == 0 {
+        tx.execute_batch(
+            "CREATE TABLE profiles (
+                id TEXT PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE instances (
+                id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+                payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX instances_profile_idx ON instances(profile_id);",
+        )
+        .map_err(db_err)?;
+    } else if version == 1 {
+        tx.execute_batch(
+            "ALTER TABLE profiles ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE instances ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
+        )
+        .map_err(db_err)?;
+    }
+    // Version 2 retains all profile/instance rows. This new table only anchors
+    // newly approved Forge installations and never migrates an untrusted marker.
     tx.execute_batch(
-        "CREATE TABLE profiles (
- id TEXT PRIMARY KEY,username TEXT NOT NULL COLLATE NOCASE UNIQUE,payload TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0
- );
- CREATE TABLE instances (
- id TEXT PRIMARY KEY,profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
- payload TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0
- );
- CREATE INDEX instances_profile_idx ON instances(profile_id);
- PRAGMA user_version = 2;",
+        "CREATE TABLE forge_receipt_anchors (
+            instance_id TEXT PRIMARY KEY REFERENCES instances(id) ON DELETE CASCADE,
+            sha256 TEXT NOT NULL CHECK(length(sha256)=64)
+        );
+        PRAGMA user_version = 3;",
     )
     .map_err(db_err)?;
     tx.commit().map_err(db_err)
