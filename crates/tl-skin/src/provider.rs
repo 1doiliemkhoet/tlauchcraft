@@ -222,9 +222,11 @@ impl SkinProvider for CustomSkinLoaderLocal {
         if ctx.instance.loader.kind == LoaderKind::Vanilla {
             return fail(ProviderReason::UnsupportedVanilla);
         }
-        if ctx.instance.loader.kind != LoaderKind::Fabric
-            || ctx.instance.minecraft_version != "1.21.1"
-        {
+        let fabric = ctx.instance.loader.kind == LoaderKind::Fabric
+            && ctx.instance.minecraft_version == "1.21.1";
+        let forge = ctx.instance.loader.kind == LoaderKind::Forge
+            && matches!(ctx.instance.minecraft_version.as_str(), "1.16.5" | "1.20.1");
+        if !fabric && !forge {
             return fail(ProviderReason::UnsupportedVersionOrLoader);
         }
         if !acceptable_game_dir(ctx) {
@@ -235,7 +237,7 @@ impl SkinProvider for CustomSkinLoaderLocal {
         };
         // Classic/Slim are stored independently. This path doesn't prove Slim arms:
         // CSL's local legacy source has no verified per-file model contract here.
-        if selection.model == Model::Slim {
+        if fabric && selection.model == Model::Slim {
             return fail(ProviderReason::SlimModelNotConfirmed);
         }
         let Ok(bytes) = library.export_png(selection.skin_id) else {
@@ -353,4 +355,68 @@ pub fn predicted_game_uuid(profile: &OfflineProfile) -> crate::Result<Uuid> {
     derive_vanilla_offline_identity(profile)
         .map(|identity| identity.offline_server_uuid)
         .map_err(|_| SkinError::InvalidInput("invalid Foundation username".into()))
+}
+
+const CONFIG_NAME: &str = "TLaunchCraftLocal";
+const CONFIG_SKIN: &str = "LocalSkin/skins/{USERNAME}.png";
+
+/// Called only after the Forge provider has passed the trusted installed receipt gate.
+/// CSL rewrites its config on boot; accept only our single local source, not a byte hash.
+pub fn configure_forge_local(game_dir: &Path, model: &Model) -> crate::Result<()> {
+    use serde_json::{json, Value};
+    let root = game_dir.join("CustomSkinLoader");
+    let config = root.join("CustomSkinLoader.json");
+    let extras = root.join("ExtraList");
+    let marker = root.join(".tlauchcraft-config");
+    if !game_dir.is_absolute()
+        || !no_symlink_ancestors(&config)
+        || !no_symlink_ancestors(&extras)
+        || !no_symlink_ancestors(&marker)
+        || (extras.exists() && fs::read_dir(&extras)?.next().is_some())
+    {
+        return Err(SkinError::InvalidInput("unsafe or conflicting skin configuration".into()));
+    }
+    let model = match model {
+        Model::Classic => "default",
+        Model::Slim => "slim",
+    };
+    let mut value = if config.exists() {
+        if !marker.is_file() || fs::metadata(&config)?.len() > 64 * 1024 {
+            return Err(SkinError::InvalidInput("unmanaged skin configuration".into()));
+        }
+        let value: Value = serde_json::from_slice(&fs::read(&config)?)?;
+        let sources = value["loadlist"].as_array().ok_or_else(|| {
+            SkinError::InvalidInput("invalid managed skin configuration".into())
+        })?;
+        if sources.len() != 1
+            || sources[0]["name"] != CONFIG_NAME
+            || sources[0]["type"] != "Legacy"
+            || sources[0]["skin"] != CONFIG_SKIN
+            || !sources[0]["cape"].is_null()
+            || !sources[0]["elytra"].is_null()
+        {
+            return Err(SkinError::InvalidInput("managed skin source was changed".into()));
+        }
+        value
+    } else {
+        json!({"loadlist": []})
+    };
+    value["loadlist"] = json!([{
+        "name": CONFIG_NAME,
+        "type": "Legacy",
+        "skin": CONFIG_SKIN,
+        "model": model,
+        "checkPNG": false
+    }]);
+    value["enableCape"] = json!(false);
+    value["forceLoadAllTextures"] = json!(false);
+    value["enableLocalProfileCache"] = json!(false);
+    value["cacheExpiry"] = json!(30);
+    if !marker.exists() {
+        write_new(&marker, b"tlauchcraft-local/v1")?;
+    }
+    if config.exists() && fs::read(&config)? == serde_json::to_vec_pretty(&value)? {
+        return Ok(());
+    }
+    crate::atomic_write(&config, &serde_json::to_vec_pretty(&value)?)
 }

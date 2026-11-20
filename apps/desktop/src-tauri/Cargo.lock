@@ -3736,6 +3736,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tl-skin"
+version = "0.1.0"
+dependencies = [
+ "png 0.17.16",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tl-core",
+ "uuid",
+]
+
+[[package]]
 name = "tl-storage"
 version = "0.1.0"
 dependencies = [
@@ -3764,6 +3776,7 @@ dependencies = [
  "tl-core",
  "tl-game",
  "tl-pack",
+ "tl-skin",
  "tl-storage",
  "uuid",
 ]

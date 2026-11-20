@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { open } from '@tauri-apps/plugin-dialog';
 import { Activity, Box, CircleHelp, Download, FolderArchive, Gamepad2, HardDrive, LayoutDashboard, Monitor, Palette, Play, Settings2, ShieldAlert, Terminal, Trash2, Users, Wifi, XCircle } from 'lucide-react';
 import { backendError, installFailure, terminalInstallEvent, canPlayInstance, canCancelInstall, validateJavaForm, backendStatusLine, backendStatusSignature, isInstallPending, downloadEventsForView, statusPollInterval } from './desktopState';
-import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight } from './backend';
+import { EMPTY_CAPABILITIES, negotiate, operations, safeArchive, safePercent, subscribeProgress, type Capabilities, type Feature, type GameInstance, type OfflineProfile, type ProgressEvent, type PackMetadata, type CurseForgeResolveReport, type CurseForgeStageReport, type StagedPackReceipt, type InstalledPackMod, type JavaSettings, type MemoryInfo, type GameStatus, type LaunchPreflight, type SkinRecord, type SkinModel } from './backend';
 
 
 const PACK_PROGRESS_LABELS: Record<string, string> = {
@@ -15,6 +15,7 @@ const PACK_PROGRESS_LABELS: Record<string, string> = {
   'forge.ready_after_independent_audit': 'Instance đã được xác minh và publish',
   'local_import.manifest_ids': 'Đang đối chiếu danh sách mod JAR với metadata profile đã cài',
   'local_import.read_installed_folder': 'Đang kiểm tra thư mục CurseForge và dựng manifest local, không cần ZIP',
+  'local_import.verifying_skin_addon': 'Đang tải và xác minh CustomSkinLoader',
   'local_import.hashing_mods': 'Đang tính SHA-1/SHA-256 cho mod JAR đã cài',
   'local_import.scanning_assets': 'Đang kiểm tra các thư mục cấu hình modpack',
   'local_import.copying_assets': 'Đang tạo snapshot cấu hình vào ZIP nội bộ',
@@ -60,6 +61,13 @@ export default function App() {
   const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
   const [forgeHostConsent, setForgeHostConsent] = useState(false);
   const [lanProperties, setLanProperties] = useState(false);
+  const [customSkin, setCustomSkin] = useState(false);
+  const [skins, setSkins] = useState<SkinRecord[]>([]);
+  const [skinModel, setSkinModel] = useState<SkinModel>('classic');
+  const [skinName, setSkinName] = useState('My skin');
+  const [skinId, setSkinId] = useState('');
+  const [skinPreview, setSkinPreview] = useState('');
+  const [skinMessage, setSkinMessage] = useState('PreviewOnly — select a profile and skin.');
   const [installedCurseForgeFolder, setInstalledCurseForgeFolder] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -93,6 +101,11 @@ export default function App() {
       setError(message); log(message);
     } });
   }, [log]);
+  useEffect(() => {
+    if (page==='skins' && caps.features.skins) {
+      void operations.listSkins(caps).then(setSkins).catch(e=>setError(backendError(e)));
+    }
+  }, [page,caps]);
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
@@ -206,7 +219,7 @@ export default function App() {
     void run('Import installed CurseForge folder', async () => {
       const instance = await operations.importInstalledFolder(
         caps, installedCurseForgeFolder, operationId,
-        selectedProfile, forgeJavaPath ?? '', forgeHostConsent, lanProperties
+        selectedProfile, forgeJavaPath ?? '', forgeHostConsent, lanProperties, customSkin
       );
       log(`Installed folder imported as ${instance.id}. Local JAR hashes are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
       await refresh(caps);
@@ -451,6 +464,9 @@ export default function App() {
         <label><input type="checkbox" checked={lanProperties} disabled={busy} onChange={e => setLanProperties(e.target.checked)}/>
           LAN Properties (thử nghiệm, chỉ Forge 1.20.1/47.4.0): tải bản cố định từ Modrinth, xác minh hash và thêm vào instance mới. Không thay đổi xác thực tài khoản. Không bật mặc định.
         </label>
+        <label><input type="checkbox" checked={customSkin} disabled={busy} onChange={e => setCustomSkin(e.target.checked)}/>
+          Custom Skin (Forge 1.16.5 / 1.20.1): tải CustomSkinLoader chính thức, kiểm tra hash, thêm vào instance mới. Skin chỉ dùng local; chưa nghiệm thu LAN.
+        </label>
         <div className="form-row">
           <button className="primary" disabled={busy || !caps.features.pack_inspection || !installedCurseForgeFolder || !selectedProfile || !forgeHostConsent} onClick={importInstalledFolder}>Import Folder → Install Forge → Play</button>
         </div>
@@ -516,7 +532,46 @@ export default function App() {
             </div>)}
           </div>}
         </div>}{!caps.features.pack_inspection && <Unavailable feature="pack_inspection"/>}{!caps.features.modpacks && <Notice>Full modpack installation and Play still require trusted Forge execution, instance audit and atomic publication.</Notice>}</div>}
-        {page === 'skins' && <div className="panel"><h3>Skin studio</h3><p className="muted">Classic / Slim · PNG library · pixel editor · 3D preview · cape compatibility</p><div className="placeholder-grid"><div className="skin-silhouette"><Palette size={44}/><span>3D render waiting for SkinService</span></div><div><h3>Visibility matters</h3><p>Launcher preview, your in-game appearance and skins visible to LAN peers are separate verification states.</p><div className="item">Launcher preview <span>Unverified</span></div><div className="item">Singleplayer provider <span>Unverified</span></div><div className="item">LAN peer visibility <span>Unverified</span></div></div></div><Unavailable feature="skins"/></div>}
+        {page === 'skins' && <div className="panel">
+          <h3>Skin studio</h3>
+          {!caps.features.skins ? <Unavailable feature="skins"/> : <>
+            <p className="muted">PNG 64×64 / 64×32 · Classic / Slim · local-only. In-game and LAN visibility require separate verification.</p>
+            <div className="form-row">
+              <select aria-label="Skin profile" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}><option value="">Select profile</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}</select>
+              <input aria-label="Skin name" maxLength={80} value={skinName} onChange={e=>setSkinName(e.target.value)}/>
+              <select aria-label="Skin model" value={skinModel} onChange={e=>setSkinModel(e.target.value as SkinModel)}><option value="classic">Classic</option><option value="slim">Slim</option></select>
+              <button disabled={busy} onClick={()=>void run('Refresh skins',async()=>setSkins(await operations.listSkins(caps)))}>Refresh skins</button>
+              <button disabled={busy || !skinName.trim()} onClick={()=>void run('Import skin',async()=>{
+                const path=await open({multiple:false,filters:[{name:'Minecraft skin',extensions:['png']}]});
+                if(typeof path!=='string') return;
+                const skin=await operations.importSkin(caps,path,skinName.trim(),skinModel);
+                setSkins(await operations.listSkins(caps));setSkinId(skin.id);
+                const bytes=await operations.previewSkin(caps,skin.id);
+                setSkinPreview('data:image/png;base64,'+btoa(String.fromCharCode(...bytes)));
+              })}>Import PNG</button>
+            </div>
+            <div className="form-row">
+              <select aria-label="Skin library" value={skinId} disabled={busy} onChange={e=>{
+                const id=e.target.value;setSkinId(id);setSkinPreview('');
+                const record=skins.find(s=>s.id===id);if(record)setSkinModel(record.model);
+                if(id)void run('Preview skin',async()=>{const bytes=await operations.previewSkin(caps,id);setSkinPreview('data:image/png;base64,'+btoa(String.fromCharCode(...bytes)));});
+              }}><option value="">Choose skin</option>{skins.map(s=><option key={s.id} value={s.id}>{s.name} · {s.model}</option>)}</select>
+              <button disabled={busy || !selectedProfile || !skinId} onClick={()=>void run('Select profile skin',async()=>{
+                await operations.selectSkin(caps,selectedProfile,skinId,skinModel);await refresh(caps);
+                setSkinMessage('Profile skin saved — PreviewOnly until provider is prepared at Play.');
+              })}>Use for profile</button>
+              <select aria-label="Skin instance override" value={selectedInstance} onChange={e=>setSelectedInstance(e.target.value)}><option value="">Choose instance</option>{instances.filter(i=>i.profile_id===selectedProfile).map(i=><option key={i.id} value={i.id}>{i.display_name}</option>)}</select>
+              <button disabled={busy || !selectedProfile || !selectedInstance || !skinId} onClick={()=>void run('Select instance skin',async()=>{
+                await operations.selectSkin(caps,selectedProfile,skinId,skinModel,selectedInstance);
+                setSkinMessage('Instance override saved — in-game NOT_VERIFIED.');
+              })}>Override instance</button>
+            </div>
+            {skinPreview && <img alt="Minecraft skin texture atlas" src={skinPreview} style={{width:192,imageRendering:'pixelated'}}/>}
+            <div role="status" className="item">{skinMessage}</div>
+            <p>Provider: {playReady?.skin_provider_status ?? 'PreviewOnly / select a verified instance'}</p>
+            <p>Local rendering: NOT_VERIFIED · LAN peer visibility: NOT_VERIFIED.</p>
+          </>}
+        </div>}
         {page === 'lan' && <div className="panel"><h3>Trusted LAN multiplayer</h3><p className="muted">Host / Join will require modpack and loader compatibility checks, stable offline identity and trusted LAN binding.</p><Notice>Never expose an offline-mode dedicated server to the public Internet. Verify world and inventory persistence on two physical machines.</Notice><div className="form-row"><button disabled={!caps.features.lan || busy} onClick={() => void run('LAN status', async () => { const value = await operations.lanStatus(caps); log(JSON.stringify(value)); })}>Check LAN status</button><button disabled>Host server · awaiting contract</button><button disabled>Join server · awaiting contract</button></div>{!caps.features.lan && <Unavailable feature="lan"/>}</div>}
         {page === 'downloads' && <div className="panel"><h3>Operation progress</h3><p className="muted">Live backend phases and polled SQLite state. No artificial percentages: the downloader has no verified byte-count callback yet.</p>{Object.values(gameStatusById).map(status => <div className="item" key={status.instance_id}><strong>{status.install_state}</strong><span>{status.instance_id}</span><span>{isInstallPending(status) ? 'Worker active / pending' : status.process_state}</span>{status.last_error && <span role="alert">{status.last_error}</span>}</div>)}{events.length ? visibleEvents.map((event, index) => <div className="event" key={event.operation_id + event.timestamp + index}><div className="event-title"><strong>{event.phase}</strong><span>{event.message_key}</span><small>{event.timestamp}</small>{typeof event.details.downloaded_files === 'number' && <small>Verified downloads: {event.details.downloaded_files}</small>}{typeof event.details.verified_files === 'number' && <small>SHA-1 verified files: {event.details.verified_files}</small>}{typeof event.details.native_dll_count === 'number' && <small>Extracted DLLs: {event.details.native_dll_count}</small>}</div>{safePercent(event.percent) !== undefined && <progress max={100} value={safePercent(event.percent)} aria-label={event.message_key}/>}<button disabled={!caps.features.game || busy || !event.instance_id || !canCancelInstall(gameStatusById[event.instance_id])}
           onClick={() => void run('Cancel actual Vanilla install', () => operations.cancelInstall(caps, event.instance_id!))}>Cancel Vanilla install</button></div>) : <Empty title="No events received" description="Download and install progress will appear here when the backend publishes events."/>}{events.length > 24 && <button onClick={() => setShowAllEvents(old => !old)}>{showAllEvents ? 'Show latest 24' : `Show all ${events.length} events`}</button>}{!caps.features.downloads && <Unavailable feature="downloads"/>}</div>}

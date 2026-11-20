@@ -50,7 +50,8 @@ describe('folder-only installed CurseForge import', () => {
       profileId: 'offline-id',
       javaPath: 'C:/Java8/bin/java.exe',
       hostExecutionConsent: true,
-      lanProperties: false
+      lanProperties: false,
+      customSkin: false
     });
   });
   it('passes explicit LAN Properties opt-in', async () => {
@@ -65,7 +66,8 @@ describe('folder-only installed CurseForge import', () => {
       profileId: 'offline-id',
       javaPath: 'C:/Java17/bin/java.exe',
       hostExecutionConsent: true,
-      lanProperties: true
+      lanProperties: true,
+      customSkin: false
     });
   });
   it('cannot run on a backend without modpack import support', async () => {

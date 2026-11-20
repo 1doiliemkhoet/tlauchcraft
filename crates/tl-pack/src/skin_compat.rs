@@ -2,7 +2,7 @@
 //! Does not install a mod or assert runtime compatibility.
 use serde::Deserialize;
 use sha1::Sha1;
-use sha2::{Digest, Sha512};
+use sha2::{Digest, Sha256, Sha512};
 use std::{
     io::{Cursor, Read},
     sync::atomic::{AtomicBool, Ordering},
@@ -18,6 +18,7 @@ pub struct Candidate {
     pub minecraft: &'static str,
     pub version_id: &'static str,
     pub filename: &'static str,
+    pub sha256: &'static str,
 }
 
 pub fn candidate(minecraft: &str, loader: &str) -> Option<Candidate> {
@@ -29,14 +30,41 @@ pub fn candidate(minecraft: &str, loader: &str) -> Option<Candidate> {
             minecraft: "1.16.5",
             version_id: "wLkp5dpJ",
             filename: "CustomSkinLoader_ForgeV1-14.26.1.jar",
+            sha256: "9ff705d44c6543a3e7861841a1b081c3b7f4a148ba575ba7d97066c507eddf45",
         }),
         "1.20.1" => Some(Candidate {
             minecraft: "1.20.1",
             version_id: "CcAsu9W3",
             filename: "CustomSkinLoader_ForgeV2-14.26.1.jar",
+            sha256: "b3484b9254e1f409d1b1402d3ad7ac751833e22d9dc069017bbaa405760b77fc",
         }),
         _ => None,
     }
+}
+
+impl Candidate {
+    pub fn relative_path(self) -> String {
+        format!("mods/{}", self.filename)
+    }
+}
+
+pub fn pinned_override(path: &str, sha256: &str) -> bool {
+    ["1.16.5", "1.20.1"].iter().any(|version| {
+        candidate(version, "forge").is_some_and(|spec| {
+            path == spec.relative_path() && sha256 == spec.sha256
+        })
+    })
+}
+
+pub fn possible_conflict(filename: &str) -> bool {
+    let name: String = filename
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    ["customskinloader", "tlskin","skinloader","offline skins","offlineskins"]
+        .iter()
+        .any(|part| name.contains(part))
 }
 
 #[derive(Deserialize)]
@@ -165,6 +193,9 @@ pub fn download(minecraft: &str, loader: &str, cancelled: &AtomicBool) -> Result
         .map_err(|e| e.to_string())?;
     let bytes = bounded_read(response, file.size, cancelled)?;
     verify_bytes(file, &bytes)?;
+    if format!("{:x}", Sha256::digest(&bytes)) != spec.sha256 {
+        return Err("skin add-on differs from audited binary".into());
+    }
     Ok(bytes)
 }
 

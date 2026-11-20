@@ -862,14 +862,16 @@ fn verify_exact_mod_inventory_with_overrides(
         }
     }
     for item in overrides {
-        if item.relative_path == crate::lan_compat::RELATIVE_PATH {
+        if item.relative_path == crate::lan_compat::RELATIVE_PATH
+            || crate::skin_compat::pinned_override(&item.relative_path, &item.sha256)
+        {
             let filename = Path::new(&item.relative_path)
                 .file_name()
                 .and_then(|s| s.to_str())
                 .ok_or("invalid LAN add-on path")?
                 .to_ascii_lowercase();
             if !expected.insert(filename) {
-                return Err("LAN add-on collides with existing mod".into());
+                return Err("Verified add-on collides with existing mod".into());
             }
             check_file(
                 root,
