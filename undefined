@@ -1,0 +1,2 @@
+undefined
+64x32 legacy skins are Classic only for the Forge local render path; use 64x64 for Slim. External provider configs and ExtraList are not overwritten. PNG preview uses validated PNG bytes via Tauri, not a remote image URL.

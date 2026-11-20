@@ -20,3 +20,26 @@ Audit run [44708993805](https://github.com/1doiliemkhoet/tlauchcraft/actions/run
 The audited binary SHA256 is now pinned in addition to official metadata checks. Folder-only import opt-in adds the verified JAR to the private snapshot. Publisher verifies it as a pinned JAR override and the SQLite receipt anchor covers it. Play selects the provider only from the rehashed, anchored receipt. Local-only Legacy config is generated before Java launch; no auth modification. Skin studio imports PNG, previews the atlas, selects model and assigns profile/instance. It does not provide 3D preview, LAN synchronization, or claim runtime visibility. A single model applies to the local Legacy source until G7.2 is proven.
 
 Windows acceptance: select profile, open Skin studio, Import PNG, choose Classic or Slim, Use for profile. Import installed Forge folder with Custom Skin checked (LAN Properties optional independent). Select the resulting instance, Play, enter world, F5. Capture actual appearance and CustomSkinLoader/CustomSkinLoader.log. Exit and restart; change texture and model and retest. Test an unmodified existing instance without reimport, and both versions. Do not add JARs manually. If UI reports an unmanaged config, do not overwrite/delete it blindly; report the error. CI and in-game status are separate.
+
+#[test]
+fn reserved_windows_texture_filename_is_not_staged() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut library = SkinLibrary::open(dir.path().join("library")).unwrap();
+    let mut profile = OfflineProfile::new("CON").unwrap();
+    let skin = library
+        .import_png("Classic", &png(), Model::Classic)
+        .unwrap();
+    library
+        .assign_foundation_profile(&mut profile, skin.id, Model::Classic)
+        .unwrap();
+    let instance = fabric(&profile);
+    let hash = mod_jar(dir.path());
+    let report = CustomSkinLoaderLocal
+        .stage(
+            &library,
+            &ctx(&profile, &instance, dir.path(), true, Some(&hash)),
+        )
+        .unwrap();
+    assert_eq!(report.reason, ProviderReason::UnsafeGameDirectory);
+    assert!(!dir.path().join("CustomSkinLoader").exists());
+}

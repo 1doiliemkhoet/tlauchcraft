@@ -104,11 +104,29 @@ fn safe_component(name: &str) -> bool {
 fn no_symlink_ancestors(path: &Path) -> bool {
     path.ancestors()
         .all(|ancestor| match fs::symlink_metadata(ancestor) {
-            Ok(meta) => !meta.file_type().is_symlink(),
+            Ok(meta) => {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes() & 0x400 != 0 {
+                        return false;
+                    }
+                }
+                !meta.file_type().is_symlink()
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
             Err(_) => false,
         })
 }
+fn safe_username_file(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    ![
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ]
+    .contains(&upper.as_str())
+}
+
 fn acceptable_game_dir(ctx: &ProviderContext<'_>) -> bool {
     ctx.game_dir.is_absolute() && ctx.game_dir.is_dir() && no_symlink_ancestors(ctx.game_dir)
 }
@@ -175,11 +193,15 @@ fn checked_receipt(
         }
         return Ok(None);
     }
+    if fs::metadata(&path)?.len() > 16 * 1024 {
+        return Err(SkinError::InvalidInput("oversized skin receipt".into()));
+    }
     let receipt: Receipt = serde_json::from_slice(&fs::read(path)?)?;
     if receipt.profile_id != ctx.profile.id
         || receipt.instance_id != ctx.instance.id
         || receipt.username != ctx.profile.username
         || !destination.is_file()
+        || fs::metadata(destination)?.len() > 2 * 1024 * 1024
         || digest(&fs::read(destination)?) != receipt.previous_sha256
     {
         return Err(SkinError::InvalidInput(
@@ -229,7 +251,7 @@ impl SkinProvider for CustomSkinLoaderLocal {
         if !fabric && !forge {
             return fail(ProviderReason::UnsupportedVersionOrLoader);
         }
-        if !acceptable_game_dir(ctx) {
+        if !acceptable_game_dir(ctx) || !safe_username_file(&ctx.profile.username) {
             return fail(ProviderReason::UnsafeGameDirectory);
         }
         let Some(selection) = library.selection(ctx.profile.id, Some(ctx.instance.id)) else {
@@ -243,8 +265,11 @@ impl SkinProvider for CustomSkinLoaderLocal {
         let Ok(bytes) = library.export_png(selection.skin_id) else {
             return fail(ProviderReason::SelectionMissing);
         };
-        if decode_skin(&bytes).is_err() {
+        let Ok(image) = decode_skin(&bytes) else {
             return fail(ProviderReason::SelectionMissing);
+        };
+        if selection.model == Model::Slim && image.height != 64 {
+            return fail(ProviderReason::SlimModelNotConfirmed);
         }
         if !verified_mod(ctx) {
             return fail(ProviderReason::ModMissingOrUntrusted);
