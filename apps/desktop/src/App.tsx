@@ -59,6 +59,7 @@ export default function App() {
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
   const [forgeHostConsent, setForgeHostConsent] = useState(false);
+  const [lanProperties, setLanProperties] = useState(false);
   const [installedCurseForgeFolder, setInstalledCurseForgeFolder] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -150,6 +151,7 @@ export default function App() {
     setPackManualImports([]);
     setForgeHostConsent(false);
     setInstalledCurseForgeFolder(null);
+    setLanProperties(false);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
   };
   const resolvePackFiles = () => {
@@ -204,7 +206,7 @@ export default function App() {
     void run('Import installed CurseForge folder', async () => {
       const instance = await operations.importInstalledFolder(
         caps, installedCurseForgeFolder, operationId,
-        selectedProfile, forgeJavaPath ?? '', forgeHostConsent
+        selectedProfile, forgeJavaPath ?? '', forgeHostConsent, lanProperties
       );
       log(`Installed folder imported as ${instance.id}. Local JAR hashes are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
       await refresh(caps);
@@ -424,7 +426,10 @@ export default function App() {
         <div className="form-row">
           <button disabled={busy} onClick={() => void (async () => {
             const path = await open({ directory: true, multiple: false });
-            if (typeof path === 'string') setInstalledCurseForgeFolder(path);
+            if (typeof path === 'string') {
+              setInstalledCurseForgeFolder(path);
+              setLanProperties(false);
+            }
           })().catch(e => setError(backendError(e)))}>Chọn thư mục modpack đã cài</button>
           {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
         </div>
@@ -442,6 +447,9 @@ export default function App() {
         <p className="mono" role="status">{forgeJavaPath ? 'Java: ' + forgeJavaPath : 'Java: tự động tìm đúng Java 8 hoặc 17 theo modpack.'}</p>
         <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
           Tôi đồng ý chạy Java Forge và các mod từ thư mục đã cài trên tài khoản Windows này. Hash local không chứng thực nguồn phát hành; Windows Job Object không phải sandbox bảo vệ file/mạng.
+        </label>
+        <label><input type="checkbox" checked={lanProperties} disabled={busy} onChange={e => setLanProperties(e.target.checked)}/>
+          LAN Properties (thử nghiệm, chỉ Forge 1.20.1/47.4.0): tải bản cố định từ Modrinth, xác minh hash và thêm vào instance mới. Không thay đổi xác thực tài khoản. Không bật mặc định.
         </label>
         <div className="form-row">
           <button className="primary" disabled={busy || !caps.features.pack_inspection || !installedCurseForgeFolder || !selectedProfile || !forgeHostConsent} onClick={importInstalledFolder}>Import Folder → Install Forge → Play</button>

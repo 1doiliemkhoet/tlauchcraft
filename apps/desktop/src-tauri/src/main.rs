@@ -576,6 +576,7 @@ async fn pack_import_installed_folder(
     profile_id: String,
     java_path: String,
     host_execution_consent: bool,
+    lan_properties: Option<bool>,
 ) -> Result<GameInstance, String> {
     if !host_execution_consent {
         return Err("Explicit approval required to run local modded Forge Java".into());
@@ -610,8 +611,8 @@ async fn pack_import_installed_folder(
     let progress_app = app.clone();
     let progress_id = operation_id.clone();
     let built = tauri::async_runtime::spawn_blocking(move || {
-        tl_pack::installed_import::snapshot_installed_folder_with_progress(
-            &installed_root, &snapshot_target, &token,
+        tl_pack::installed_import::snapshot_installed_folder_with_lan_addon(
+            &installed_root, &snapshot_target, &token, lan_properties.unwrap_or(false),
             |stage, completed, total| {
                 let mut details = BTreeMap::new();
                 details.insert("completed_files".into(), completed.to_string());

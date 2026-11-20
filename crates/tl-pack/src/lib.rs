@@ -10,6 +10,7 @@ pub mod forge_stage;
 pub mod install;
 pub mod installed_import;
 pub mod instance_manifest;
+pub mod lan_compat;
 pub mod manual_import;
 pub mod modrinth;
 pub mod normalized;

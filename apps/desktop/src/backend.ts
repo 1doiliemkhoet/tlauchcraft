@@ -90,8 +90,8 @@ export const operations = {
   resolveCurseForge: (c: Capabilities, archivePath: string) => call<CurseForgeResolveReport>(c, 'pack_inspection', 'pack_resolve', { archivePath }),
   stageCurseForge: (c: Capabilities, archivePath: string, operationId: string) => call<CurseForgeStageReport>(c, 'pack_inspection', 'pack_stage_curseforge', { archivePath, operationId }),
   stagedPackReceipt: (c: Capabilities, archivePath: string, operationId: string) => call<StagedPackReceipt>(c, 'pack_inspection', 'pack_staged_receipt', { archivePath, operationId }),
-  importInstalledFolder: (c: Capabilities, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
-    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_folder', { installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent }),
+  importInstalledFolder: (c: Capabilities, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean, lanProperties = false) =>
+    call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_folder', { installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent, lanProperties }),
   importInstalledCurseForge: (c: Capabilities, archivePath: string, installedProfilePath: string, operationId: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
     call<GameInstance>(c, 'pack_inspection', 'pack_import_installed_curseforge', { archivePath, installedProfilePath, operationId, profileId, javaPath, hostExecutionConsent }),
   installOfficialForge: (c: Capabilities, archivePath: string, operationId: string, displayName: string, profileId: string, javaPath: string, hostExecutionConsent: boolean) =>
