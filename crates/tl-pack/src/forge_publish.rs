@@ -693,10 +693,12 @@ fn is_mutable_user_config(relative: &str) -> bool {
         ".toml",
         ".cfg",
         ".json",
+        ".json5",
         ".properties",
         ".txt",
         ".yaml",
         ".yml",
+        ".rpt", // Mod-generated runtime reports.
     ]
     .iter()
     .any(|ext| path.ends_with(ext));
@@ -877,6 +879,13 @@ mod tests {
     #[test]
     fn published_config_remains_user_editable_but_scripts_and_mods_do_not() {
         assert!(is_mutable_user_config("config/modsettings.toml"));
+        assert!(is_mutable_user_config("config/collective.json5"));
+        assert!(is_mutable_user_config("defaultconfigs/example.JSON5"));
+        assert!(is_mutable_user_config("config/spawnbalanceutility/AllMobEntities.rpt"));
+        assert!(!is_mutable_user_config("mods/example.json5"));
+        assert!(!is_mutable_user_config("kubejs/startup_scripts/example.json5"));
+        assert!(!is_mutable_user_config("config/collective.json5.jar"));
+        assert!(!is_mutable_user_config("config/unsafe.js"));
         assert!(is_mutable_user_config("options.txt"));
         assert!(!is_mutable_user_config("mods/mod.jar"));
         assert!(!is_mutable_user_config("kubejs/startup_scripts/init.js"));
@@ -886,6 +895,11 @@ mod tests {
         fs::create_dir(dir.join("config")).unwrap();
         fs::write(dir.join("config/modsettings.toml"), b"changed by Minecraft").unwrap();
         assert!(verify_mutable_config_path(&dir, "config/modsettings.toml").is_ok());
+        fs::write(dir.join("config/collective.json5"), b"{ updated: true }").unwrap();
+        assert!(verify_mutable_config_path(&dir, "config/collective.json5").is_ok());
+        fs::create_dir(dir.join("config/directory.json5")).unwrap();
+        assert!(verify_mutable_config_path(&dir, "config/directory.json5").is_err());
+        assert!(verify_mutable_config_path(&dir, "config/missing.json5").is_err());
         assert!(verify_mutable_config_path(&dir, "../other").is_err());
     }
 
