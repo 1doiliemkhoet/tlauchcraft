@@ -49,7 +49,23 @@ describe('folder-only installed CurseForge import', () => {
       operationId: 'local-folder-123456',
       profileId: 'offline-id',
       javaPath: 'C:/Java8/bin/java.exe',
-      hostExecutionConsent: true
+      hostExecutionConsent: true,
+      lanProperties: false
+    });
+  });
+  it('passes explicit LAN Properties opt-in', async () => {
+    mockedInvoke.mockResolvedValue({id: 'new-instance', state: 'ready'});
+    await operations.importInstalledFolder(
+      withFeature('pack_inspection'), 'C:/SkyFactory5', 'local-folder-987654',
+      'offline-id', 'C:/Java17/bin/java.exe', true, true
+    );
+    expect(mockedInvoke).toHaveBeenCalledWith('pack_import_installed_folder', {
+      installedProfilePath: 'C:/SkyFactory5',
+      operationId: 'local-folder-987654',
+      profileId: 'offline-id',
+      javaPath: 'C:/Java17/bin/java.exe',
+      hostExecutionConsent: true,
+      lanProperties: true
     });
   });
   it('cannot run on a backend without modpack import support', async () => {

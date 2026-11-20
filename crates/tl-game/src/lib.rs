@@ -527,6 +527,20 @@ pub struct LaunchConfig {
     pub min_ram_mb: u32,
     pub max_ram_mb: u32,
 }
+/// Mojang metadata may point unpacking caches at the same directory as
+/// verified native binaries. Let these libraries use their own normal
+/// OS/user temporary directories instead; keep java.library.path intact.
+pub(crate) fn is_runtime_native_workdir_argument(argument: &str) -> bool {
+    matches!(
+        argument.split('=').next(),
+        Some(
+            "-Djna.tmpdir"
+                | "-Dorg.lwjgl.system.SharedLibraryExtractPath"
+                | "-Dio.netty.native.workdir"
+        )
+    )
+}
+
 pub fn build_command(config: &LaunchConfig) -> Result<Command, GameError> {
     if config.min_ram_mb < 256
         || config.max_ram_mb < config.min_ram_mb
@@ -550,7 +564,12 @@ pub fn build_command(config: &LaunchConfig) -> Result<Command, GameError> {
             "-Djava.library.path={}",
             config.natives_dir.display()
         ))
-        .args(&config.jvm_args)
+        .args(
+            config
+                .jvm_args
+                .iter()
+                .filter(|arg| !is_runtime_native_workdir_argument(arg)),
+        )
         .arg("-cp")
         .arg(cp)
         .arg(&config.main_class)
@@ -796,6 +815,34 @@ mod tests {
         assert_eq!(cmd.get_program(), "C:/Program Files/Java/bin/java.exe");
         assert!(cmd.get_args().any(|v| v == "-Dcustom=hello world"));
     }
+    #[test]
+    fn native_workdirs_do_not_pollute_verified_native_inventory() {
+        let config = LaunchConfig {
+            java: "java.exe".into(),
+            classpath: vec!["client.jar".into()],
+            natives_dir: "C:/instance/natives".into(),
+            game_dir: "C:/instance".into(),
+            main_class: "net.minecraft.client.main.Main".into(),
+            jvm_args: vec![
+                "-Djna.tmpdir=C:/instance/natives".into(),
+                "-Dorg.lwjgl.system.SharedLibraryExtractPath=C:/instance/natives".into(),
+                "-Dio.netty.native.workdir=C:/instance/natives".into(),
+                "-Dcustom=keep".into(),
+            ],
+            game_args: Vec::new(),
+            min_ram_mb: 512,
+            max_ram_mb: 2048,
+        };
+        let command = build_command(&config).unwrap();
+        let args: Vec<_> = command.get_args().collect();
+        assert!(args.iter().any(|a| *a == "-Dcustom=keep"));
+        let expected = format!("-Djava.library.path={}", config.natives_dir.display());
+        assert!(args.iter().any(|a| *a == std::ffi::OsStr::new(&expected)));
+        assert!(!args
+            .iter()
+            .any(|a| is_runtime_native_workdir_argument(&a.to_string_lossy())));
+    }
+
     #[test]
     fn sha_matching_file_cached() {
         let dir = tempfile::tempdir().unwrap();

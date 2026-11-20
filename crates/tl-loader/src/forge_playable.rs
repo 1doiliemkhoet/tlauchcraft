@@ -220,8 +220,12 @@ fn verified_patched_client(
         .processors
         .last()
         .ok_or(LoaderError::NeedsInstallerExecution)?;
-    if final_processor.executable.coordinate != "net.minecraftforge:binarypatcher:1.0.12"
-        || final_processor.outputs.len() != 1
+    let expected_tool = if selected.minecraft_version == "1.20.1" {
+        "net.minecraftforge:binarypatcher:1.1.1"
+    } else {
+        "net.minecraftforge:binarypatcher:1.0.12"
+    };
+    if final_processor.executable.coordinate != expected_tool || final_processor.outputs.len() != 1
     {
         return Err(LoaderError::NeedsInstallerExecution);
     }
@@ -293,7 +297,11 @@ fn verified_minecraft_extra(
     }
     let splitter = request
         .processors
-        .get(1)
+        .get(if selected.minecraft_version == "1.20.1" {
+            3
+        } else {
+            1
+        })
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
         || splitter.outputs.len() != 2
@@ -356,7 +364,11 @@ fn verified_minecraft_slim(
     let mcp_version = official_mcp_version(profile)?;
     let splitter = request
         .processors
-        .get(1)
+        .get(if selected.minecraft_version == "1.20.1" {
+            3
+        } else {
+            1
+        })
         .ok_or(LoaderError::NeedsInstallerExecution)?;
     if splitter.executable.coordinate != "net.minecraftforge:jarsplitter:1.1.4"
         || splitter.outputs.len() != 2
@@ -413,11 +425,16 @@ fn verified_minecraft_srg(
     report: &ProcessorRunReport,
 ) -> Result<VerifiedForgeLibrary, LoaderError> {
     let mcp_version = official_mcp_version(profile)?;
+    let (producer_index, expected_tool) = if selected.minecraft_version == "1.20.1" {
+        (4, "net.minecraftforge:ForgeAutoRenamingTool:0.1.22:all")
+    } else {
+        (2, "net.md-5:SpecialSource:1.8.5")
+    };
     let processor = request
         .processors
-        .get(2)
+        .get(producer_index)
         .ok_or(LoaderError::NeedsInstallerExecution)?;
-    if processor.executable.coordinate != "net.md-5:SpecialSource:1.8.5"
+    if processor.executable.coordinate != expected_tool
         || !processor.outputs.is_empty()
         || processor.intermediate_outputs.len() != 1
         || processor.intermediate_outputs[0] != "generated/client-srg.jar"
@@ -427,7 +444,10 @@ fn verified_minecraft_srg(
     let matches = report
         .intermediate_evidence
         .iter()
-        .filter(|item| item.producer_index == 2 && item.relative_path == "generated/client-srg.jar")
+        .filter(|item| {
+            item.producer_index == producer_index
+                && item.relative_path == "generated/client-srg.jar"
+        })
         .collect::<Vec<_>>();
     if matches.len() != 1 {
         return Err(LoaderError::NeedsInstallerExecution);
@@ -511,7 +531,13 @@ pub fn validate_forge_pack_selection(
     }
     // The audited runtime implementation currently supports exactly this
     // Minecraft family; other releases need a dedicated reviewed adapter.
-    crate::loader_runtime::forge_adapter_for(&selected.minecraft_version, &selected.forge_version)?;
+    let release = crate::forge_family::reviewed_forge_release(
+        &selected.minecraft_version,
+        &selected.forge_version,
+    )?;
+    if release.minecraft == "1.20.1" {
+        release.verify_metadata(profile_json, derived)?;
+    }
     let audit = audit_official_forge_metadata(profile_json, derived)?;
     if audit.minecraft_version != selected.minecraft_version || audit.derived_version != expected {
         return Err(LoaderError::CompatibilityConflict);
@@ -542,13 +568,18 @@ pub fn verify_forge_runtime_for_pack(
     installer_or_generated: &[VerifiedForgeLibrary],
 ) -> Result<ForgeRuntimeReceipt, LoaderError> {
     validate_forge_pack_selection(selected, profile_json, derived)?;
+    let release = crate::forge_family::reviewed_forge_release(
+        &selected.minecraft_version,
+        &selected.forge_version,
+    )?;
+    let count = release.processor_count();
     if request.minecraft_version != selected.minecraft_version
-        || request.processors.len() != 4
+        || request.processors.len() != count
         || !request.stage_root.is_absolute()
         || !request.stage_root.is_dir()
         || !request.java.is_absolute()
         || !request.java.is_file()
-        || java_evidence.major != 8
+        || java_evidence.major != release.java_major()
         || java_evidence.executable != request.java
         || java_evidence.sha1.len() != 40
         || !java_evidence.sha1.bytes().all(|b| b.is_ascii_hexdigit())
@@ -561,7 +592,7 @@ pub fn verify_forge_runtime_for_pack(
     if fs::read(&marker).ok().as_deref() != Some(&b"tl-loader-forge-v1"[..]) {
         return Err(LoaderError::NeedsInstallerExecution);
     }
-    if execution.log_paths.len() != 8
+    if execution.log_paths.len() != count * 2
         || execution
             .log_paths
             .iter()
@@ -572,12 +603,8 @@ pub fn verify_forge_runtime_for_pack(
     // Reconstruct the actual four-step official Forge client graph and compare
     // every executable, ordered classpath and literal argument before accepting
     // execution evidence supplied by the approved external runner.
-    let blueprint = crate::forge_1165::forge_1165_client_blueprint(
-        profile_json,
-        derived,
-        &selected.forge_version,
-    )?;
-    if blueprint.steps.len() != 4 {
+    let blueprint = release.client_blueprint(profile_json, derived)?;
+    if blueprint.steps.len() != count {
         return Err(LoaderError::InvalidMetadata(
             "unsupported Forge processor graph length".into(),
         ));
@@ -622,10 +649,16 @@ pub fn verify_forge_runtime_for_pack(
                 .strip_prefix('{')
                 .and_then(|x| x.strip_suffix('}'))
                 .ok_or(LoaderError::InvalidInput)?;
-            let expected_sha1 = official_profile["data"][key]["client"]
-                .as_str()
-                .ok_or(LoaderError::InvalidInput)?
-                .trim_matches('\'');
+            let expected_sha1 = if key == "MOJMAPS_SHA" && release.minecraft == "1.20.1" {
+                mojang_parent["downloads"]["client_mappings"]["sha1"]
+                    .as_str()
+                    .ok_or(LoaderError::InvalidInput)?
+            } else {
+                official_profile["data"][key]["client"]
+                    .as_str()
+                    .ok_or(LoaderError::InvalidInput)?
+                    .trim_matches('\'')
+            };
             if !processor
                 .outputs
                 .iter()
@@ -645,7 +678,7 @@ pub fn verify_forge_runtime_for_pack(
         execution,
     );
     if runtime.state != RuntimeState::ProcessorsVerified
-        || runtime.completed_processors != 4
+        || runtime.completed_processors != count
         || runtime.instance_ready
     {
         return Err(LoaderError::NeedsInstallerExecution);
@@ -787,22 +820,35 @@ pub fn verify_forge_runtime_for_pack(
         }
         libraries.push(generated);
     }
-    let inherited = merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?;
-    if inherited["mainClass"] != "cpw.mods.modlauncher.Launcher" {
+    let inherited = if release.minecraft == "1.20.1" {
+        if mojang_parent["javaVersion"]["majorVersion"] != 17 {
+            return Err(LoaderError::CompatibilityConflict);
+        }
+        tl_game::inherit(mojang_parent, derived)
+            .map_err(|e| LoaderError::InvalidMetadata(e.to_string()))?
+    } else {
+        merge_forge_1165_version(mojang_parent, derived, &selected.forge_version)?
+    };
+    if inherited["mainClass"] != release.main_class() {
         return Err(LoaderError::CompatibilityConflict);
     }
+    let launch_version = if release.java_major() == 8 {
+        forge_java8_launch_version(&inherited)?
+    } else {
+        inherited.clone()
+    };
     Ok(ForgeRuntimeReceipt {
         schema: "tl-forge-runtime-receipt/v1".into(),
         pack_archive_sha256: selected.pack_archive_sha256.clone(),
         minecraft_version: selected.minecraft_version.clone(),
         forge_version: selected.forge_version.clone(),
         derived_version_id: audit.derived_version,
-        required_java_major: 8,
+        required_java_major: release.java_major(),
         verified_java_sha1: java_evidence.sha1.to_ascii_lowercase(),
         stage_root: request.stage_root.clone(),
-        processor_count: 4,
+        processor_count: count,
         libraries,
-        java8_launch_version: forge_java8_launch_version(&inherited)?,
+        java8_launch_version: launch_version,
         inherited_version: inherited,
         execution_verified: true,
         instance_ready: false,

@@ -1,4 +1,5 @@
-//! Import an ALREADY installed CurseForge app profile without API or network.
+//! Import an ALREADY installed CurseForge app profile without a CurseForge API key.
+//! Only an explicitly selected LAN add-on may require a separate download.
 //! Only links manifest IDs with the local CurseForge minecraftinstance.json.
 //! Local SHA-1/SHA-256 snapshots prove copy integrity, NOT upstream authenticity.
 //! Never reads or copies saves; never alters the source profile.
@@ -227,6 +228,24 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
     installed_profile: &Path,
     private_snapshot: &Path,
     cancelled: &AtomicBool,
+    progress: F,
+) -> Result<PackMetadata, String> {
+    snapshot_installed_folder_with_lan_addon(
+        installed_profile,
+        private_snapshot,
+        cancelled,
+        false,
+        progress,
+    )
+}
+
+/// Optional add-on is inserted into the private source snapshot only. It is
+/// subsequently verified as an archive override by the Forge publisher.
+pub fn snapshot_installed_folder_with_lan_addon<F: FnMut(&'static str, usize, usize)>(
+    installed_profile: &Path,
+    private_snapshot: &Path,
+    cancelled: &AtomicBool,
+    lan_properties: bool,
     mut progress: F,
 ) -> Result<PackMetadata, String> {
     let root = fs::canonicalize(installed_profile)
@@ -352,6 +371,23 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
             }
         }
     }
+    let lan_addon = if lan_properties {
+        if !crate::lan_compat::supports(game, loader_kind, loader_version) {
+            return Err("LAN Properties opt-in currently supports Forge 1.20.1/47.4.0 only".into());
+        }
+        if seen_names
+            .iter()
+            .any(|name| crate::lan_compat::possible_conflict(name))
+        {
+            return Err("Possible existing LAN mod; import without adding a duplicate".into());
+        }
+        progress("local_import.verifying_lan_addon", 0, 1);
+        let bytes = crate::lan_compat::download(cancelled)?;
+        progress("local_import.verifying_lan_addon", 1, 1);
+        Some(bytes)
+    } else {
+        None
+    };
     let manifest = serde_json::json!({
         "manifestType": "minecraftModpack",
         "manifestVersion": 1,
@@ -376,6 +412,8 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         "openloader",
         "global_data_packs",
         "global_packs",
+        "thingpacks",        // Data-driven custom blocks/items consumed by Data & Thing.
+        "journeymap/config", // Pack defaults only; exclude player maps/waypoints.
         "datapacks",
         "assets",
         "resources",
@@ -435,6 +473,15 @@ pub fn snapshot_installed_folder_with_progress<F: FnMut(&'static str, usize, usi
         writer
             .write_all(&serde_json::to_vec(&manifest).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
+        if let Some(bytes) = &lan_addon {
+            writer
+                .start_file(
+                    format!("overrides/{}", crate::lan_compat::RELATIVE_PATH),
+                    opts,
+                )
+                .map_err(|e| e.to_string())?;
+            writer.write_all(bytes).map_err(|e| e.to_string())?;
+        }
         let total_assets = assets.len();
         progress("local_import.copying_assets", 0, total_assets);
         for (index, (relative, source, original_size)) in assets.into_iter().enumerate() {
@@ -842,6 +889,22 @@ mod tests {
         fs::create_dir_all(root.join("mods")).unwrap();
         fs::create_dir_all(root.join("config")).unwrap();
         fs::create_dir_all(root.join("saves/world")).unwrap();
+        fs::create_dir_all(root.join("thingpacks/sf5_things/things/sf5_things/block")).unwrap();
+        fs::create_dir_all(root.join("global_packs/required_data/sf5_worldgen/data")).unwrap();
+        fs::create_dir_all(root.join("journeymap/config/5.10")).unwrap();
+        fs::create_dir_all(root.join("journeymap/data/sp/world")).unwrap();
+        let thing = "thingpacks/sf5_things/things/sf5_things/block/block_of_white_dye.json";
+        let worldgen = "global_packs/required_data/sf5_worldgen/data/fixture.json";
+        let map_config = "journeymap/config/5.10/journeymap.core.config";
+        let map_data = "journeymap/data/sp/world/private.txt";
+        for (path, bytes) in [
+            (thing, b"custom block".as_slice()),
+            (worldgen, b"worldgen reference".as_slice()),
+            (map_config, b"map defaults".as_slice()),
+            (map_data, b"private map".as_slice()),
+        ] {
+            fs::write(root.join(path), bytes).unwrap();
+        }
         fs::write(root.join("mods/example.jar"), b"demo jar bytes").unwrap();
         fs::write(root.join("config/pack.toml"), b"key=1").unwrap();
         fs::write(root.join("saves/world/level.dat"), b"private world").unwrap();
@@ -869,10 +932,15 @@ mod tests {
         assert_eq!(planned.loader.version.as_deref(), Some("36.2.29"));
         assert_eq!(planned.files.len(), 1);
         assert!(planned.overrides.iter().any(|x| x == "config/pack.toml"));
+        for path in [thing, worldgen, map_config] {
+            assert!(planned.overrides.iter().any(|x| x == path), "{path}");
+        }
+        assert!(!planned.overrides.iter().any(|x| x == map_data));
         let zip = zip::ZipArchive::new(File::open(&archive).unwrap()).unwrap();
-        assert!(!zip
-            .file_names()
-            .any(|s| s.contains("saves") || s.contains("mods/") || s.contains(".jar")));
+        assert!(!zip.file_names().any(|s| s.contains("saves")
+            || s.contains("mods/")
+            || s.contains(".jar")
+            || s.contains("journeymap/data/")));
         let stage = temp.path().join("local-run-12345.staging");
         let imported = stage_installed_curseforge(&archive, &root, &stage, &cancel).unwrap();
         assert_eq!(imported.len(), 1);
@@ -881,6 +949,13 @@ mod tests {
             b"demo jar bytes"
         );
         assert_eq!(fs::read(stage.join("config/pack.toml")).unwrap(), b"key=1");
+        for path in [thing, worldgen, map_config] {
+            assert_eq!(
+                fs::read(stage.join(path)).unwrap(),
+                fs::read(root.join(path)).unwrap()
+            );
+        }
+        assert!(!stage.join(map_data).exists());
         assert_eq!(
             fs::read(root.join("saves/world/level.dat")).unwrap(),
             b"private world"

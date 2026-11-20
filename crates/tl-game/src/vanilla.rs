@@ -534,7 +534,10 @@ pub fn build_vanilla_launch(
     // legacy library and a newer Forge override. Rehash/published metadata
     // stays immutable; remove shadowed Maven versions from the Java classpath
     // of the launch view only, so old instances do not need another import.
-    let launch_libraries = if version["mainClass"] == "cpw.mods.modlauncher.Launcher" {
+    let launch_libraries = if matches!(
+        version["mainClass"].as_str(),
+        Some("cpw.mods.modlauncher.Launcher" | "cpw.mods.bootstraplauncher.BootstrapLauncher")
+    ) {
         crate::effective_launch_libraries(version)?
     } else {
         version.clone()
@@ -631,7 +634,9 @@ pub fn build_vanilla_launch(
             skip = true;
             continue;
         }
-        if argument.starts_with("-Djava.library.path=") {
+        if argument.starts_with("-Djava.library.path=")
+            || crate::is_runtime_native_workdir_argument(&argument)
+        {
             continue;
         }
         filtered.push(argument);
@@ -643,6 +648,10 @@ pub fn build_vanilla_launch(
     let mut jvm_values = values;
     jvm_values.insert("classpath".into(), classpath_value);
     jvm_values.insert("classpath_separator".into(), ";".into());
+    jvm_values.insert(
+        "library_directory".into(),
+        paths.root.join("libraries").to_string_lossy().into_owned(),
+    );
     jvm_args = expand_arguments(&filtered, &jvm_values)?;
     if let Some(argument) = version
         .get("logging")

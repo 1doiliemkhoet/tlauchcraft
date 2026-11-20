@@ -58,8 +58,8 @@ export default function App() {
   const [packOperationId, setPackOperationId] = useState<string | null>(null);
   const [packManualImports, setPackManualImports] = useState<InstalledPackMod[]>([]);
   const [forgeJavaPath, setForgeJavaPath] = useState<string | null>(null);
-  const [java8Search, setJava8Search] = useState<'idle' | 'searching' | 'found' | 'missing' | 'error'>('idle');
   const [forgeHostConsent, setForgeHostConsent] = useState(false);
+  const [lanProperties, setLanProperties] = useState(false);
   const [installedCurseForgeFolder, setInstalledCurseForgeFolder] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -136,45 +136,6 @@ export default function App() {
       });
     return () => { alive = false; };
   }, [page, caps, log]);
-  useEffect(() => {
-    if (page !== 'modpacks' || !caps.features.settings || forgeJavaPath) return;
-    let alive = true;
-    setJava8Search('searching');
-    void operations.detectJava8(caps)
-      .then(found => {
-        if (!alive) return;
-        if (found?.major === 8 && found.path) {
-          setForgeJavaPath(previous => previous ?? found.path);
-          setJava8Search('found');
-          log('Java 8 auto-detected: ' + found.path + ' (' + found.source + ')');
-        } else {
-          setJava8Search('missing');
-        }
-      })
-      .catch(e => {
-        if (alive) {
-          setJava8Search('error');
-          log('Java 8 discovery failed: ' + backendError(e));
-        }
-      });
-    return () => { alive = false; };
-  }, [page, caps, forgeJavaPath, log]);
-  const rescanJava8 = () => {
-    setJava8Search('searching');
-    void operations.detectJava8(caps)
-      .then(found => {
-        if (found?.major === 8 && found.path) {
-          setForgeJavaPath(found.path);
-          setJava8Search('found');
-        } else {
-          setJava8Search('missing');
-        }
-      })
-      .catch(e => {
-        setJava8Search('error');
-        setError('Java 8 discovery: ' + backendError(e));
-      });
-  };
   const importFile = async (path?: string) => {
     if (!caps.features.pack_inspection) { setError('Archive inspector unavailable.'); return; }
     let input = path;
@@ -190,6 +151,7 @@ export default function App() {
     setPackManualImports([]);
     setForgeHostConsent(false);
     setInstalledCurseForgeFolder(null);
+    setLanProperties(false);
     await run('Inspect modpack', async () => { const metadata = await operations.inspectPack(caps, input!); setPackPreview(metadata); setPackArchivePath(input!); });
   };
   const resolvePackFiles = () => {
@@ -238,13 +200,13 @@ export default function App() {
   };
   const importInstalledFolder = () => {
     if (!installedCurseForgeFolder || !selectedProfile ||
-        !forgeJavaPath || !forgeHostConsent || busy) return;
+        !forgeHostConsent || busy) return;
     const operationId = `local-${crypto.randomUUID()}`;
     setPackOperationId(operationId);
     void run('Import installed CurseForge folder', async () => {
       const instance = await operations.importInstalledFolder(
         caps, installedCurseForgeFolder, operationId,
-        selectedProfile, forgeJavaPath, forgeHostConsent
+        selectedProfile, forgeJavaPath ?? '', forgeHostConsent, lanProperties
       );
       log(`Installed folder imported as ${instance.id}. Local JAR hashes are NOT provider-authenticated. Real gameplay NOT_VERIFIED.`);
       await refresh(caps);
@@ -253,12 +215,12 @@ export default function App() {
     });
   };
   const installVerifiedForge = () => {
-    if (!packArchivePath || !packOperationId || !forgeJavaPath || !selectedProfile ||
+    if (!packArchivePath || !packOperationId || !selectedProfile ||
         !forgeHostConsent || !packPreview) return;
     void run('Install reviewed official Forge modpack', async () => {
       const installed = await operations.installOfficialForge(
         caps, packArchivePath, packOperationId, packPreview.name,
-        selectedProfile, forgeJavaPath, forgeHostConsent
+        selectedProfile, forgeJavaPath ?? '', forgeHostConsent
       );
       log('Forge instance ' + installed.id + ' READY after hash+SQLite verification; real gameplay NOT_VERIFIED.');
       await refresh(caps);
@@ -460,11 +422,14 @@ export default function App() {
         {page === 'modpacks' && <div className="panel"><div className="panel">
         <h3>Import Installed CurseForge — Chỉ cần thư mục</h3>
         <p className="muted">Chọn folder modpack CurseForge đã cài đầy đủ, có minecraftinstance.json và mods/. Không cần ZIP gốc, CurseForge API key hay tải lại mod.</p>
-        <p className="muted">Launcher dùng metadata local để xác định Minecraft/Forge và danh sách mod, sao chép các JAR cùng cấu hình thường dùng vào instance riêng, hash lại file và không chạm tới saves/worlds gốc. Chỉ adapter Forge 1.16.5/36.2.29 đã được kiểm thử ở mức CI; gameplay còn cần test thực tế.</p>
+        <p className="muted">Launcher dùng metadata local để xác định Minecraft/Forge và danh sách mod, sao chép các JAR cùng cấu hình thường dùng vào instance riêng, hash lại file và không chạm tới saves/worlds gốc. Hỗ trợ release đã kiểm định: Forge 1.16.5 (Java 8) và 1.20.1/47.4.0 (Java 17); gameplay phiên bản mới cần test thực tế.</p>
         <div className="form-row">
           <button disabled={busy} onClick={() => void (async () => {
             const path = await open({ directory: true, multiple: false });
-            if (typeof path === 'string') setInstalledCurseForgeFolder(path);
+            if (typeof path === 'string') {
+              setInstalledCurseForgeFolder(path);
+              setLanProperties(false);
+            }
           })().catch(e => setError(backendError(e)))}>Chọn thư mục modpack đã cài</button>
           {installedCurseForgeFolder && <span className="mono">{installedCurseForgeFolder}</span>}
         </div>
@@ -473,22 +438,21 @@ export default function App() {
             <option value="">Chọn tài khoản Offline</option>
             {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
           </select>
-          <button disabled={busy || java8Search === 'searching'} onClick={rescanJava8}>
-            {java8Search === 'searching' ? 'Đang tìm Java 8...' : 'Tự tìm Java 8'}
-          </button>
+          <button disabled={busy} onClick={() => setForgeJavaPath(null)}>Tự động chọn Java theo modpack</button>
           <button disabled={busy} onClick={() => void (async () => {
-            const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
-            if (typeof path === 'string') { setForgeJavaPath(path); setJava8Search('found'); }
+            const path = await open({ multiple: false, filters: [{ name: 'Java executable', extensions: ['exe'] }] });
+            if (typeof path === 'string') setForgeJavaPath(path);
           })().catch(e => setError(backendError(e)))}>Chọn Java thủ công</button>
         </div>
-        {forgeJavaPath && <p className="mono" role="status">Java 8: {forgeJavaPath}</p>}
-        {!forgeJavaPath && java8Search === 'missing' && <Notice>Máy chưa tìm thấy Java 8. Cài Java 8 hoặc chọn thủ công.</Notice>}
-        {!forgeJavaPath && java8Search === 'error' && <Notice>Không thể quét Java. Chọn file java.exe thủ công.</Notice>}
+        <p className="mono" role="status">{forgeJavaPath ? 'Java: ' + forgeJavaPath : 'Java: tự động tìm đúng Java 8 hoặc 17 theo modpack.'}</p>
         <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
           Tôi đồng ý chạy Java Forge và các mod từ thư mục đã cài trên tài khoản Windows này. Hash local không chứng thực nguồn phát hành; Windows Job Object không phải sandbox bảo vệ file/mạng.
         </label>
+        <label><input type="checkbox" checked={lanProperties} disabled={busy} onChange={e => setLanProperties(e.target.checked)}/>
+          LAN Properties (thử nghiệm, chỉ Forge 1.20.1/47.4.0): tải bản cố định từ Modrinth, xác minh hash và thêm vào instance mới. Không thay đổi xác thực tài khoản. Không bật mặc định.
+        </label>
         <div className="form-row">
-          <button className="primary" disabled={busy || !caps.features.pack_inspection || !installedCurseForgeFolder || !selectedProfile || !forgeJavaPath || !forgeHostConsent} onClick={importInstalledFolder}>Import Folder → Install Forge → Play</button>
+          <button className="primary" disabled={busy || !caps.features.pack_inspection || !installedCurseForgeFolder || !selectedProfile || !forgeHostConsent} onClick={importInstalledFolder}>Import Folder → Install Forge → Play</button>
         </div>
       </div>
       <h3>Optional: Inspect a modpack archive</h3><p className="muted">ZIP/MRPACK là tùy chọn dành cho việc kiểm tra manifest và quy trình tải mod qua API. Nếu CurseForge đã cài đủ mod, chỉ cần Import Folder bên trên.</p><div className="dropzone"><FolderArchive size={38}/><strong>Choose an exported modpack archive</strong><p>Only a native file picker passes a path to the backend. Drag-and-drop opens this screen without reading a browser-provided path.</p><button className="primary" disabled={!caps.features.pack_inspection || busy} onClick={() => void importFile()}>Inspect ZIP / MRPACK</button></div>{packPreview && <div className="panel"><h3>Read-only inspection result</h3><div className="item"><strong>{packPreview.name}</strong><span>{packPreview.game_version} · {packPreview.loader.kind}</span></div><div className="item">Archive hash (SHA-256) <span className="mono">{packPreview.archive_sha256}</span></div><div className="item">Entries <span>{packPreview.archive_entries}</span></div>{packPreview.warnings.map((warning, i) => <Notice key={i}>{warning}</Notice>)}<Notice>Inspected only: the modpack has NOT been installed, verified for play, or launched.</Notice></div>}{packPreview?.source === 'curseforge_zip' && packArchivePath && <div className="panel">
@@ -512,9 +476,10 @@ export default function App() {
               {packReceipt.blocked_required.map((e, i) => <Notice key={'required'+i}>{e}</Notice>)}
               {packReceipt.failures.map((e, i) => <Notice key={'error'+i}>{e}</Notice>)}
               <Notice>Staged mods only: no Forge processor execution, no published instance, no gameplay evidence yet.</Notice>
-              {packPreview.game_version === '1.16.5' && packPreview.loader.version === '36.2.29'
+              {(packPreview.game_version === '1.16.5' && ['36.2.29', '36.2.34', '36.2.42'].includes(packPreview.loader.version ?? '')) ||
+                (packPreview.game_version === '1.20.1' && packPreview.loader.version === '47.4.0')
                 ? <div className="panel">
-                    <h3>Install reviewed official Forge 1.16.5 / 36.2.29</h3>
+                    <h3>Install reviewed official Forge {packPreview.game_version} / {packPreview.loader.version}</h3>
                     <p className="muted">The backend independently downloads and verifies official Forge/Mojang/Maven inputs, runs exactly the reviewed processors in a bounded Windows Job Object, then independently audits and publishes the modpack. The program runs under your Windows account; a Job Object DOES NOT block access to your files or network. Windows Sandbox offers stronger isolation.</p>
                     <div className="form-row">
                       <select aria-label="Offline identity for Forge modpack" value={selectedProfile} onChange={e => setSelectedProfile(e.target.value)}>
@@ -522,10 +487,11 @@ export default function App() {
                         {profiles.map(p => <option key={p.id} value={p.id}>{p.username}</option>)}
                       </select>
                       <button disabled={busy} onClick={() => void (async () => {
-                        const path = await open({ multiple: false, filters: [{ name: 'Java 8 executable', extensions: ['exe'] }] });
+                        const path = await open({ multiple: false, filters: [{ name: 'Java executable', extensions: ['exe'] }] });
                         if (typeof path === 'string') setForgeJavaPath(path);
-                      })().catch(e => setError(backendError(e)))}>Select installed Java 8 .exe</button>
-                      {forgeJavaPath && <span className="mono">{forgeJavaPath}</span>}
+                      })().catch(e => setError(backendError(e)))}>Select installed Java .exe</button>
+                      <button disabled={busy} onClick={() => setForgeJavaPath(null)}>Auto Java</button>
+                      <span className="mono">{forgeJavaPath ?? 'Auto: required Java ' + (packPreview.game_version === '1.20.1' ? '17' : '8')}</span>
                     </div>
                     <label><input type="checkbox" checked={forgeHostConsent} onChange={e => setForgeHostConsent(e.target.checked)}/>
                       I approve running verified official Forge processor Java on this Windows account, understanding that a Job Object is NOT a file/network sandbox.
@@ -534,7 +500,7 @@ export default function App() {
                       <button className="primary" disabled={
                         busy || !packOperationId || !packReceipt.complete_mod_inventory ||
                         packReceipt.blocked_required.length !== 0 || packReceipt.blocked_optional.length !== 0 ||
-                        packReceipt.failures.length !== 0 || !selectedProfile || !forgeJavaPath || !forgeHostConsent
+                        packReceipt.failures.length !== 0 || !selectedProfile || !forgeHostConsent
                       } onClick={installVerifiedForge}>Install verified Forge instance</button>
                     </div>
                     <p className="muted">Only a complete source-verified mod inventory is eligible. Any missing or modified file refuses installation; no existing world is overwritten.</p>

@@ -179,7 +179,10 @@ pub struct JavaDetection {
 /// request, PowerShell, or installer execution. Only verified -version output
 /// (and not a directory name) determines compatibility.
 #[cfg(windows)]
-pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+pub fn detect_java(required: u32) -> Result<Option<JavaDetection>, String> {
+    if !matches!(required, 8 | 17 | 21) {
+        return Err("Unsupported Java major for discovery".into());
+    }
     use std::{
         collections::HashSet,
         process::Stdio,
@@ -303,7 +306,7 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     if let Some(home) = std::env::var_os("USERPROFILE") {
         let runtime = PathBuf::from(home).join("curseforge").join("minecraft")
             .join("Install").join("runtime");
-        for family in ["jre-legacy", "java-runtime-alpha"] {
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-gamma-snapshot", "java-runtime-delta"] {
             for arch in ["windows-x64", "windows-x86"] {
                 add_home(
                     &mut candidates, &mut seen,
@@ -316,7 +319,7 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     // Official Minecraft Launcher jre-legacy (Java 8) runtime layout.
     if let Some(dir) = std::env::var_os("APPDATA") {
         let runtime = PathBuf::from(dir).join(".minecraft").join("runtime");
-        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta"] {
+        for family in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta", "java-runtime-gamma", "java-runtime-gamma-snapshot", "java-runtime-delta"] {
             for arch in ["windows-x64", "windows-x86"] {
                 add_home(
                     &mut candidates, &mut seen,
@@ -332,10 +335,10 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
     let deadline = Instant::now() + Duration::from_secs(14);
     for (path, source) in candidates {
         if Instant::now() >= deadline { break; }
-        if read_version(&path) == Some(8) {
+        if read_version(&path) == Some(required) {
             return Ok(Some(JavaDetection {
                 path: path.to_string_lossy().into_owned(),
-                major: 8,
+                major: required,
                 source,
             }));
         }
@@ -344,8 +347,35 @@ pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
 }
 
 #[cfg(not(windows))]
-pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+pub fn detect_java(_required: u32) -> Result<Option<JavaDetection>, String> {
     Ok(None)
+}
+
+pub fn detect_java8() -> Result<Option<JavaDetection>, String> {
+    detect_java(8)
+}
+
+#[cfg(windows)]
+pub fn select_forge_java(path: &str, required: u32) -> Result<String, String> {
+    let selected = if path.is_empty() {
+        detect_java(required)?.ok_or_else(|| format!(
+            "Java {required} not found. Install it or select the corresponding java.exe."
+        ))?.path
+    } else {
+        path.to_owned()
+    };
+    let file = Path::new(&selected);
+    if !file.is_absolute() || !file.is_file()
+        || !file.extension().and_then(|x| x.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    {
+        return Err("Java must be an existing absolute Windows .exe".into());
+    }
+    let actual = tl_game::probe_java(file, required).map_err(|e| e.to_string())?;
+    if actual != required {
+        return Err(format!("Forge requires Java {required}, selected Java {actual}"));
+    }
+    Ok(selected)
 }
 
 pub fn java_executable(s:&JavaSettings)->PathBuf{

@@ -367,11 +367,8 @@ async fn pack_install_official_forge(
         #[cfg(windows)]
         {
             let archive = Path::new(&archive_path);
-            let java = Path::new(&java_path);
-            if !archive.is_absolute() || !archive.is_file()
-                || !java.is_absolute() || !java.is_file()
-            {
-                return Err("modpack archive and Java executable must be existing absolute files".into());
+            if !archive.is_absolute() || !archive.is_file() {
+                return Err("modpack archive must be an existing absolute file".into());
             }
             let profile_uuid = uuid::Uuid::parse_str(&profile_id)
                 .map_err(|_| "Invalid offline profile UUID")?;
@@ -383,10 +380,11 @@ async fn pack_install_official_forge(
             }
             let loader_version = metadata.loader.version.as_deref()
                 .ok_or("Original pack manifest has no selected Forge version")?;
-            tl_pack::forge_official::ensure_supported_forge_release(
-                &metadata.game_version,
-                loader_version,
-            ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
+            let required_java = tl_pack::forge_official::required_forge_java_major(
+                &metadata.game_version, loader_version,
+            )?;
+            let java_path = java_settings::select_forge_java(&java_path, required_java)?;
+            let java = Path::new(&java_path);
             let base = default_data_dir().map_err(|e| e.to_string())?;
             let root = isolated_data_dir(&base.join("instances")).map_err(|e| e.to_string())?;
             let stage = root.join(format!("{}.staging", key));
@@ -495,14 +493,10 @@ async fn pack_import_installed_curseforge(
         {
             let archive = Path::new(&archive_path);
             let profile = Path::new(&installed_profile_path);
-            let java = Path::new(&java_path);
             if !archive.is_absolute() || !archive.is_file()
                 || !profile.is_absolute() || !profile.is_dir()
-                || !java.is_absolute() || !java.is_file()
-                || !java.extension().and_then(|x| x.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
             {
-                return Err("ZIP, installed CurseForge profile folder, and Java .exe must exist as absolute paths".into());
+                return Err("ZIP and installed CurseForge profile folder must exist as absolute paths".into());
             }
             let offline_profile = uuid::Uuid::parse_str(&profile_id)
                 .map_err(|_| "Invalid offline profile UUID")?;
@@ -514,25 +508,11 @@ async fn pack_import_installed_curseforge(
             }
             let forge_version = metadata.loader.version.as_deref()
                 .ok_or("Original manifest lacks Forge version")?;
-            tl_pack::forge_official::ensure_supported_forge_release(
-                &metadata.game_version,
-                forge_version,
-            ).map_err(|e| format!("{e}; supported: Minecraft 1.16.5 / Forge 36.2.29, 36.2.34, 36.2.42"))?;
-            let mut probe = std::process::Command::new(java);
-            probe.arg("-version");
-            use std::os::windows::process::CommandExt;
-            probe.creation_flags(0x0800_0000);
-            let output = probe.output().map_err(|e| format!("Java probe failed: {e}"))?;
-            if !output.status.success() {
-                return Err("Selected Java executable failed -version".into());
-            }
-            let version_text = format!("{}{}",
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
-            );
-            if tl_game::parse_java_major(&version_text).map_err(|e| e.to_string())? != 8 {
-                return Err("Minecraft 1.16.5 Forge adapter requires Java 8".into());
-            }
+            let required_java = tl_pack::forge_official::required_forge_java_major(
+                &metadata.game_version, forge_version,
+            )?;
+            let java_path = java_settings::select_forge_java(&java_path, required_java)?;
+            let java = Path::new(&java_path);
             let base = default_data_dir().map_err(|e| e.to_string())?;
             let instance_root = isolated_data_dir(&base.join("instances"))
                 .map_err(|e| e.to_string())?;
@@ -565,13 +545,13 @@ async fn pack_import_installed_curseforge(
                 metadata.name.clone(), offline_profile, archive, &stage, &mods,
                 approved.approved(), &cancel,
             )?;
-            // After publishing, persist the Java 8 binary for the Play button.
+            // After publishing, persist the release-selected Java binary for the Play button.
             let settings = java_settings::read(&installed.id.to_string())?;
             java_settings::save(
                 &installed.id.to_string(), settings.xms_mb,
                 settings.xmx_mb, java_path, settings.revision,
             ).map_err(|e| format!(
-                "Local profile published; configure Java 8 in Settings before Play: {e}"
+                "Local profile published; configure the required Java in Settings before Play: {e}"
             ))?;
             emit_pack_progress(&app, &id, "INSTALLED", "local_import.ready_local_hashes_only", None);
             Ok(installed)
@@ -596,6 +576,7 @@ async fn pack_import_installed_folder(
     profile_id: String,
     java_path: String,
     host_execution_consent: bool,
+    lan_properties: Option<bool>,
 ) -> Result<GameInstance, String> {
     if !host_execution_consent {
         return Err("Explicit approval required to run local modded Forge Java".into());
@@ -630,8 +611,8 @@ async fn pack_import_installed_folder(
     let progress_app = app.clone();
     let progress_id = operation_id.clone();
     let built = tauri::async_runtime::spawn_blocking(move || {
-        tl_pack::installed_import::snapshot_installed_folder_with_progress(
-            &installed_root, &snapshot_target, &token,
+        tl_pack::installed_import::snapshot_installed_folder_with_lan_addon(
+            &installed_root, &snapshot_target, &token, lan_properties.unwrap_or(false),
             |stage, completed, total| {
                 let mut details = BTreeMap::new();
                 details.insert("completed_files".into(), completed.to_string());
@@ -676,7 +657,7 @@ async fn pack_import_installed_folder(
     if let Err(error) = std::fs::remove_file(&snapshot) {
         eprintln!("[local-pack] temporary source cleanup failed: {error}");
     }
-    // Routes only to explicitly reviewed Forge 1.16.5 releases in the
+    // Routes only to explicitly reviewed Forge releases in the
     // checksum-pinned family registry. Never infer support for unrelated
     // Minecraft versions or unreviewed mod loaders.
     let _ = report;
